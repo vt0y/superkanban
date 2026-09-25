@@ -1,0 +1,42 @@
+{
+  "indexes": [
+    { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "milestoneId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "dueDate", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "polls", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "closed", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "updatedAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "siteFeedback", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "createdAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "siteFeedback", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "userId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "siteFeedback", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
+    ]}
+  ],
+  "fieldOverrides": [
+    { "collectionGroup": "tasks", "fieldPath": "description", "indexes": [] },
+    { "collectionGroup": "tasks", "fieldPath": "checklist", "indexes": [] },
+    { "collectionGroup": "documents", "fieldPath": "content", "indexes": [] },
+    { "collectionGroup": "useCases", "fieldPath": "details", "indexes": [] },
+    { "collectionGroup": "useCases", "fieldPath": "businessRules", "indexes": [] },
+    { "collectionGroup": "comments", "fieldPath": "body", "indexes": [] },
+    { "collectionGroup": "chatMessages", "fieldPath": "body", "indexes": [] },
+    { "collectionGroup": "activities", "fieldPath": "messageTh", "indexes": [] },
+    { "collectionGroup": "activities", "fieldPath": "messageEn", "indexes": [] },
+    { "collectionGroup": "stickyNotes", "fieldPath": "content", "indexes": [] },
+    { "collectionGroup": "siteFeedback", "fieldPath": "body", "indexes": [] },
+    { "collectionGroup": "siteFeedback", "fieldPath": "adminReply", "indexes": [] }
+  ]
+}

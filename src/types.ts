@@ -1,0 +1,327 @@
+import type { Timestamp } from 'firebase/firestore';
+
+export type Role = 'owner' | 'admin' | 'member';
+export type SiteRole = 'owner' | 'admin';
+export type Locale = 'th' | 'en';
+export type ThemeMode = 'system' | 'light' | 'dark';
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
+export type Priority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface UserProfile {
+  id: string;
+  displayName: string;
+  email: string;
+  photoURL: string;
+  locale: Locale;
+  theme: ThemeMode;
+  githubUsername?: string;
+  githubId?: string;
+  githubConnectedAt?: Timestamp;
+  createdAt?: Timestamp;
+}
+
+export interface ProjectGitHubRepo {
+  id: number;
+  owner: string;
+  name: string;
+  fullName: string;
+  url: string;
+  private: boolean;
+  /** 'User' repos only allow write collaborators; roles like read/maintain need an organization. */
+  ownerType?: 'User' | 'Organization';
+  defaultBranch?: string;
+  linkedAt?: Timestamp;
+  linkedBy?: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  ownerId: string;
+  memberIds: string[];
+  archived: boolean;
+  githubRepo?: ProjectGitHubRepo | null;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface Membership {
+  id: string;
+  projectId: string;
+  userId: string;
+  displayName: string;
+  email: string;
+  photoURL: string;
+  role: Role;
+  githubUsername?: string;
+  githubId?: string;
+  githubPermission?: 'pull' | 'triage' | 'push' | 'maintain' | 'admin' | null;
+  joinedAt?: Timestamp;
+  inviteId?: string;
+}
+
+export interface GitHubRevocation {
+  id: string;
+  githubUsername: string;
+  userId: string;
+  displayName: string;
+  permission: NonNullable<Membership['githubPermission']>;
+  repoOwner: string;
+  repoName: string;
+  reason: 'removed' | 'disconnected' | 'unlinked';
+  createdBy: string;
+  createdAt?: Timestamp;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  priority: Priority;
+  assigneeIds: string[];
+  tags: string[];
+  labelIds?: string[];
+  checklist?: ChecklistItem[];
+  dueDate: string;
+  dueTime?: string;
+  milestoneId: string;
+  order: number;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+export interface Label {
+  id: string;
+  name: string;
+  color: string;
+  description: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface Milestone {
+  id: string;
+  title: string;
+  description: string;
+  dueDate: string;
+  dueTime?: string;
+  status: 'active' | 'completed';
+  dependsOn?: string[];
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface ProjectUseCase {
+  id: string;
+  code: string;
+  title: string;
+  actor: string;
+  details: string;
+  businessRules: string[];
+  assigneeId: string;
+  status: 'open' | 'assigned' | 'completed';
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface StickyNote {
+  id: string;
+  content: string;
+  color: string;
+  x: number;
+  y: number;
+  taskId: string;
+  pinned: boolean;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface ProjectDocument {
+  id: string;
+  title: string;
+  content: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface Activity {
+  id: string;
+  type: string;
+  messageTh: string;
+  messageEn: string;
+  actorUid: string;
+  actorName: string;
+  targetId: string;
+  createdAt?: Timestamp;
+}
+
+export type GachaTargetType = 'task' | 'useCase';
+
+export interface GachaMemberSnapshot {
+  userId: string;
+  displayName: string;
+  photoURL: string;
+}
+
+export interface GachaTargetResult {
+  targetType: GachaTargetType;
+  targetId: string;
+  targetTitle: string;
+  winnerCount: number;
+  previousAssigneeIds: string[];
+  eligibleIds: string[];
+  odds: Record<string, number>;
+  winnerIds: string[];
+}
+
+export interface GachaDraw {
+  id: string;
+  candidateIds: string[];
+  winnerIds: string[];
+  targetIds: string[];
+  candidates: GachaMemberSnapshot[];
+  results: GachaTargetResult[];
+  initiatedBy: string;
+  initiatedByName: string;
+  poolKey: string;
+  animationVersion: number;
+  animationStyle: 'golden' | 'pack';
+  createdAt?: Timestamp;
+}
+
+export interface GachaBag {
+  id: string;
+  candidateIds: string[];
+  winCounts: Record<string, number>;
+  updatedAt?: Timestamp;
+}
+
+export interface ProjectChatMessage {
+  id: string;
+  body: string;
+  authorName: string;
+  authorPhoto: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+}
+
+export interface Invite {
+  id: string;
+  projectId: string;
+  projectName: string;
+  role: Exclude<Role, 'owner'>;
+  status: 'active' | 'revoked';
+  createdBy: string;
+  createdAt?: Timestamp;
+  expiresAt: Timestamp;
+}
+
+export interface PollOption { id: string; label: string }
+
+export interface Poll {
+  id: string;
+  question: string;
+  description: string;
+  options: PollOption[];
+  multiple: boolean;
+  anonymous: boolean;
+  closed: boolean;
+  deadline: string;
+  deadlineTime?: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface PollVote {
+  id: string;
+  pollId: string;
+  userId: string;
+  optionIds: string[];
+  updatedAt?: Timestamp;
+}
+
+export type CommentTarget = 'task' | 'useCase' | 'diagram' | 'milestone';
+
+export interface Comment {
+  id: string;
+  targetType: CommentTarget;
+  targetId: string;
+  body: string;
+  authorName: string;
+  authorPhoto: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export type FeedbackCategory = 'idea' | 'bug' | 'question' | 'other';
+export type FeedbackStatus = 'open' | 'in_review' | 'resolved' | 'declined';
+
+/** Feedback about ProjectSpace itself (top-level `siteFeedback`), not tied to a project. */
+export interface SiteFeedback {
+  id: string;
+  title: string;
+  body: string;
+  category: FeedbackCategory;
+  status: FeedbackStatus;
+  page: string;
+  adminReply: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface Diagram {
+  id: string;
+  title: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export type DiagramNodeKind = 'actor' | 'usecase' | 'boundary' | 'note';
+export type DiagramEdgeKind = 'association' | 'include' | 'extend' | 'generalization';
+
+export interface DiagramNode {
+  id: string;
+  diagramId: string;
+  kind: DiagramNodeKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+  useCaseId: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface DiagramEdge {
+  id: string;
+  diagramId: string;
+  from: string;
+  to: string;
+  kind: DiagramEdgeKind;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
