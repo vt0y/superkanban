@@ -26,3 +26,11 @@ export const isGitHubEnabled: boolean =
   parseFeatureFlag((env.CONNECTS_GITHUB ?? env.VITE_CONNECTS_GITHUB ?? '') as string) && githubAppSlug !== '';
 
 export const githubAppInstallUrl = githubAppSlug ? `https://github.com/apps/${githubAppSlug}/installations/new` : '';
+
+export const googleDriveApiKey = ((env.VITE_GOOGLE_DRIVE_API_KEY ?? '') as string).trim();
+export const googleCloudProjectNumber = ((env.VITE_GOOGLE_CLOUD_PROJECT_NUMBER ?? '') as string).trim();
+
+export const isGoogleDriveEnabled =
+  parseFeatureFlag((env.CONNECTS_GOOGLE_DRIVE ?? env.VITE_CONNECTS_GOOGLE_DRIVE ?? '') as string)
+  && googleDriveApiKey !== ''
+  && /^\d+$/.test(googleCloudProjectNumber);

@@ -2,26 +2,27 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type Point
 import { documentId, limit, orderBy } from 'firebase/firestore';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
-import { CanvasControls, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
+import { CanvasControls, DriveAttachmentControl, DriveFileRow, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
 import { useActiveTasks, useCanvasViewport, useItemDrag, useProjectItems } from '@/hooks';
 import { NOTE_COLORS } from '@/config/constants';
 import { parseContentWithLinks } from '@/utils/linkify';
 import { canDeleteItem } from '@/utils/permissions';
-import { bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, loadProjectCollectionPage, migrateLegacyProjectDocument, subscribeProjectDocument, subscribeProjectQuery, updateProjectDocument, updateWorkItem, type CollectionCursor } from '@/services';
-import type { LoadedProjectDocument, ProjectDocument, Role, StickyNote, Task } from '@/types';
+import { attachDriveProjectDocument, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, subscribeProjectDocument, subscribeProjectQuery, updateProjectDocument, updateWorkItem, type CollectionCursor } from '@/services';
+import type { LoadedProjectDocument, Locale, Membership, ProjectDocument, Role, StickyNote, Task } from '@/types';
 import { attempt } from '@/components/toast';
 import { pick, relativeTime } from '@/utils/formatters';
 import { DOCUMENT_BODY_MAX_BYTES, DOCUMENT_TITLE_MAX_LENGTH, documentContentBytes } from '@/utils/documents';
+import { isGoogleDriveEnabled } from '@/config/features';
 
 const NOTE_W = 210;
 const NOTE_H = 160;
 
-export function Notes({ context, project, role, readOnly, documentId: selectedDocumentId }: SectionProps & { documentId?: string }) {
+export function Notes({ context, project, members, role, readOnly, documentId: selectedDocumentId }: SectionProps & { documentId?: string }) {
   if (selectedDocumentId) return <DocumentReader documentId={selectedDocumentId} projectId={project.id} context={context} role={role} readOnly={readOnly} />;
-  return <NotesOverview context={context} project={project} role={role} readOnly={readOnly} />;
+  return <NotesOverview context={context} project={project} members={members} role={role} readOnly={readOnly} />;
 }
 
-function NotesOverview({ context, project, role, readOnly }: Omit<SectionProps, 'members'>) {
+function NotesOverview({ context, project, members, role, readOnly }: SectionProps) {
   const notes = useProjectItems<StickyNote>(project.id, 'stickyNotes');
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<'sticky' | 'documents'>(() => searchParams.get('tab') === 'documents' ? 'documents' : 'sticky');
@@ -81,7 +82,10 @@ function NotesOverview({ context, project, role, readOnly }: Omit<SectionProps, 
     <div className="content-tabs"><button className={tab === 'sticky' ? 'active' : ''} onClick={() => selectTab('sticky')}>{context.t('sticky')} <b>{notes.length}</b></button><button className={tab === 'documents' ? 'active' : ''} onClick={() => selectTab('documents')}>{context.t('documents')} <b>{documentsLoaded ? `${documents.length}${documentsHaveMore ? '+' : ''}` : '…'}</b></button></div>
     {tab === 'sticky'
       ? <StickyCanvas notes={notes} tasks={tasks} context={context} projectId={project.id} role={role} readOnly={readOnly} onEdit={setNoteModal} />
-      : <><DocumentList documents={documents} projectId={project.id} locale={locale} />{documentsHaveMore && <div className="load-more-row"><button type="button" className="secondary" disabled={loadingDocuments} onClick={() => void loadMoreDocuments()}>{loadingDocuments ? pick(locale, 'กำลังโหลด…', 'Loading…') : pick(locale, 'โหลดเอกสารเพิ่มเติม', 'Load more documents')}</button></div>}</>}
+      : <>{!readOnly && isGoogleDriveEnabled && <DriveAttachmentControl project={project} members={members} user={context.user} locale={locale} existingFileIds={new Set(documents.filter(isDriveProjectDocument).map((item) => item.driveFileId))}
+          onAttach={(file, mode, sharing) => attachDriveProjectDocument(project.id, file, mode, sharing, context.user)} />}
+        <DocumentList documents={documents} projectId={project.id} locale={locale} members={members} role={role} readOnly={readOnly} userId={context.user.uid} />
+        {documentsHaveMore && <div className="load-more-row"><button type="button" className="secondary" disabled={loadingDocuments} onClick={() => void loadMoreDocuments()}>{loadingDocuments ? pick(locale, 'กำลังโหลด…', 'Loading…') : pick(locale, 'โหลดเอกสารเพิ่มเติม', 'Load more documents')}</button></div>}</>}
     {noteModal && <StickyModal item={'id' in noteModal ? noteModal : null} position={'id' in noteModal ? undefined : noteModal} projectId={project.id} tasks={tasks} context={context} role={role} readOnly={readOnly} onClose={() => setNoteModal(null)} />}
     {docModal && <DocumentModal item={docModal === 'new' ? null : docModal} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} onSaved={(id) => { setDocModal(null); navigate(`/p/${project.id}/notes/${id}`); }} />}
   </>;
@@ -161,8 +165,13 @@ function StickyModal({ item, position, projectId, tasks, context, role, readOnly
   return <Modal title={item ? (readOnly ? t('sticky') : t('edit')) : t('sticky')} onClose={onClose} actions={!readOnly && <button form={formId} className="primary">{t('save')}</button>}><form id={formId} className="stack-form" onSubmit={submit}><fieldset className="read-only-fields" disabled={readOnly}><label>{pick(locale, 'ข้อความ', 'Text')}<textarea autoFocus rows={6} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} required maxLength={800} /></label><fieldset><legend>{pick(locale, 'สี', 'Color')}</legend><div className="color-picker light">{NOTE_COLORS.map((color) => <button type="button" key={color} className={form.color === color ? 'selected' : ''} style={{ background: color }} onClick={() => setForm({ ...form, color })} aria-label={color} />)}</div></fieldset><label>{pick(locale, 'ผูกกับ Task', 'Linked task')}<select value={form.taskId} onChange={(e) => setForm({ ...form, taskId: e.target.value })}><option value="">—</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label><label className="simple-check"><input type="checkbox" checked={form.pinned} onChange={(e) => setForm({ ...form, pinned: e.target.checked })} /> {pick(locale, 'ปักหมุด (ล็อกตำแหน่ง)', 'Pinned (lock position)')}</label></fieldset><div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(t('delete') + '?')) { await attempt(() => deleteWorkItem(projectId, 'stickyNotes', item.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary">{t('save')}</button>}</div></form></Modal>;
 }
 
-function DocumentList({ documents, projectId, locale }: { documents: ProjectDocument[]; projectId: string; locale: string }) {
-  return <div className="document-list">{documents.map((document) => <Link key={document.id} to={`/p/${projectId}/notes/${document.id}`}><span>▤</span><div><h3>{document.title}</h3><p>{document.excerpt || document.content?.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b>→</b></Link>)}{!documents.length && <Empty icon="▤" title={pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={pick(locale, 'สร้างเอกสาร Markdown สำหรับสเปกหรือบันทึกการประชุม', 'Create Markdown docs for specs or meeting notes')} />}</div>;
+function DocumentList({ documents, projectId, locale, members, role, readOnly, userId }: { documents: ProjectDocument[]; projectId: string; locale: Locale; members: Membership[]; role: Role | null; readOnly: boolean; userId: string }) {
+  return <div className="document-list">{documents.map((document) => isDriveProjectDocument(document)
+    ? <DriveFileRow key={document.id} file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName} canDetach={!readOnly && canDeleteItem(role, document.createdBy, userId)} onDetach={() => {
+      if (!confirm(pick(locale, 'นำไฟล์แนบนี้ออกจาก SuperKanban หรือไม่? ไฟล์ต้นฉบับและสิทธิ์การแชร์ใน Google Drive จะไม่เปลี่ยนแปลง', 'Remove this attachment from SuperKanban? The original file and its Google Drive sharing permissions will stay unchanged.'))) return false;
+      return attempt(() => detachDriveProjectDocument(projectId, document.id).then(() => true), pick(locale, 'นำไฟล์ออกไม่สำเร็จ', 'Could not detach file')).then((ok) => ok === true);
+    }} />
+    : <Link key={document.id} to={`/p/${projectId}/notes/${document.id}`}><span>▤</span><div><h3>{document.title}</h3><p>{document.excerpt || document.content?.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b>→</b></Link>)}{!documents.length && <Empty icon="▤" title={pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={pick(locale, 'สร้างเอกสาร Markdown หรือแนบไฟล์จาก Google Drive', 'Create a Markdown document or attach a Google Drive file')} />}</div>;
 }
 
 function DocumentReader({ documentId, projectId, context, role, readOnly }: { documentId: string; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean }) {

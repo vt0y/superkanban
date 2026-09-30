@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
-import { Empty, Modal, PageTitle } from '@/components/common';
+import { DrivePermissionSyncPanel, Empty, Modal, PageTitle } from '@/components/common';
 import { canManageProject } from '@/utils/permissions';
 import { updateProject } from '@/services/projects';
 import {
@@ -18,9 +18,10 @@ import {
 } from '@/services/github';
 import { GitHubSessionBar, useGitHubSession } from '@/components/github/GitHubSessionBar';
 import { attempt, toast } from '@/components/toast';
-import { githubAppInstallUrl, isGitHubEnabled } from '@/config/features';
+import { githubAppInstallUrl, isGitHubEnabled, isGoogleDriveEnabled } from '@/config/features';
 import { PROJECT_COLORS } from '@/config/constants';
 import { fillMessage } from '@/utils/i18n';
+import { pick } from '@/utils/formatters';
 import type { Membership, Project } from '@/types';
 import { writeBatch } from 'firebase/firestore';
 import { database } from '@/services/helpers';
@@ -83,6 +84,14 @@ export function Settings({ context, project, members, role, readOnly }: SectionP
           {!readOnly && <button className="primary fit">{context.t('save')}</button>}
         </form>
       </section>
+
+      {isGoogleDriveEnabled && (
+        <section className="panel settings-panel drive-settings">
+          <h2>{pick(context.locale, 'สิทธิ์การเข้าถึง Google Drive', 'Google Drive access')}</h2>
+          <p className="muted">{pick(context.locale, 'ซิงก์ไฟล์ที่คุณเป็นเจ้าของในโปรเจกต์นี้กับรายชื่อสมาชิกปัจจุบัน', 'Keep files you own in this project aligned with the current member list.')}</p>
+          <DrivePermissionSyncPanel variant="settings" projectId={project.id} members={members} user={context.user} locale={context.locale} disabled={readOnly} />
+        </section>
+      )}
 
       {isGitHubEnabled && role === 'owner' && (
         <GitHubSettings

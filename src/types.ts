@@ -150,8 +150,26 @@ export interface StickyNote {
   updatedAt?: Timestamp;
 }
 
-export interface ProjectDocument {
+export type DriveShareMode = 'members' | 'link';
+
+export interface DriveFileRef {
+  driveFileId: string;
+  name: string;
+  mimeType: string;
+  sizeBytes?: number;
+  shareMode: DriveShareMode;
+  sharedMemberIds: string[];
+  /** Drive permission IDs created by this app, keyed by ProjectSpace user ID. */
+  managedPermissionIds?: Record<string, string>;
+  permissionsSyncedAt?: Timestamp;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface MarkdownProjectDocument {
   id: string;
+  kind?: 'markdown';
   title: string;
   /** Present only on legacy records until their first v2 migration. */
   content?: string;
@@ -163,11 +181,24 @@ export interface ProjectDocument {
   updatedAt?: Timestamp;
 }
 
+export interface DriveProjectDocument extends DriveFileRef {
+  id: string;
+  kind: 'drive';
+  title: string;
+}
+
+export type ProjectDocument = MarkdownProjectDocument | DriveProjectDocument;
+
+export interface TaskAttachment extends DriveFileRef {
+  id: string;
+  taskId: string;
+}
+
 export interface ProjectDocumentBody {
   content: string;
 }
 
-export interface LoadedProjectDocument extends ProjectDocument {
+export interface LoadedProjectDocument extends MarkdownProjectDocument {
   content: string;
 }
 

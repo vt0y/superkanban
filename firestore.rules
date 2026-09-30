@@ -111,6 +111,23 @@ service cloud.firestore {
         return (!('labelIds' in request.resource.data) || (request.resource.data.labelIds is list && request.resource.data.labelIds.size() <= 50))
           && (!('checklist' in request.resource.data) || (request.resource.data.checklist is list && request.resource.data.checklist.size() <= 100));
       }
+      function validDriveMetadata() {
+        return request.resource.data.driveFileId is string
+          && request.resource.data.driveFileId.size() > 0 && request.resource.data.driveFileId.size() <= 200
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 240
+          && request.resource.data.mimeType is string && request.resource.data.mimeType.size() <= 160
+          && (!('sizeBytes' in request.resource.data) || (request.resource.data.sizeBytes is int && request.resource.data.sizeBytes >= 0))
+          && request.resource.data.shareMode in ['members', 'link']
+          && request.resource.data.sharedMemberIds is list && request.resource.data.sharedMemberIds.size() <= 200
+          && (!('managedPermissionIds' in request.resource.data)
+            || (request.resource.data.managedPermissionIds is map && request.resource.data.managedPermissionIds.size() <= 200))
+          && (!('permissionsSyncedAt' in request.resource.data) || request.resource.data.permissionsSyncedAt is timestamp)
+          && ((request.resource.data.shareMode == 'link' && request.resource.data.sharedMemberIds.size() == 0)
+            || (request.resource.data.shareMode == 'members'
+              && request.resource.data.sharedMemberIds.hasOnly(get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds)
+              && get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds.hasOnly(request.resource.data.sharedMemberIds)));
+      }
       match /tasks/{itemId} {
         allow read: if isMember(projectId);
         allow create: if validWorkCreate(projectId)
@@ -121,6 +138,30 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['title','description','status','priority','assigneeIds','tags','labelIds','checklist','dueDate','dueTime','milestoneId','order','createdBy','createdAt','updatedAt'])
           && validTaskLists() && validTime('dueTime');
         allow delete: if canDeleteWork(projectId);
+      }
+      match /taskAttachments/{itemId} {
+        allow read: if isMember(projectId);
+        allow create: if validWorkCreate(projectId)
+          && request.resource.data.keys().hasAll(['taskId','driveFileId','name','mimeType','shareMode','sharedMemberIds','createdBy','createdAt','updatedAt'])
+          && request.resource.data.keys().hasOnly(['taskId','driveFileId','name','mimeType','sizeBytes','shareMode','sharedMemberIds','managedPermissionIds','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
+          && request.resource.data.taskId is string
+          && itemId == request.resource.data.taskId + '_' + request.resource.data.driveFileId
+          && exists(/databases/$(database)/documents/projects/$(projectId)/tasks/$(request.resource.data.taskId))
+          && validDriveMetadata()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if projectActive(projectId) && isMember(projectId)
+          && resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.shareMode == 'members'
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.permissionsSyncedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sharedMemberIds','managedPermissionIds','permissionsSyncedAt','updatedAt'])
+          && validDriveMetadata();
+        allow delete: if projectActive(projectId) && (isAdmin(projectId)
+          || (isMember(projectId) && resource.data.createdBy == request.auth.uid)
+          || (isMember(projectId) && get(/databases/$(database)/documents/projects/$(projectId)/tasks/$(resource.data.taskId)).data.createdBy == request.auth.uid));
       }
       match /milestones/{itemId} {
         allow read: if isMember(projectId);
@@ -159,7 +200,8 @@ service cloud.firestore {
             && request.resource.data.content is string && request.resource.data.content.toUtf8().size() <= 921600;
         }
         function validV2Document() {
-          return request.resource.data.keys().hasOnly(['schemaVersion','title','excerpt','contentBytes','createdBy','createdAt','updatedAt'])
+          return request.resource.data.keys().hasOnly(['kind','schemaVersion','title','excerpt','contentBytes','createdBy','createdAt','updatedAt'])
+            && (!('kind' in request.resource.data) || request.resource.data.kind == 'markdown')
             && request.resource.data.schemaVersion == 2
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
             && request.resource.data.excerpt is string && request.resource.data.excerpt.size() <= 240
@@ -167,10 +209,27 @@ service cloud.firestore {
             && existsAfter(projectDocumentBodyPath(projectId, itemId))
             && getAfter(projectDocumentBodyPath(projectId, itemId)).data.content.toUtf8().size() == request.resource.data.contentBytes;
         }
+        function validDriveDocument() {
+          return request.resource.data.keys().hasAll(['kind','title','driveFileId','name','mimeType','shareMode','sharedMemberIds','createdBy','createdAt','updatedAt'])
+            && request.resource.data.keys().hasOnly(['kind','title','driveFileId','name','mimeType','sizeBytes','shareMode','sharedMemberIds','managedPermissionIds','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
+            && request.resource.data.kind == 'drive'
+            && itemId == 'drive_' + request.resource.data.driveFileId
+            && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
+            && validDriveMetadata();
+        }
         allow read: if isMember(projectId);
-        allow create: if validWorkCreate(projectId) && (validLegacyDocument() || validV2Document());
+        allow create: if validWorkCreate(projectId) && (validLegacyDocument() || validV2Document()
+          || (validDriveDocument() && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time));
         allow update: if projectActive(projectId) && isMember(projectId) && request.resource.data.createdBy == resource.data.createdBy
-          && (validLegacyDocument() || validV2Document());
+          && (validLegacyDocument() || validV2Document()
+            || (resource.data.kind == 'drive'
+              && resource.data.createdBy == request.auth.uid
+              && request.resource.data.shareMode == 'members'
+              && request.resource.data.createdAt == resource.data.createdAt
+              && request.resource.data.updatedAt == request.time
+              && request.resource.data.permissionsSyncedAt == request.time
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sharedMemberIds','managedPermissionIds','permissionsSyncedAt','updatedAt'])
+              && validDriveDocument()));
         allow delete: if canDeleteWork(projectId);
       }
       match /documentBodies/{itemId} {

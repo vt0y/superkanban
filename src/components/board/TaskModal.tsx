@@ -1,11 +1,12 @@
-import { useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import type { AppContextValue } from '@/context/AppContext';
-import { Avatar, Modal, TimeField } from '@/components/common';
+import { Avatar, DriveAttachmentControl, DriveFileRow, Modal, TimeField } from '@/components/common';
 import { CommentThread } from '@/components/comments/CommentThread';
 import { attempt, toast } from '@/components/toast';
 import { TASK_COLUMNS } from '@/config/constants';
-import { createWorkItem, deleteWorkItem, updateWorkItem } from '@/services';
-import type { ChecklistItem, Label, Membership, Milestone, Priority, Role, Task, TaskStatus } from '@/types';
+import { attachDriveTaskFile, createWorkItem, deleteTasksWithAttachments, detachDriveTaskFile, subscribeTaskAttachments, updateWorkItem } from '@/services';
+import type { ChecklistItem, Label, Membership, Milestone, Priority, Role, Task, TaskAttachment, TaskStatus } from '@/types';
+import { isGoogleDriveEnabled } from '@/config/features';
 import { blockingMilestones } from '@/utils/milestone-deps';
 import { canDeleteItem } from '@/utils/permissions';
 import { pick } from '@/utils/formatters';
@@ -18,8 +19,8 @@ export const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent'];
 
 export type TaskDefaults = Partial<Pick<Task, 'status' | 'milestoneId' | 'dueDate' | 'dueTime' | 'order' | 'priority' | 'assigneeIds' | 'labelIds'>>;
 
-export function TaskModal({ task, defaults = {}, projectId, members, milestones, labels, context, role, readOnly, onClose }: {
-  task: Task | null; defaults?: TaskDefaults; projectId: string; members: Membership[]; milestones: Milestone[]; labels: Label[];
+export function TaskModal({ task, defaults = {}, projectId, projectName, members, milestones, labels, context, role, readOnly, onClose }: {
+  task: Task | null; defaults?: TaskDefaults; projectId: string; projectName: string; members: Membership[]; milestones: Milestone[]; labels: Label[];
   context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void;
 }) {
   const { user, t, locale } = context;
@@ -32,10 +33,13 @@ export function TaskModal({ task, defaults = {}, projectId, members, milestones,
   const [busy, setBusy] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentCount, setCommentCount] = useState(0);
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
   const formId = useId();
   const checklistTimer = useRef(0);
   const selectedMilestone = milestones.find((item) => item.id === form.milestoneId);
   const locked = selectedMilestone ? blockingMilestones(selectedMilestone, milestones).length > 0 : false;
+
+  useEffect(() => task && isGoogleDriveEnabled ? subscribeTaskAttachments(projectId, task.id, setAttachments) : undefined, [projectId, task?.id]);
 
   // On an existing task, checklist edits save by themselves (debounced), like GitHub task lists.
   const setChecklist = (checklist: ChecklistItem[]) => {
@@ -58,7 +62,7 @@ export function TaskModal({ task, defaults = {}, projectId, members, milestones,
     setBusy(false);
     if (ok) onClose();
   };
-  const remove = async () => { if (task && confirm(`${t('delete')} ${task.title}?`)) { await attempt(() => deleteWorkItem(projectId, 'tasks', task.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } };
+  const remove = async () => { if (task && confirm(`${t('delete')} ${task.title}?`)) { await attempt(() => deleteTasksWithAttachments(projectId, [task.id]), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } };
 
   const actions = <>
     {task && <button type="button" className="comment-toggle" onClick={() => setCommentsOpen(true)} aria-label={pick(locale, 'ความคิดเห็น', 'Comments')}>💬 {commentCount}</button>}
@@ -85,6 +89,16 @@ export function TaskModal({ task, defaults = {}, projectId, members, milestones,
         </fieldset>
         </fieldset>
         <div className="span-2"><Checklist items={form.checklist} onChange={setChecklist} locale={locale} readOnly={readOnly} /></div>
+        {task && isGoogleDriveEnabled && <section className="task-attachments span-2">
+          <h3>☁ {pick(locale, 'ไฟล์แนบ', 'Attachments')} <b>{attachments.length}</b></h3>
+          {attachments.length > 0 && <div className="drive-file-list">{attachments.map((attachment) => <DriveFileRow key={attachment.id} file={attachment} locale={locale} uploader={members.find((member) => member.userId === attachment.createdBy)?.displayName}
+            canDetach={!readOnly && (canDeleteItem(role, attachment.createdBy, user.uid) || task.createdBy === user.uid)} onDetach={() => {
+              if (!confirm(pick(locale, 'นำไฟล์แนบนี้ออกจาก SuperKanban หรือไม่? ไฟล์ต้นฉบับและสิทธิ์การแชร์ใน Google Drive จะไม่เปลี่ยนแปลง', 'Remove this attachment from SuperKanban? The original file and its Google Drive sharing permissions will stay unchanged.'))) return false;
+              return attempt(() => detachDriveTaskFile(projectId, attachment.id).then(() => true), pick(locale, 'นำไฟล์ออกไม่สำเร็จ', 'Could not detach file')).then((ok) => ok === true);
+            }} />)}</div>}
+          {!readOnly && <DriveAttachmentControl project={{ id: projectId, name: projectName }} members={members} user={user} locale={locale} existingFileIds={new Set(attachments.map((item) => item.driveFileId))}
+            onAttach={(file, mode, sharing) => attachDriveTaskFile(projectId, task.id, file, mode, sharing, user)} />}
+        </section>}
         <div className="form-actions span-2">{!readOnly && task && canDeleteItem(role, task.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={remove}>{t('delete')}</button>}<span />{!readOnly && <small className="muted kbd-hint">Ctrl + Enter</small>}<button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary" disabled={busy}>{t('save')}</button>}</div>
       </form>
       {task && <div className="comments-scrim" onClick={() => setCommentsOpen(false)} />}

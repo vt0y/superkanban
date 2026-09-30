@@ -9,7 +9,7 @@ import {
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
-import type { LoadedProjectDocument, ProjectDocument, ProjectDocumentBody } from '@/types';
+import type { LoadedProjectDocument, MarkdownProjectDocument, ProjectDocument, ProjectDocumentBody } from '@/types';
 import { DOCUMENT_BODY_MAX_BYTES, documentMetadata } from '@/utils/documents';
 import { activityData, database, withId } from './helpers';
 
@@ -32,7 +32,7 @@ export function subscribeProjectDocument(
   callback: (value: LoadedProjectDocument | null) => void,
   onError?: (error: Error) => void,
 ): Unsubscribe {
-  let metadata: ProjectDocument | null | undefined;
+  let metadata: MarkdownProjectDocument | null | undefined;
   let body: string | undefined;
   let bodyLoaded = false;
 
@@ -44,7 +44,8 @@ export function subscribeProjectDocument(
   };
 
   const stopMetadata = onSnapshot(metadataRef(projectId, documentId), (snapshot) => {
-    metadata = snapshot.exists() ? withId<ProjectDocument>(snapshot) : null;
+    const value = snapshot.exists() ? withId<ProjectDocument>(snapshot) : null;
+    metadata = value?.kind === 'drive' ? null : value;
     emit();
   }, onError);
   const stopBody = onSnapshot(bodyRef(projectId, documentId), (snapshot) => {
@@ -63,7 +64,7 @@ export async function createProjectDocument(projectId: string, title: string, co
   const itemBodyRef = doc(store, 'projects', projectId, 'documentBodies', itemRef.id);
   const activityRef = doc(collection(store, 'projects', projectId, 'activities'));
   const batch = writeBatch(store);
-  batch.set(itemRef, { title, ...documentMetadata(content), createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  batch.set(itemRef, { kind: 'markdown', title, ...documentMetadata(content), createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   batch.set(itemBodyRef, { content });
   batch.set(activityRef, activityData(user, 'document_created', `สร้างเอกสาร “${title}”`, `created document “${title}”`, itemRef.id));
   await batch.commit();
@@ -100,7 +101,7 @@ export async function migrateLegacyProjectDocument(projectId: string, documentId
   await runTransaction(store, async (transaction) => {
     const [itemSnapshot, bodySnapshot] = await Promise.all([transaction.get(itemRef), transaction.get(itemBodyRef)]);
     if (!itemSnapshot.exists()) return;
-    const item = itemSnapshot.data() as Omit<ProjectDocument, 'id'>;
+    const item = itemSnapshot.data() as Omit<MarkdownProjectDocument, 'id'>;
     if (item.schemaVersion === 2 || typeof item.content !== 'string') return;
     assertDocumentSize(item.content);
     if (!bodySnapshot.exists()) transaction.set(itemBodyRef, { content: item.content });

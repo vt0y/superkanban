@@ -146,6 +146,6 @@ export function Calendar({ context, project, members, role, readOnly }: SectionP
         <div className="cal-items">{unscheduled.map(chip)}{!unscheduled.length && <p className="muted">{pick(locale, 'ทุกอย่างมีกำหนดแล้ว 🎉', 'Everything is scheduled 🎉')}</p>}</div>
       </aside>
     </div>
-    {modal && <TaskModal task={modal.task} defaults={modal.defaults} projectId={project.id} members={members} milestones={milestones} labels={labels} context={context} role={role} readOnly={readOnly} onClose={() => setModal(null)} />}
+    {modal && <TaskModal task={modal.task} defaults={modal.defaults} projectId={project.id} projectName={project.name} members={members} milestones={milestones} labels={labels} context={context} role={role} readOnly={readOnly} onClose={() => setModal(null)} />}
   </>;
 }

@@ -68,6 +68,7 @@ ProjectSpace operates as a high-performance Single Page Application (SPA) design
 - Dedicated, shareable Markdown document reader with a live editor preview and DOMPurify sanitization.
 - Lazy Mermaid diagrams from fenced `mermaid` blocks, including flowchart, sequence, class, state, ER, Gantt, and other supported types.
 - Egress optimization: document lists load metadata only; Markdown bodies are downloaded only when opened.
+- Optional Google Drive attachments appear alongside Markdown documents and inside saved tasks. Local files upload directly from the browser into the uploader's Drive; ProjectSpace stores metadata only.
 
 ### G. Lucky Draw / Task Gacha Engine
 - Fair weighted raffle system for distributing tasks among team members.
@@ -119,6 +120,9 @@ All configuration variables and feature toggles must come strictly from `.env` f
 | ALLOWED_EMAIL_DOMAINS              | string    | Space-separated allowed email domains          | "" (allow all)  |
 | CONNECTS_GITHUB                    | boolean   | Enable GitHub integration across the UI        | false (OFF)     |
 | CONNECTS_GITHUB_APP_SLUG           | string    | Slug of your GitHub App (github.com/apps/<slug>)| "" (required)   |
+| CONNECTS_GOOGLE_DRIVE              | boolean   | Enable Drive-backed document/task attachments   | false (OFF)     |
+| VITE_GOOGLE_DRIVE_API_KEY          | string    | Browser-restricted key with Google Picker API   | Required when enabled |
+| VITE_GOOGLE_CLOUD_PROJECT_NUMBER   | string    | Numeric project number used by Google Picker    | Required when enabled |
 | VITE_TAROT_API_URL                 | URL       | Deployed Cloudflare Tarot Worker                | Required for Tarot |
 | VITE_TAROT_CDN_BASE_URL            | URL       | Cloudflare-proxied Backblaze B2 card origin     | Required for card art |
 +------------------------------------+-----------+------------------------------------------------+-----------------+
@@ -127,6 +131,115 @@ All configuration variables and feature toggles must come strictly from `.env` f
 ### Feature Flag: CONNECTS_GITHUB
 - **Disabled by default**: When `CONNECTS_GITHUB` is omitted, empty, or `false`, **or** `CONNECTS_GITHUB_APP_SLUG` is missing or invalid, all GitHub features (profile linking, settings card, team collaborator column) are hidden and dormant.
 - **Enabling**: Set `CONNECTS_GITHUB=true` **and** `CONNECTS_GITHUB_APP_SLUG=<slug>` in `.env`. The `VITE_` prefixed forms are also supported.
+
+### Feature Flag: CONNECTS_GOOGLE_DRIVE
+
+Drive UI remains hidden unless `CONNECTS_GOOGLE_DRIVE=true`, `VITE_GOOGLE_DRIVE_API_KEY`, and `VITE_GOOGLE_CLOUD_PROJECT_NUMBER` are all valid. New attachment batches default to **Current project members**; **Anyone with the link** remains an explicit external-access option. Membership changes require the uploader to run **Sync access for my files** from an upload panel or Project Settings.
+
+#### Step 1: Select the Firebase Google Cloud project
+
+Open [Google Cloud Console](https://console.cloud.google.com/) and select the same project used by Firebase Authentication. The Picker API key, numeric project number, Firebase Google OAuth client, Drive API, and Picker API must belong to this project.
+
+#### Step 2: Enable the Google APIs
+
+Go to **APIs & Services → Library**, search for, and enable both:
+
+- **Google Drive API**
+- **Google Picker API**
+
+#### Step 3: Configure OAuth access
+
+Go to **Google Auth Platform → Data Access → Add or remove scopes** and add:
+
+```text
+https://www.googleapis.com/auth/drive.file
+```
+
+This is the narrow per-file scope: ProjectSpace can create files and work with files explicitly selected through its Picker, but it cannot browse every file in a user's Drive.
+
+Under **Google Auth Platform → Audience**:
+
+- Choose **Internal** when every user belongs to the same managed Google Workspace organization.
+- Otherwise choose **External**. While the OAuth app is in Testing, add every account that will test attachments under **Test users**.
+
+ProjectSpace requests Drive authorization only after a user drops, browses, or picks a file. OAuth access tokens stay in browser memory and are never written to Firestore.
+
+#### Step 4: Create and restrict the Picker API key
+
+Go to **APIs & Services → Credentials → Create credentials → API key**, then edit the key:
+
+1. Set **Application restrictions** to **Websites**.
+2. Add every origin that can run ProjectSpace, replacing the examples with the real values:
+
+   ```text
+   http://localhost:5173/*
+   https://YOUR_PROJECT_ID.web.app/*
+   https://YOUR_PROJECT_ID.firebaseapp.com/*
+   https://YOUR_CUSTOM_DOMAIN/*
+   https://docs.google.com/*
+   ```
+
+   `https://docs.google.com/*` is required because Google Picker renders from a Google-hosted iframe. Without it, Picker can show **API developer key is invalid**.
+
+3. Set **API restrictions** to **Restrict key** and allow:
+   - Google Picker API
+   - Google Drive API
+4. Copy the resulting key into `VITE_GOOGLE_DRIVE_API_KEY`.
+
+The browser API key is visible in the built frontend by design; website and API restrictions are what prevent unrelated sites from using it.
+
+#### Step 5: Find the numeric project number
+
+Go to **IAM & Admin → Settings** and copy **Project number**. It contains digits only and is different from the textual Firebase project ID. Put it in `VITE_GOOGLE_CLOUD_PROJECT_NUMBER`.
+
+#### Step 6: Verify Firebase Authentication
+
+In Firebase Console:
+
+1. Open **Authentication → Sign-in method** and make sure **Google** is enabled.
+2. Open **Authentication → Settings → Authorized domains**.
+3. Add the deployed custom domain and the local/development domain when they are not already present.
+
+ProjectSpace obtains the Drive access token through the existing Firebase Google account; it does not use a separate client ID from `.env`.
+
+#### Step 7: Configure ProjectSpace
+
+Add the following to `.env.local` for local development, or to the deployment environment:
+
+```env
+CONNECTS_GOOGLE_DRIVE=true
+VITE_GOOGLE_DRIVE_API_KEY=AIzaSy_REPLACE_WITH_YOUR_KEY
+VITE_GOOGLE_CLOUD_PROJECT_NUMBER=123456789012
+```
+
+Restart Vite after changing environment variables:
+
+```bash
+npm run dev
+```
+
+To build and deploy the frontend together with the new Firestore rules:
+
+```bash
+npm run deploy
+```
+
+#### Step 8: Verify the integration
+
+1. Sign in with Google.
+2. Open **Notes → Documents** and confirm that the Drive drop zone appears.
+3. Open an existing saved task and confirm that its **Attachments** section appears.
+4. Drop a file, select **Browse computer**, or select **Choose from Drive**.
+5. Approve the `drive.file` permission when Google asks for it.
+6. Confirm that a local upload appears under `SuperKanban/<project name>` in the uploader's Drive and that teammates can open the resulting link.
+
+Troubleshooting:
+
+- **No drop zone:** check all three environment variables and restart the dev server.
+- **API developer key is invalid:** add the application origins and `https://docs.google.com/*` to the API-key website restrictions.
+- **auth/unauthorized-domain:** add the current hostname under Firebase Authentication → Authorized domains.
+- **403 from Drive:** confirm both APIs are enabled, the OAuth scope is configured, the account is an allowed test/internal user, and Workspace policy permits the selected sharing mode.
+- **Anyone-with-link sharing fails:** a Workspace administrator may prohibit public link sharing; retry with **Current project members**.
 
 ---
 

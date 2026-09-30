@@ -13,7 +13,7 @@ import { blockingMilestones } from '@/utils/milestone-deps';
 import { canDeleteItem } from '@/utils/permissions';
 import { isNoopDrop, ordersForDrop } from '@/utils/board-order';
 import { matchTask, parseTaskQuery, queryValue, toggleQueryTerm } from '@/utils/task-filter';
-import { bulkDeleteWorkItems, bulkUpdateWorkItems, createWorkItem } from '@/services';
+import { bulkUpdateWorkItems, createWorkItem, deleteTasksWithAttachments } from '@/services';
 import type { Label, Milestone, Priority, Task, TaskStatus } from '@/types';
 import { attempt, toast } from '@/components/toast';
 import { formatDue, pick } from '@/utils/formatters';
@@ -134,7 +134,7 @@ export function Board({ context, project, members, role, readOnly }: SectionProp
     const skipped = selectedIds.length - deletable.length;
     if (!deletable.length) { toast(pick(locale, 'ไม่มีสิทธิ์ลบงานที่เลือก', 'You cannot delete the selected tasks'), 'error'); return; }
     if (!confirm(pick(locale, `ลบ ${deletable.length} งาน?`, `Delete ${deletable.length} tasks?`) + (skipped ? pick(locale, ` (ข้าม ${skipped} งานที่ไม่มีสิทธิ์)`, ` (${skipped} skipped — no permission)`) : ''))) return;
-    const done = await attempt(() => bulkDeleteWorkItems(project.id, 'tasks', deletable).then(() => true), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed'));
+    const done = await attempt(() => deleteTasksWithAttachments(project.id, deletable).then(() => true), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed'));
     if (done) { selection.clear(); toast(pick(locale, `ลบ ${deletable.length} งานแล้ว`, `Deleted ${deletable.length} tasks`), 'success'); }
   };
 
@@ -280,6 +280,6 @@ export function Board({ context, project, members, role, readOnly }: SectionProp
       <button type="button" className="danger ghost" onClick={() => void bulkDelete()}>{context.t('delete')}</button>
     </BulkBar>}
     {labelsOpen && <LabelManager labels={labels} tasks={tasks} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setLabelsOpen(false)} onFilter={filterLabel} />}
-    {modal && <TaskModal task={modal.task} defaults={modal.defaults} projectId={project.id} members={members} milestones={milestones} labels={labels} context={context} role={role} readOnly={readOnly} onClose={() => setModal(null)} />}
+    {modal && <TaskModal task={modal.task} defaults={modal.defaults} projectId={project.id} projectName={project.name} members={members} milestones={milestones} labels={labels} context={context} role={role} readOnly={readOnly} onClose={() => setModal(null)} />}
   </>;
 }

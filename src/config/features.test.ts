@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isGitHubEnabled, parseFeatureFlag, parseGitHubAppSlug } from './features';
+import { isGitHubEnabled, isGoogleDriveEnabled, parseFeatureFlag, parseGitHubAppSlug } from './features';
 
 describe('features config - parseFeatureFlag', () => {
   it('returns false for empty or non-truthy values', () => {
@@ -25,6 +25,7 @@ describe('features config - parseFeatureFlag', () => {
 
   it('evaluates isGitHubEnabled as boolean', () => {
     expect(typeof isGitHubEnabled).toBe('boolean');
+    expect(typeof isGoogleDriveEnabled).toBe('boolean');
   });
 });
 
