@@ -153,10 +153,22 @@ export interface StickyNote {
 export interface ProjectDocument {
   id: string;
   title: string;
-  content: string;
+  /** Present only on legacy records until their first v2 migration. */
+  content?: string;
+  schemaVersion?: 2;
+  excerpt?: string;
+  contentBytes?: number;
   createdBy: string;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
+}
+
+export interface ProjectDocumentBody {
+  content: string;
+}
+
+export interface LoadedProjectDocument extends ProjectDocument {
+  content: string;
 }
 
 export interface Activity {

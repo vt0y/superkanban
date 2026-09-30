@@ -2,6 +2,7 @@ import type { User } from 'firebase/auth';
 import {
   collection,
   doc,
+  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
@@ -72,6 +73,11 @@ export function subscribeProject(projectId: string, callback: (project: Project 
   return onSnapshot(doc(database(), 'projects', projectId), (snap) =>
     callback(snap.exists() ? withId<Project>(snap) : null),
   );
+}
+
+export async function getProject(projectId: string): Promise<Project | null> {
+  const snapshot = await getDoc(doc(database(), 'projects', projectId));
+  return snapshot.exists() ? withId<Project>(snapshot) : null;
 }
 
 export async function updateProject(projectId: string, values: Partial<Project>): Promise<void> {

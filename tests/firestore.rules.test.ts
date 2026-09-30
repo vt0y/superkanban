@@ -65,6 +65,38 @@ describe('ProjectSpace Firestore rules', () => {
     await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'projects', projectId)));
   });
 
+  it('ประวัติ tarot เป็นข้อมูลส่วนตัว สร้างและลบได้แต่แก้ย้อนหลังไม่ได้', async () => {
+    const alice = context('alice');
+    const reading = doc(alice, 'users', 'alice', 'tarotReadings', 'reading-1');
+    const cards = [
+      { id: '00-fool', position: 'past', reversed: false, nameTh: 'เดอะฟูล', nameEn: 'The Fool' },
+      { id: '17-star', position: 'present', reversed: false, nameTh: 'เดอะสตาร์', nameEn: 'The Star' },
+      { id: '18-moon', position: 'future', reversed: true, nameTh: 'เดอะมูน', nameEn: 'The Moon' },
+    ];
+    await assertSucceeds(setDoc(reading, { schemaVersion: 1, category: 'general', question: '', locale: 'th', cards, readingMarkdown: '## คำทำนาย', requestId: 'req-1', createdBy: 'alice', createdAt: serverTimestamp() }));
+    await assertSucceeds(getDoc(reading));
+    await assertSucceeds(getDocs(query(collection(alice, 'users', 'alice', 'tarotReadings'), orderBy('createdAt', 'desc'), limit(20))));
+    await assertFails(getDoc(doc(context('bob'), reading.path)));
+    await assertFails(updateDoc(reading, { question: 'เปลี่ยนคำถาม' }));
+    await assertSucceeds(deleteDoc(reading));
+  });
+
+  it('ปฏิเสธ tarot ที่สวมรอย ไพ่ซ้ำ ตำแหน่งผิด หรือ payload เกินขอบเขต', async () => {
+    const db = context('alice');
+    const target = (id: string) => doc(db, 'users', 'alice', 'tarotReadings', id);
+    const cards = [
+      { id: '00-fool', position: 'past', reversed: false, nameTh: 'เดอะฟูล', nameEn: 'The Fool' },
+      { id: '17-star', position: 'present', reversed: false, nameTh: 'เดอะสตาร์', nameEn: 'The Star' },
+      { id: '18-moon', position: 'future', reversed: true, nameTh: 'เดอะมูน', nameEn: 'The Moon' },
+    ];
+    const base = { schemaVersion: 1, category: 'love', question: 'Q', locale: 'th', cards, readingMarkdown: 'reading', requestId: 'req', createdBy: 'alice', createdAt: serverTimestamp() };
+    await assertFails(setDoc(target('spoof'), { ...base, createdBy: 'bob' }));
+    await assertFails(setDoc(target('duplicate'), { ...base, cards: [cards[0], cards[0], cards[2]] }));
+    await assertFails(setDoc(target('position'), { ...base, cards: [cards[1], cards[0], cards[2]] }));
+    await assertFails(setDoc(target('long'), { ...base, question: 'x'.repeat(501) }));
+    await assertFails(setDoc(doc(db, 'users', 'bob', 'tarotReadings', 'foreign'), base));
+  });
+
   it('สร้าง project และ owner membership ใน batch เดียวได้', async () => {
     const db = context('creator');
     const batch = writeBatch(db);
@@ -91,6 +123,65 @@ describe('ProjectSpace Firestore rules', () => {
     await environment.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), ownerTaskPath), { title: 'Owner task', status: 'todo', priority: 'medium', createdBy: 'owner' }));
     await assertFails(deleteDoc(doc(memberDb, ownerTaskPath)));
     await assertSucceeds(deleteDoc(doc(context('admin'), ownerTaskPath)));
+  });
+
+  it('document v2 แยก metadata/body จำกัด UTF-8 และใช้สิทธิ์ลบเดิม', async () => {
+    await seedProject();
+    const memberDb = context('member');
+    const metadata = doc(memberDb, 'projects', projectId, 'documents', 'doc-v2');
+    const body = doc(memberDb, 'projects', projectId, 'documentBodies', 'doc-v2');
+    const create = writeBatch(memberDb);
+    create.set(metadata, { schemaVersion: 2, title: 'Spec', excerpt: 'Hello', contentBytes: 5, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    create.set(body, { content: 'Hello' });
+    await assertSucceeds(create.commit());
+    await assertSucceeds(getDoc(metadata));
+    await assertSucceeds(getDoc(body));
+    await assertFails(getDoc(doc(context('outsider'), body.path)));
+
+    const adminDb = context('admin');
+    const update = writeBatch(adminDb);
+    update.update(doc(adminDb, metadata.path), { excerpt: 'ภาษาไทย', contentBytes: 21, updatedAt: serverTimestamp() });
+    update.update(doc(adminDb, body.path), { content: 'ภาษาไทย' });
+    await assertSucceeds(update.commit());
+
+    const oversized = 'ไ'.repeat(307201);
+    const oversizedBatch = writeBatch(memberDb);
+    oversizedBatch.set(doc(memberDb, 'projects', projectId, 'documents', 'too-large'), { schemaVersion: 2, title: 'Large', excerpt: '', contentBytes: 921603, createdBy: 'member' });
+    oversizedBatch.set(doc(memberDb, 'projects', projectId, 'documentBodies', 'too-large'), { content: oversized });
+    await assertFails(oversizedBatch.commit());
+
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'projects', projectId, 'documents', 'owner-doc'), { schemaVersion: 2, title: 'Owner', excerpt: '', contentBytes: 1, createdBy: 'owner' });
+      await setDoc(doc(db, 'projects', projectId, 'documentBodies', 'owner-doc'), { content: 'x' });
+    });
+    const memberDelete = writeBatch(memberDb);
+    memberDelete.delete(doc(memberDb, 'projects', projectId, 'documentBodies', 'owner-doc'));
+    memberDelete.delete(doc(memberDb, 'projects', projectId, 'documents', 'owner-doc'));
+    await assertFails(memberDelete.commit());
+    const adminDelete = writeBatch(adminDb);
+    adminDelete.delete(doc(adminDb, 'projects', projectId, 'documentBodies', 'owner-doc'));
+    adminDelete.delete(doc(adminDb, 'projects', projectId, 'documents', 'owner-doc'));
+    await assertSucceeds(adminDelete.commit());
+  });
+
+  it('legacy document ยังอ่านได้และย้าย body แบบ atomic ได้เฉพาะ project ที่ active', async () => {
+    await seedProject();
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'projects', projectId, 'documents', 'legacy'), { title: 'Legacy', content: '# Old', createdBy: 'member', createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+    });
+    const memberDb = context('member');
+    await assertSucceeds(getDoc(doc(memberDb, 'projects', projectId, 'documents', 'legacy')));
+    const migrate = writeBatch(memberDb);
+    migrate.update(doc(memberDb, 'projects', projectId, 'documents', 'legacy'), { schemaVersion: 2, excerpt: 'Old', contentBytes: 5, content: deleteField() });
+    migrate.set(doc(memberDb, 'projects', projectId, 'documentBodies', 'legacy'), { content: '# Old' });
+    await assertSucceeds(migrate.commit());
+    await assertSucceeds(updateDoc(doc(context('owner'), 'projects', projectId), { archived: true }));
+    await assertSucceeds(getDoc(doc(memberDb, 'projects', projectId, 'documentBodies', 'legacy')));
+    const archivedUpdate = writeBatch(memberDb);
+    archivedUpdate.update(doc(memberDb, 'projects', projectId, 'documents', 'legacy'), { excerpt: 'No', contentBytes: 2 });
+    archivedUpdate.update(doc(memberDb, 'projects', projectId, 'documentBodies', 'legacy'), { content: 'No' });
+    await assertFails(archivedUpdate.commit());
   });
 
   it('task queries แบบ active/history อ่านได้ทุกบทบาทสมาชิก และปฏิเสธคนนอก', async () => {

@@ -29,6 +29,7 @@
     { "collectionGroup": "tasks", "fieldPath": "description", "indexes": [] },
     { "collectionGroup": "tasks", "fieldPath": "checklist", "indexes": [] },
     { "collectionGroup": "documents", "fieldPath": "content", "indexes": [] },
+    { "collectionGroup": "documentBodies", "fieldPath": "content", "indexes": [] },
     { "collectionGroup": "useCases", "fieldPath": "details", "indexes": [] },
     { "collectionGroup": "useCases", "fieldPath": "businessRules", "indexes": [] },
     { "collectionGroup": "comments", "fieldPath": "body", "indexes": [] },
@@ -38,5 +39,8 @@
     { "collectionGroup": "stickyNotes", "fieldPath": "content", "indexes": [] },
     { "collectionGroup": "siteFeedback", "fieldPath": "body", "indexes": [] },
     { "collectionGroup": "siteFeedback", "fieldPath": "adminReply", "indexes": [] }
+    ,{ "collectionGroup": "tarotReadings", "fieldPath": "question", "indexes": [] }
+    ,{ "collectionGroup": "tarotReadings", "fieldPath": "cards", "indexes": [] }
+    ,{ "collectionGroup": "tarotReadings", "fieldPath": "readingMarkdown", "indexes": [] }
   ]
 }

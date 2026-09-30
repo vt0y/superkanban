@@ -23,6 +23,7 @@ const LoginScreen = lazy(() => import('@/pages/LoginScreen').then((m) => ({ defa
 const NewProject = lazy(() => import('@/pages/NewProject').then((m) => ({ default: m.NewProject })));
 const ProjectWorkspace = lazy(() => import('@/pages/ProjectWorkspace').then((m) => ({ default: m.ProjectWorkspace })));
 const SiteFeedbackPage = lazy(() => import('@/pages/SiteFeedbackPage').then((m) => ({ default: m.SiteFeedbackPage })));
+const TarotPage = lazy(() => import('@/pages/TarotPage').then((m) => ({ default: m.TarotPage })));
 
 // Re-exports for backward-compatibility
 export type { AppContextValue } from '@/context/AppContext';
@@ -44,6 +45,7 @@ function AuthGate() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [siteRole, setSiteRole] = useState<SiteRole | null | undefined>(undefined);
   const [error, setError] = useState('');
   const [authError, setAuthError] = useState('');
@@ -56,15 +58,21 @@ function AuthGate() {
             await signOut(auth!);
             setUser(null);
             setProfile(null);
+            setProjects([]);
+            setProjectsLoaded(false);
             setSiteRole(undefined);
             setAuthError(getDomainErrorMessage());
             return;
           }
           setUser(nextUser);
+          setProjects([]);
+          setProjectsLoaded(false);
           setSiteRole(undefined);
         } else {
           setUser(null);
           setProfile(null);
+          setProjects([]);
+          setProjectsLoaded(false);
           setSiteRole(undefined);
         }
       }),
@@ -74,7 +82,13 @@ function AuthGate() {
   useEffect(() => {
     if (!user) return;
     const stopProfile = subscribeEnsuredProfile(user, setProfile, () => setError('ไม่สามารถโหลดหรือสร้างโปรไฟล์ได้'));
-    const stopProjects = subscribeProjects(user.uid, setProjects, () => setError('ไม่สามารถโหลดโปรเจกต์ได้'));
+    const stopProjects = subscribeProjects(user.uid, (items) => {
+      setProjects(items);
+      setProjectsLoaded(true);
+    }, () => {
+      setProjectsLoaded(true);
+      setError('ไม่สามารถโหลดโปรเจกต์ได้');
+    });
     const stopSiteRole = subscribeSiteRole(user.uid, setSiteRole);
     return () => {
       stopProfile();
@@ -108,6 +122,7 @@ function AuthGate() {
     user,
     profile,
     projects,
+    projectsLoaded,
     siteRole,
     locale: profile.locale,
     t: (key) => translate(profile.locale, key as MessageKey),
@@ -124,6 +139,8 @@ function AuthGate() {
           <Route path="/new" element={<NewProject context={context} />} />
           <Route path="/invite/:inviteId" element={<InviteAccept context={context} />} />
           <Route path="/feedback" element={<SiteFeedbackPage context={context} />} />
+          <Route path="/tarot" element={<TarotPage context={context} />} />
+          <Route path="/p/:projectId/notes/:documentId" element={<ProjectWorkspace context={context} />} />
           <Route path="/p/:projectId/:section?" element={<ProjectWorkspace context={context} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

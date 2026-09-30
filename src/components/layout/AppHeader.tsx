@@ -38,6 +38,9 @@ export function AppHeader({ context }: { context: AppContextValue }) {
         <strong>ProjectSpace</strong>
       </a>
       <div className="topbar-actions">
+        <button className="tarot-shortcut" onClick={() => navigate('/tarot')} title={locale === 'th' ? 'เปิดไพ่ทาโรต์' : 'Open Tarot'}>
+          ☾ <span>{locale === 'th' ? 'ดูไพ่' : 'Tarot'}</span>
+        </button>
         <button
           className="feedback-button"
           onClick={() => (admin ? navigate('/feedback') : setFeedbackOpen(true))}

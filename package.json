@@ -6,17 +6,27 @@
   "scripts": {
     "dev": "vite",
     "sync:rules": "node scripts/sync-rules.js",
-    "build": "npm run sync:rules && tsc --noEmit && vite build && node scripts/report-bundle-size.js",
+    "build": "npm run sync:rules && tsc --noEmit && npm run tarot:worker:typecheck && vite build && node scripts/report-bundle-size.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rules": "ALLOWED_EMAIL_DOMAINS=example.com npm run sync:rules && firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.ts\"",
+    "tarot:worker:typecheck": "tsc -p workers/tarot/tsconfig.json",
+    "tarot:worker:dev": "wrangler dev --config workers/tarot/wrangler.toml",
+    "tarot:worker:migrate:local": "wrangler d1 migrations apply projectspace-tarot --local --config workers/tarot/wrangler.toml",
+    "tarot:worker:migrate": "wrangler d1 migrations apply projectspace-tarot --remote --config workers/tarot/wrangler.toml",
+    "tarot:worker:deploy": "wrangler deploy --config workers/tarot/wrangler.toml",
+    "tarot:images:list": "node scripts/tarot-images.js --print-expected",
+    "tarot:images:download": "node scripts/tarot-images-download.js",
+    "tarot:images:check": "node scripts/tarot-images.js --check",
+    "tarot:images:prepare": "node scripts/tarot-images.js",
     "deploy": "npm run build && firebase deploy"
   },
   "dependencies": {
     "dompurify": "^3.2.6",
     "firebase": "^12.3.0",
     "marked": "^16.3.0",
+    "mermaid": "11.17.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.1"
@@ -29,6 +39,7 @@
     "firebase-tools": "^14.16.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "4.40.0"
   }
 }

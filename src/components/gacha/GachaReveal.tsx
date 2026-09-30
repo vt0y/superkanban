@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Avatar } from '@/components/common';
-import { subscribeLatestGachaDraw } from '@/services';
 import type { GachaDraw, Locale } from '@/types';
 import { pick } from '@/utils/formatters';
 
@@ -22,7 +21,7 @@ function playTone(kind: 'spin' | 'winner') {
   } catch { /* Sound is optional when autoplay is blocked. */ }
 }
 
-export function GachaReveal({ projectId, locale }: { projectId: string; locale: Locale }) {
+export function GachaReveal({ projectId, locale, latestDraw }: { projectId: string; locale: Locale; latestDraw: GachaDraw | null }) {
   const [draw, setDraw] = useState<GachaDraw | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [minimized, setMinimized] = useState(false);
@@ -38,13 +37,19 @@ export function GachaReveal({ projectId, locale }: { projectId: string; locale: 
   const animation = draw?.animationStyle || 'pack';
   const countdown = withinRound < 650 ? '3' : withinRound < 1300 ? '2' : '1';
 
-  useEffect(() => subscribeLatestGachaDraw(projectId, (next) => {
-    if (!next || localStorage.getItem(`gacha-seen:${projectId}`) === next.id) return;
-    const age = next.createdAt ? Date.now() - next.createdAt.toMillis() : 0;
-    const cardTotal = next.results.reduce((sum, result) => sum + result.winnerIds.length, 0);
-    if (age > cardTotal * ROUND_MS + 15000) return;
-    setDraw(next); setElapsed(Math.max(0, age)); setMinimized(localStorage.getItem(`gacha-minimized:${projectId}`) === next.id); previousCue.current = '';
-  }), [projectId]);
+  useEffect(() => {
+    if (!latestDraw || localStorage.getItem(`gacha-seen:${projectId}`) === latestDraw.id) {
+      setDraw(null);
+      return;
+    }
+    const age = latestDraw.createdAt ? Date.now() - latestDraw.createdAt.toMillis() : 0;
+    const cardTotal = latestDraw.results.reduce((sum, result) => sum + result.winnerIds.length, 0);
+    if (age > cardTotal * ROUND_MS + 15000) {
+      setDraw(null);
+      return;
+    }
+    setDraw(latestDraw); setElapsed(Math.max(0, age)); setMinimized(localStorage.getItem(`gacha-minimized:${projectId}`) === latestDraw.id); previousCue.current = '';
+  }, [latestDraw, projectId]);
 
   useEffect(() => {
     if (!draw || summary) return;

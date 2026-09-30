@@ -104,8 +104,7 @@ export async function runGachaDraw(input: RunGachaInput): Promise<string> {
 }
 
 export function subscribeLatestGachaDraw(projectId: string, callback: (draw: GachaDraw | null) => void): Unsubscribe {
-  const latest = query(collection(database(), 'projects', projectId, 'gachaDraws'), orderBy('createdAt', 'desc'), limit(1));
-  return onSnapshot(latest, (snapshot) => callback(snapshot.empty ? null : withId<GachaDraw>(snapshot.docs[0])));
+  return subscribeGachaDraws(projectId, 1, (draws) => callback(draws[0] ?? null));
 }
 
 export function subscribeRecentGachaDraws(
@@ -113,12 +112,20 @@ export function subscribeRecentGachaDraws(
   limitCount = 15,
   callback: (draws: GachaDraw[]) => void,
 ): Unsubscribe {
-  const q = query(
+  return subscribeGachaDraws(projectId, limitCount, callback);
+}
+
+export function subscribeGachaDraws(
+  projectId: string,
+  limitCount: number,
+  callback: (draws: GachaDraw[]) => void,
+): Unsubscribe {
+  const drawsQuery = query(
     collection(database(), 'projects', projectId, 'gachaDraws'),
     orderBy('createdAt', 'desc'),
     limit(limitCount),
   );
-  return onSnapshot(q, (snapshot) => {
+  return onSnapshot(drawsQuery, (snapshot) => {
     callback(snapshot.docs.map((item) => withId<GachaDraw>(item)));
   });
 }

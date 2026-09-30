@@ -9,6 +9,8 @@ service cloud.firestore {
         && get(siteAdminPath(request.auth.uid)).data.role in ['owner', 'admin'];
     }
     function membershipPath(projectId, uid) { return /databases/$(database)/documents/memberships/$(projectId + '_' + uid); }
+    function projectDocumentPath(projectId, itemId) { return /databases/$(database)/documents/projects/$(projectId)/documents/$(itemId); }
+    function projectDocumentBodyPath(projectId, itemId) { return /databases/$(database)/documents/projects/$(projectId)/documentBodies/$(itemId); }
     function membership(projectId) { return get(membershipPath(projectId, request.auth.uid)); }
     function isMember(projectId) { return signedIn() && exists(membershipPath(projectId, request.auth.uid)); }
     function isAdmin(projectId) { return isMember(projectId) && membership(projectId).data.role in ['owner', 'admin']; }
@@ -26,7 +28,7 @@ service cloud.firestore {
     function canDeleteWork(projectId) { return projectActive(projectId) && (isAdmin(projectId) || (isMember(projectId) && resource.data.createdBy == request.auth.uid)); }
     // [ALLOWED_EMAIL_DOMAINS_START]
     function isAllowedEmail(email) {
-      return email is string && email.matches('^[a-zA-Z0-9._%+-]+@[eE][xX][aA][mM][pP][lL][eE][.][cC][oO][mM]$');
+      return email is string && email.matches('^[a-zA-Z0-9._%+-]+@[kK][kK][uU][mM][aA][iI][lL][.][cC][oO][mM]$');
     }
     // [ALLOWED_EMAIL_DOMAINS_END]
 
@@ -40,6 +42,41 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'locale', 'theme', 'updatedAt', 'githubUsername', 'githubId', 'githubConnectedAt'])
         && githubHandleProven();
       allow delete: if false;
+
+      match /tarotReadings/{readingId} {
+        function validCardAt(index, expectedPosition) {
+          return request.resource.data.cards[index] is map
+            && request.resource.data.cards[index].keys().hasOnly(['id', 'position', 'reversed', 'nameTh', 'nameEn'])
+            && request.resource.data.cards[index].id is string
+            && request.resource.data.cards[index].id.size() > 0
+            && request.resource.data.cards[index].id.size() <= 40
+            && request.resource.data.cards[index].position == expectedPosition
+            && request.resource.data.cards[index].reversed is bool
+            && request.resource.data.cards[index].nameTh is string
+            && request.resource.data.cards[index].nameTh.size() <= 80
+            && request.resource.data.cards[index].nameEn is string
+            && request.resource.data.cards[index].nameEn.size() <= 80;
+        }
+        allow read: if signedIn() && uid == request.auth.uid;
+        allow create: if signedIn() && uid == request.auth.uid
+          && request.resource.data.keys().hasOnly(['schemaVersion','category','question','locale','cards','readingMarkdown','requestId','createdBy','createdAt'])
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.category in ['general','love','work','finance']
+          && request.resource.data.question is string && request.resource.data.question.size() <= 500
+          && request.resource.data.locale in ['th','en']
+          && request.resource.data.cards is list && request.resource.data.cards.size() == 3
+          && validCardAt(0, 'past') && validCardAt(1, 'present') && validCardAt(2, 'future')
+          && request.resource.data.cards[0].id != request.resource.data.cards[1].id
+          && request.resource.data.cards[0].id != request.resource.data.cards[2].id
+          && request.resource.data.cards[1].id != request.resource.data.cards[2].id
+          && request.resource.data.readingMarkdown is string
+          && request.resource.data.readingMarkdown.size() > 0 && request.resource.data.readingMarkdown.size() <= 16000
+          && request.resource.data.requestId is string && request.resource.data.requestId.size() > 0 && request.resource.data.requestId.size() <= 128
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time;
+        allow update: if false;
+        allow delete: if signedIn() && uid == request.auth.uid && resource.data.createdBy == request.auth.uid;
+      }
     }
 
     match /projects/{projectId} {
@@ -116,10 +153,39 @@ service cloud.firestore {
         allow delete: if canDeleteWork(projectId);
       }
       match /documents/{itemId} {
+        function validLegacyDocument() {
+          return request.resource.data.keys().hasOnly(['title','content','createdBy','createdAt','updatedAt'])
+            && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
+            && request.resource.data.content is string && request.resource.data.content.toUtf8().size() <= 921600;
+        }
+        function validV2Document() {
+          return request.resource.data.keys().hasOnly(['schemaVersion','title','excerpt','contentBytes','createdBy','createdAt','updatedAt'])
+            && request.resource.data.schemaVersion == 2
+            && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
+            && request.resource.data.excerpt is string && request.resource.data.excerpt.size() <= 240
+            && request.resource.data.contentBytes is int && request.resource.data.contentBytes >= 0 && request.resource.data.contentBytes <= 921600
+            && existsAfter(projectDocumentBodyPath(projectId, itemId))
+            && getAfter(projectDocumentBodyPath(projectId, itemId)).data.content.toUtf8().size() == request.resource.data.contentBytes;
+        }
         allow read: if isMember(projectId);
-        allow create: if validWorkCreate(projectId) && request.resource.data.keys().hasOnly(['title','content','createdBy','createdAt','updatedAt']) && request.resource.data.title is string && request.resource.data.content is string;
-        allow update: if projectActive(projectId) && isMember(projectId) && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.keys().hasOnly(['title','content','createdBy','createdAt','updatedAt']);
+        allow create: if validWorkCreate(projectId) && (validLegacyDocument() || validV2Document());
+        allow update: if projectActive(projectId) && isMember(projectId) && request.resource.data.createdBy == resource.data.createdBy
+          && (validLegacyDocument() || validV2Document());
         allow delete: if canDeleteWork(projectId);
+      }
+      match /documentBodies/{itemId} {
+        function validDocumentBody() {
+          return request.resource.data.keys().hasOnly(['content'])
+            && request.resource.data.content is string
+            && request.resource.data.content.toUtf8().size() <= 921600
+            && existsAfter(projectDocumentPath(projectId, itemId))
+            && getAfter(projectDocumentPath(projectId, itemId)).data.schemaVersion == 2
+            && getAfter(projectDocumentPath(projectId, itemId)).data.contentBytes == request.resource.data.content.toUtf8().size();
+        }
+        allow read: if isMember(projectId);
+        allow create, update: if projectActive(projectId) && isMember(projectId) && validDocumentBody();
+        allow delete: if projectActive(projectId)
+          && (isAdmin(projectId) || (isMember(projectId) && get(projectDocumentPath(projectId, itemId)).data.createdBy == request.auth.uid));
       }
       match /polls/{pollId} {
         allow read: if isMember(projectId);

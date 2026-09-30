@@ -10,3 +10,4 @@ export * from './Segmented';
 export * from './BulkBar';
 export * from './CanvasControls';
 export * from './TimeField';
+export * from './MarkdownRenderer';

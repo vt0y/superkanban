@@ -7,10 +7,11 @@ import { auth } from '@/config/firebase';
 import type { MessageKey } from '@/utils/i18n';
 import { roleFor } from '@/utils/permissions';
 import { subscribeMemberships } from '@/services/members';
-import { subscribeProject, updateProject } from '@/services/projects';
+import { getProject, updateProject } from '@/services/projects';
+import { subscribeGachaDraws } from '@/services/gacha';
 import { membershipGitHubDrift, syncOwnMembershipGitHub } from '@/services/github';
 import { isGitHubEnabled } from '@/config/features';
-import type { Membership, Project } from '@/types';
+import type { GachaDraw, Membership, Project } from '@/types';
 import { Board } from '@/sections/board';
 import { Dashboard } from '@/sections/dashboard';
 import { ProjectChat } from '@/components/chat/ProjectChat';
@@ -77,20 +78,47 @@ const MOBILE_MORE = NAV_GROUPS.flatMap((group) => group.items).filter(
 );
 
 export function ProjectWorkspace({ context }: { context: AppContextValue }) {
-  const { projectId = '', section = 'dashboard' } = useParams();
-  const [project, setProject] = useState<Project | null | undefined>(undefined);
-  const [members, setMembers] = useState<Membership[]>([]);
+  const params = useParams();
+  const projectId = params.projectId || '';
+  const section = params.documentId ? 'notes' : (params.section || 'dashboard');
+  const documentId = params.documentId;
+  const contextProject = context.projects.find((item) => item.id === projectId);
+  const [fallbackProject, setFallbackProject] = useState<{ projectId: string; project: Project | null } | null>(null);
+  const [membershipState, setMembershipState] = useState<{ projectId: string; members: Membership[] } | null>(null);
+  const [gachaState, setGachaState] = useState<{ projectId: string; draws: GachaDraw[] } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
+  const fallbackMatches = fallbackProject?.projectId === projectId;
+  const project = contextProject ? contextProject : fallbackMatches ? fallbackProject.project : undefined;
+  const projectPending = !context.projectsLoaded || (!contextProject && !fallbackMatches);
+  const canAccessProject = Boolean(project?.memberIds.includes(context.user.uid));
+  const showGachaHistory = section === 'gacha';
+  const members = membershipState?.projectId === projectId ? membershipState.members : [];
+  const gachaDraws = gachaState?.projectId === projectId ? gachaState.draws : [];
 
   useEffect(() => {
-    const stopProject = subscribeProject(projectId, setProject);
-    const stopMembers = subscribeMemberships(projectId, setMembers);
-    return () => {
-      stopProject();
-      stopMembers();
-    };
-  }, [projectId]);
+    if (contextProject) {
+      setFallbackProject((current) => current?.projectId === projectId ? null : current);
+      return;
+    }
+    if (!context.projectsLoaded) return;
+    let active = true;
+    void getProject(projectId)
+      .then((next) => { if (active) setFallbackProject({ projectId, project: next }); })
+      .catch(() => { if (active) setFallbackProject({ projectId, project: null }); });
+    return () => { active = false; };
+  }, [context.projectsLoaded, contextProject, projectId]);
+
+  useEffect(() => {
+    if (!project || !canAccessProject) return;
+    return subscribeMemberships(project.id, (items) => setMembershipState({ projectId: project.id, members: items }));
+  }, [project?.id, canAccessProject]);
+
+  useEffect(() => {
+    if (!project || !canAccessProject) return;
+    const limitCount = showGachaHistory ? 15 : 1;
+    return subscribeGachaDraws(project.id, limitCount, (draws) => setGachaState({ projectId: project.id, draws }));
+  }, [project?.id, canAccessProject, showGachaHistory]);
 
   useEffect(() => setMenuOpen(false), [section]);
 
@@ -133,7 +161,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
     };
   }, [menuOpen]);
 
-  if (project === undefined)
+  if (projectPending || project === undefined)
     return (
       <div className="full-loader">
         <span className="loader" />
@@ -229,9 +257,9 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
           {section === 'board' && <Board {...common} />}
           {section === 'calendar' && <Calendar {...common} />}
           {section === 'milestones' && <Milestones {...common} />}
-          {section === 'gacha' && <Gacha {...common} />}
+          {section === 'gacha' && <Gacha {...common} draws={gachaDraws} />}
           {section === 'design' && <SoftwareDesign {...common} />}
-          {section === 'notes' && <Notes {...common} />}
+          {section === 'notes' && <Notes {...common} documentId={documentId} />}
           {section === 'votes' && <Votes {...common} />}
           {section === 'team' && <Team {...common} />}
           {section === 'settings' && <Settings {...common} />}
@@ -311,7 +339,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
       )}
       <ProjectChat context={context} project={project} readOnly={readOnly} />
       <Suspense fallback={null}>
-        <GachaReveal projectId={project.id} locale={locale} />
+        <GachaReveal projectId={project.id} locale={locale} latestDraw={gachaDraws[0] ?? null} />
       </Suspense>
     </div>
   );

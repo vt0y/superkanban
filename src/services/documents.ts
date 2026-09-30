@@ -1,0 +1,109 @@
+import type { User } from 'firebase/auth';
+import {
+  collection,
+  deleteField,
+  doc,
+  onSnapshot,
+  runTransaction,
+  serverTimestamp,
+  writeBatch,
+  type Unsubscribe,
+} from 'firebase/firestore';
+import type { LoadedProjectDocument, ProjectDocument, ProjectDocumentBody } from '@/types';
+import { DOCUMENT_BODY_MAX_BYTES, documentMetadata } from '@/utils/documents';
+import { activityData, database, withId } from './helpers';
+
+function metadataRef(projectId: string, documentId: string) {
+  return doc(database(), 'projects', projectId, 'documents', documentId);
+}
+
+function bodyRef(projectId: string, documentId: string) {
+  return doc(database(), 'projects', projectId, 'documentBodies', documentId);
+}
+
+function assertDocumentSize(content: string) {
+  const bytes = documentMetadata(content).contentBytes;
+  if (bytes > DOCUMENT_BODY_MAX_BYTES) throw new Error('DOCUMENT_TOO_LARGE');
+}
+
+export function subscribeProjectDocument(
+  projectId: string,
+  documentId: string,
+  callback: (value: LoadedProjectDocument | null) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  let metadata: ProjectDocument | null | undefined;
+  let body: string | undefined;
+  let bodyLoaded = false;
+
+  const emit = () => {
+    if (metadata === undefined) return;
+    if (metadata === null) return callback(null);
+    if (typeof metadata.content === 'string') return callback({ ...metadata, content: metadata.content });
+    if (bodyLoaded) callback({ ...metadata, content: body || '' });
+  };
+
+  const stopMetadata = onSnapshot(metadataRef(projectId, documentId), (snapshot) => {
+    metadata = snapshot.exists() ? withId<ProjectDocument>(snapshot) : null;
+    emit();
+  }, onError);
+  const stopBody = onSnapshot(bodyRef(projectId, documentId), (snapshot) => {
+    bodyLoaded = true;
+    body = snapshot.exists() ? (snapshot.data() as ProjectDocumentBody).content : '';
+    emit();
+  }, onError);
+
+  return () => { stopMetadata(); stopBody(); };
+}
+
+export async function createProjectDocument(projectId: string, title: string, content: string, user: User): Promise<string> {
+  assertDocumentSize(content);
+  const store = database();
+  const itemRef = doc(collection(store, 'projects', projectId, 'documents'));
+  const itemBodyRef = doc(store, 'projects', projectId, 'documentBodies', itemRef.id);
+  const activityRef = doc(collection(store, 'projects', projectId, 'activities'));
+  const batch = writeBatch(store);
+  batch.set(itemRef, { title, ...documentMetadata(content), createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  batch.set(itemBodyRef, { content });
+  batch.set(activityRef, activityData(user, 'document_created', `สร้างเอกสาร “${title}”`, `created document “${title}”`, itemRef.id));
+  await batch.commit();
+  return itemRef.id;
+}
+
+export async function updateProjectDocument(projectId: string, documentId: string, title: string, content: string): Promise<void> {
+  assertDocumentSize(content);
+  const store = database();
+  const batch = writeBatch(store);
+  batch.update(doc(store, 'projects', projectId, 'documents', documentId), {
+    title,
+    ...documentMetadata(content),
+    content: deleteField(),
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(store, 'projects', projectId, 'documentBodies', documentId), { content });
+  await batch.commit();
+}
+
+export async function deleteProjectDocument(projectId: string, documentId: string): Promise<void> {
+  const store = database();
+  const batch = writeBatch(store);
+  batch.delete(doc(store, 'projects', projectId, 'documentBodies', documentId));
+  batch.delete(doc(store, 'projects', projectId, 'documents', documentId));
+  await batch.commit();
+}
+
+/** Idempotently moves an embedded legacy body without changing the document's visible timestamp. */
+export async function migrateLegacyProjectDocument(projectId: string, documentId: string): Promise<void> {
+  const store = database();
+  const itemRef = doc(store, 'projects', projectId, 'documents', documentId);
+  const itemBodyRef = doc(store, 'projects', projectId, 'documentBodies', documentId);
+  await runTransaction(store, async (transaction) => {
+    const [itemSnapshot, bodySnapshot] = await Promise.all([transaction.get(itemRef), transaction.get(itemBodyRef)]);
+    if (!itemSnapshot.exists()) return;
+    const item = itemSnapshot.data() as Omit<ProjectDocument, 'id'>;
+    if (item.schemaVersion === 2 || typeof item.content !== 'string') return;
+    assertDocumentSize(item.content);
+    if (!bodySnapshot.exists()) transaction.set(itemBodyRef, { content: item.content });
+    transaction.update(itemRef, { ...documentMetadata(item.content), content: deleteField() });
+  });
+}

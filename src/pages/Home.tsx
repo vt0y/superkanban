@@ -32,6 +32,11 @@ export function Home({ context }: { context: AppContextValue }) {
             ＋ {context.t('newProject')}
           </button>
         </section>
+        <button className="home-tarot-card" onClick={() => navigate('/tarot')}>
+          <span className="home-tarot-moon">☾</span>
+          <span><small>ARCANA · AI TAROT</small><strong>{context.locale === 'th' ? 'จักรวาลมีสิ่งใดอยากบอกคุณ' : 'What does the universe want you to know?'}</strong><em>{context.locale === 'th' ? 'สับสำรับ เลือกไพ่ 3 ใบ และรับคำทำนายจาก AI' : 'Shuffle, choose three cards, and receive your AI reading'}</em></span>
+          <b>{context.locale === 'th' ? 'เปิดไพ่' : 'Enter'} →</b>
+        </button>
         <section className="home-section">
           <div className="section-title">
             <div>

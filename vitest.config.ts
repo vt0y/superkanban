@@ -12,9 +12,8 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'scripts/**/*.test.js'],
     // Pin the domain so tests don't depend on the local .env.
     env: { ALLOWED_EMAIL_DOMAINS: 'example.com' },
   },
 });
-

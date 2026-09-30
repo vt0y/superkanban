@@ -1,46 +1,68 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { documentId, limit, orderBy } from 'firebase/firestore';
-import DOMPurify from 'dompurify';
-import { marked } from 'marked';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
-import { CanvasControls, Empty, Modal, PageTitle } from '@/components/common';
+import { CanvasControls, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
 import { useActiveTasks, useCanvasViewport, useItemDrag, useProjectItems } from '@/hooks';
 import { NOTE_COLORS } from '@/config/constants';
 import { parseContentWithLinks } from '@/utils/linkify';
 import { canDeleteItem } from '@/utils/permissions';
-import { bulkUpdateWorkItems, createWorkItem, deleteWorkItem, loadProjectCollectionPage, subscribeProjectQuery, updateWorkItem, type CollectionCursor } from '@/services';
-import type { ProjectDocument, Role, StickyNote, Task } from '@/types';
+import { bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, loadProjectCollectionPage, migrateLegacyProjectDocument, subscribeProjectDocument, subscribeProjectQuery, updateProjectDocument, updateWorkItem, type CollectionCursor } from '@/services';
+import type { LoadedProjectDocument, ProjectDocument, Role, StickyNote, Task } from '@/types';
 import { attempt } from '@/components/toast';
 import { pick, relativeTime } from '@/utils/formatters';
+import { DOCUMENT_BODY_MAX_BYTES, DOCUMENT_TITLE_MAX_LENGTH, documentContentBytes } from '@/utils/documents';
 
 const NOTE_W = 210;
 const NOTE_H = 160;
 
-export function Notes({ context, project, role, readOnly }: SectionProps) {
+export function Notes({ context, project, role, readOnly, documentId: selectedDocumentId }: SectionProps & { documentId?: string }) {
+  if (selectedDocumentId) return <DocumentReader documentId={selectedDocumentId} projectId={project.id} context={context} role={role} readOnly={readOnly} />;
+  return <NotesOverview context={context} project={project} role={role} readOnly={readOnly} />;
+}
+
+function NotesOverview({ context, project, role, readOnly }: Omit<SectionProps, 'members'>) {
   const notes = useProjectItems<StickyNote>(project.id, 'stickyNotes');
-  const [tab, setTab] = useState<'sticky' | 'documents'>('sticky');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState<'sticky' | 'documents'>(() => searchParams.get('tab') === 'documents' ? 'documents' : 'sticky');
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
+  const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [documentCursor, setDocumentCursor] = useState<CollectionCursor | null>(null);
   const [documentsHaveMore, setDocumentsHaveMore] = useState(false);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const documentsPaged = useRef(false);
   const tasks = useActiveTasks(project.id);
   const [noteModal, setNoteModal] = useState<StickyNote | { x: number; y: number } | null>(null);
-  const [docModal, setDocModal] = useState<ProjectDocument | 'new' | null>(null);
+  const [docModal, setDocModal] = useState<LoadedProjectDocument | 'new' | null>(null);
+  const navigate = useNavigate();
   const { locale } = context;
 
   useEffect(() => {
-    if (tab !== 'documents') return;
+    setTab(searchParams.get('tab') === 'documents' ? 'documents' : 'sticky');
+  }, [searchParams]);
+
+  const selectTab = (next: 'sticky' | 'documents') => {
+    setTab(next);
+    setSearchParams(next === 'documents' ? { tab: 'documents' } : {}, { replace: true });
+  };
+
+  useEffect(() => {
+    // Document records contain only lightweight metadata; subscribe immediately so
+    // the tab badge is truthful before the user opens the Documents tab. Bodies
+    // remain lazy-loaded by DocumentReader.
+    setDocuments([]);
+    setDocumentsLoaded(false);
     documentsPaged.current = false;
     return subscribeProjectQuery<ProjectDocument>(project.id, 'documents', 'recent:50', [orderBy('updatedAt', 'desc'), orderBy(documentId()), limit(50)], (items) => {
       setDocuments((current) => [...items, ...current.filter((item) => !items.some((recent) => recent.id === item.id))]);
+      setDocumentsLoaded(true);
       const last = items.at(-1);
       if (!documentsPaged.current) {
         setDocumentCursor(last?.updatedAt ? { value: last.updatedAt, id: last.id } : null);
         setDocumentsHaveMore(items.length === 50);
       }
     });
-  }, [project.id, tab]);
+  }, [project.id]);
 
   const loadMoreDocuments = async () => {
     if (!documentCursor || loadingDocuments) return;
@@ -56,12 +78,12 @@ export function Notes({ context, project, role, readOnly }: SectionProps) {
 
   return <>
     <PageTitle eyebrow="KNOWLEDGE SPACE" title={context.t('notes')} description={pick(locale, 'เก็บไอเดีย โน้ตสั้น และเอกสารสำคัญของโปรเจกต์', 'Ideas, quick notes and key documents')} action={!readOnly && <button className="primary" onClick={() => tab === 'sticky' ? setNoteModal({ x: NaN, y: NaN }) : setDocModal('new')}>＋ {tab === 'sticky' ? context.t('sticky') : context.t('documents')}</button>} />
-    <div className="content-tabs"><button className={tab === 'sticky' ? 'active' : ''} onClick={() => setTab('sticky')}>{context.t('sticky')} <b>{notes.length}</b></button><button className={tab === 'documents' ? 'active' : ''} onClick={() => setTab('documents')}>{context.t('documents')} <b>{documents.length}</b></button></div>
+    <div className="content-tabs"><button className={tab === 'sticky' ? 'active' : ''} onClick={() => selectTab('sticky')}>{context.t('sticky')} <b>{notes.length}</b></button><button className={tab === 'documents' ? 'active' : ''} onClick={() => selectTab('documents')}>{context.t('documents')} <b>{documentsLoaded ? `${documents.length}${documentsHaveMore ? '+' : ''}` : '…'}</b></button></div>
     {tab === 'sticky'
       ? <StickyCanvas notes={notes} tasks={tasks} context={context} projectId={project.id} role={role} readOnly={readOnly} onEdit={setNoteModal} />
-      : <><DocumentList documents={documents} onOpen={setDocModal} locale={locale} />{documentsHaveMore && <div className="load-more-row"><button type="button" className="secondary" disabled={loadingDocuments} onClick={() => void loadMoreDocuments()}>{loadingDocuments ? pick(locale, 'กำลังโหลด…', 'Loading…') : pick(locale, 'โหลดเอกสารเพิ่มเติม', 'Load more documents')}</button></div>}</>}
+      : <><DocumentList documents={documents} projectId={project.id} locale={locale} />{documentsHaveMore && <div className="load-more-row"><button type="button" className="secondary" disabled={loadingDocuments} onClick={() => void loadMoreDocuments()}>{loadingDocuments ? pick(locale, 'กำลังโหลด…', 'Loading…') : pick(locale, 'โหลดเอกสารเพิ่มเติม', 'Load more documents')}</button></div>}</>}
     {noteModal && <StickyModal item={'id' in noteModal ? noteModal : null} position={'id' in noteModal ? undefined : noteModal} projectId={project.id} tasks={tasks} context={context} role={role} readOnly={readOnly} onClose={() => setNoteModal(null)} />}
-    {docModal && <DocumentModal item={docModal === 'new' ? null : docModal} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} />}
+    {docModal && <DocumentModal item={docModal === 'new' ? null : docModal} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} onSaved={(id) => { setDocModal(null); navigate(`/p/${project.id}/notes/${id}`); }} />}
   </>;
 }
 
@@ -139,15 +161,61 @@ function StickyModal({ item, position, projectId, tasks, context, role, readOnly
   return <Modal title={item ? (readOnly ? t('sticky') : t('edit')) : t('sticky')} onClose={onClose} actions={!readOnly && <button form={formId} className="primary">{t('save')}</button>}><form id={formId} className="stack-form" onSubmit={submit}><fieldset className="read-only-fields" disabled={readOnly}><label>{pick(locale, 'ข้อความ', 'Text')}<textarea autoFocus rows={6} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} required maxLength={800} /></label><fieldset><legend>{pick(locale, 'สี', 'Color')}</legend><div className="color-picker light">{NOTE_COLORS.map((color) => <button type="button" key={color} className={form.color === color ? 'selected' : ''} style={{ background: color }} onClick={() => setForm({ ...form, color })} aria-label={color} />)}</div></fieldset><label>{pick(locale, 'ผูกกับ Task', 'Linked task')}<select value={form.taskId} onChange={(e) => setForm({ ...form, taskId: e.target.value })}><option value="">—</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label><label className="simple-check"><input type="checkbox" checked={form.pinned} onChange={(e) => setForm({ ...form, pinned: e.target.checked })} /> {pick(locale, 'ปักหมุด (ล็อกตำแหน่ง)', 'Pinned (lock position)')}</label></fieldset><div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(t('delete') + '?')) { await attempt(() => deleteWorkItem(projectId, 'stickyNotes', item.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary">{t('save')}</button>}</div></form></Modal>;
 }
 
-function DocumentList({ documents, onOpen, locale }: { documents: ProjectDocument[]; onOpen: (doc: ProjectDocument) => void; locale: string }) {
-  return <div className="document-list">{documents.map((document) => <button key={document.id} onClick={() => onOpen(document)}><span>▤</span><div><h3>{document.title}</h3><p>{document.content.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b>→</b></button>)}{!documents.length && <Empty icon="▤" title={pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={pick(locale, 'สร้างเอกสาร Markdown สำหรับสเปกหรือบันทึกการประชุม', 'Create Markdown docs for specs or meeting notes')} />}</div>;
+function DocumentList({ documents, projectId, locale }: { documents: ProjectDocument[]; projectId: string; locale: string }) {
+  return <div className="document-list">{documents.map((document) => <Link key={document.id} to={`/p/${projectId}/notes/${document.id}`}><span>▤</span><div><h3>{document.title}</h3><p>{document.excerpt || document.content?.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b>→</b></Link>)}{!documents.length && <Empty icon="▤" title={pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={pick(locale, 'สร้างเอกสาร Markdown สำหรับสเปกหรือบันทึกการประชุม', 'Create Markdown docs for specs or meeting notes')} />}</div>;
 }
 
-function DocumentModal({ item, projectId, context, role, readOnly, onClose }: { item: ProjectDocument | null; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void }) {
+function DocumentReader({ documentId, projectId, context, role, readOnly }: { documentId: string; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean }) {
+  const { locale } = context;
+  const navigate = useNavigate();
+  const [item, setItem] = useState<LoadedProjectDocument | null | undefined>(undefined);
+  const [failed, setFailed] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    setItem(undefined);
+    setFailed(false);
+    return subscribeProjectDocument(projectId, documentId, setItem, () => setFailed(true));
+  }, [projectId, documentId]);
+
+  useEffect(() => {
+    if (!item || item.schemaVersion === 2 || readOnly) return;
+    void migrateLegacyProjectDocument(projectId, documentId).catch(() => undefined);
+  }, [item?.id, item?.schemaVersion, projectId, documentId, readOnly]);
+
+  if (item === undefined && !failed) return <div className="document-reader-state"><span className="loader" /></div>;
+  if (!item || failed) return <div className="document-reader-state"><Empty icon="▤" title={pick(locale, 'ไม่พบเอกสาร', 'Document not found')} description={pick(locale, 'เอกสารนี้อาจถูกลบหรือคุณไม่มีสิทธิ์เข้าถึง', 'It may have been deleted or you may not have access.')} /><Link className="secondary" to={`/p/${projectId}/notes?tab=documents`}>{pick(locale, 'กลับไปเอกสาร', 'Back to documents')}</Link></div>;
+
+  return <>
+    <section className="document-reader-shell">
+      <header className="document-reader-toolbar">
+        <button type="button" className="secondary document-back" onClick={() => navigate(`/p/${projectId}/notes?tab=documents`)}><span aria-hidden="true">←</span><span>{pick(locale, 'เอกสาร', 'Documents')}</span></button>
+        <div><h1>{item.title}</h1><small>{pick(locale, 'แก้ไขล่าสุด', 'Updated')} {relativeTime(item.updatedAt?.toDate(), locale)}</small></div>
+        {!readOnly && <button type="button" className="primary" onClick={() => setEditing(true)}>{pick(locale, 'แก้ไข', 'Edit')}</button>}
+      </header>
+      <MarkdownRenderer content={item.content} locale={locale} className="document-reader-content" />
+    </section>
+    {editing && <DocumentModal item={item} projectId={projectId} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} onDeleted={() => navigate(`/p/${projectId}/notes?tab=documents`)} />}
+  </>;
+}
+
+function DocumentModal({ item, projectId, context, role, readOnly, onClose, onSaved, onDeleted }: { item: LoadedProjectDocument | null; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void; onSaved: (id: string) => void; onDeleted?: () => void }) {
   const { user, t, locale } = context;
   const [title, setTitle] = useState(item?.title || 'Untitled'); const [content, setContent] = useState(item?.content || '# New document\n'); const [preview, setPreview] = useState(readOnly);
-  const safeHtml = useMemo(() => DOMPurify.sanitize(marked.parse(content) as string), [content]);
-  const submit = async (e: FormEvent) => { e.preventDefault(); const ok = await attempt(() => (item ? updateWorkItem(projectId, 'documents', item.id, { title, content }) : createWorkItem(projectId, 'documents', { title, content }, user, { type: 'document_created', th: `สร้างเอกสาร “${title}”`, en: `created document “${title}”` })).then(() => true), pick(locale, 'บันทึกไม่สำเร็จ', 'Save failed')); if (ok) onClose(); };
+  const contentBytes = useMemo(() => documentContentBytes(content), [content]);
+  const tooLarge = contentBytes > DOCUMENT_BODY_MAX_BYTES;
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (tooLarge) return;
+    let savedId = item?.id || '';
+    const ok = await attempt(async () => {
+      if (item) await updateProjectDocument(projectId, item.id, title, content);
+      else savedId = await createProjectDocument(projectId, title, content, user);
+      return true;
+    }, pick(locale, 'บันทึกไม่สำเร็จ', 'Save failed'));
+    if (ok) onSaved(savedId);
+  };
   const formId = useId();
-  return <Modal title={item ? (readOnly ? item.title : t('edit')) : t('documents')} onClose={onClose} wide actions={!readOnly && <button form={formId} className="primary">{t('save')}</button>}><form id={formId} className="document-editor" onSubmit={submit}><div className="document-title-row"><input value={title} onChange={(e) => setTitle(e.target.value)} required disabled={readOnly} /><div>{!readOnly && <button type="button" className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>Edit</button>}<button type="button" className={preview ? 'active' : ''} onClick={() => setPreview(true)}>Preview</button></div></div>{preview ? <article className="markdown" dangerouslySetInnerHTML={{ __html: safeHtml }} /> : <textarea value={content} onChange={(e) => setContent(e.target.value)} spellCheck disabled={readOnly} />}<div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(`${t('delete')}?`)) { await attempt(() => deleteWorkItem(projectId, 'documents', item.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary">{t('save')}</button>}</div></form></Modal>;
+  const sizeLabel = `${(contentBytes / 1024).toFixed(contentBytes < 10240 ? 1 : 0)} / ${DOCUMENT_BODY_MAX_BYTES / 1024} KB`;
+  return <Modal title={item ? (readOnly ? item.title : t('edit')) : t('documents')} onClose={onClose} wide actions={!readOnly && <button form={formId} className="primary" disabled={tooLarge}>{t('save')}</button>}><form id={formId} className="document-editor" onSubmit={submit}><div className="document-title-row"><input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={DOCUMENT_TITLE_MAX_LENGTH} disabled={readOnly} /><div>{!readOnly && <button type="button" className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>Edit</button>}<button type="button" className={preview ? 'active' : ''} onClick={() => setPreview(true)}>Preview</button></div></div>{preview ? <MarkdownRenderer content={content} locale={locale} /> : <textarea value={content} onChange={(e) => setContent(e.target.value)} spellCheck disabled={readOnly} />}<div className={`document-size ${tooLarge ? 'over' : ''}`}><span>{tooLarge ? pick(locale, 'เอกสารใหญ่เกินขีดจำกัด 900 KB', 'Document exceeds the 900 KB limit') : pick(locale, 'ขนาด UTF-8', 'UTF-8 size')}</span><b>{sizeLabel}</b></div><div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(`${t('delete')}?`)) { const ok = await attempt(() => deleteProjectDocument(projectId, item.id).then(() => true), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); if (ok) { onClose(); onDeleted?.(); } } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary" disabled={tooLarge}>{t('save')}</button>}</div></form></Modal>;
 }

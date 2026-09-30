@@ -65,8 +65,9 @@ ProjectSpace operates as a high-performance Single Page Application (SPA) design
 
 ### F. Infinite Notes Canvas & Markdown Documents
 - 2D pan/zoom sticky notes board with color categories and task anchoring.
-- Rich Markdown documentation editor with live preview and DOMPurify sanitization.
-- Egress optimization: Document body downloads are deferred until documents tab is accessed.
+- Dedicated, shareable Markdown document reader with a live editor preview and DOMPurify sanitization.
+- Lazy Mermaid diagrams from fenced `mermaid` blocks, including flowchart, sequence, class, state, ER, Gantt, and other supported types.
+- Egress optimization: document lists load metadata only; Markdown bodies are downloaded only when opened.
 
 ### G. Lucky Draw / Task Gacha Engine
 - Fair weighted raffle system for distributing tasks among team members.
@@ -87,6 +88,14 @@ ProjectSpace operates as a high-performance Single Page Application (SPA) design
 - 3-tier role hierarchy: Project Owner, Admin, and Member.
 - Dual language support: English and Thai.
 - Theme switching: Light, Dark, and System modes.
+
+### J. Mystic Cosmic AI Tarot
+- Authenticated `/tarot` experience linked from ProjectSpace, with a visual identity separate from the workspace UI.
+- Users choose three face-down cards from all 78 Rider–Waite cards; the hidden shuffle and reveal mapping stay in a Cloudflare Worker/D1 session.
+- KKU GenAI produces a Thai or English Past–Present–Future reading through a server-side API-key proxy.
+- The latest 20 readings are private to the user and may be deleted individually or together.
+- Card images are designed to be served from Backblaze B2 through Cloudflare CDN; setup details are in [`workers/tarot/README.md`](./workers/tarot/README.md).
+- คู่มือตั้งค่าระบบ รูปภาพ D1 Worker และ deployment ภาษาไทย: [`TAROT_SETUP_TH.md`](./TAROT_SETUP_TH.md)
 
 ---
 
@@ -110,6 +119,8 @@ All configuration variables and feature toggles must come strictly from `.env` f
 | ALLOWED_EMAIL_DOMAINS              | string    | Space-separated allowed email domains          | "" (allow all)  |
 | CONNECTS_GITHUB                    | boolean   | Enable GitHub integration across the UI        | false (OFF)     |
 | CONNECTS_GITHUB_APP_SLUG           | string    | Slug of your GitHub App (github.com/apps/<slug>)| "" (required)   |
+| VITE_TAROT_API_URL                 | URL       | Deployed Cloudflare Tarot Worker                | Required for Tarot |
+| VITE_TAROT_CDN_BASE_URL            | URL       | Cloudflare-proxied Backblaze B2 card origin     | Required for card art |
 +------------------------------------+-----------+------------------------------------------------+-----------------+
 ```
 
@@ -183,6 +194,22 @@ Firestore security rules ([firestore.rules](./firestore.rules)) enforce strict i
 - **GitHub Privilege Enforcement**: Only project owners can modify `githubPermission` on membership documents.
 - **GitHub Invitation Model**: When collaborator permissions are assigned, GitHub sends an invitation to the specified username. Access is only granted when that user accepts the invite on GitHub.com.
 
+### Tarot history trust and quota trade-off
+
+Tarot history is currently written by the browser to `users/{uid}/tarotReadings`. Firestore Rules restrict each user to their own path and validate the document shape, but they cannot prove that a submitted `requestId`, card selection, or reading was produced by the Tarot Worker. Consequently, an authenticated user from an allowed email domain can forge entries in their own history. They cannot write to another user's history, bypass the Worker's daily reading quota, or obtain additional AI readings through this path.
+
+This is an accepted low-impact limitation while history remains private, informational data that is not used for rewards, quotas, audits, statistics, or administrative decisions. The current architecture also keeps forged-history traffic away from the shared Tarot Worker.
+
+| Approach | Abuse boundary | Free-tier pressure |
+|---|---|---|
+| Browser writes history to Firestore (current) | A signed-in user can forge only their own history | Firestore Standard includes 20,000 document writes per day; direct forged writes do not consume Worker requests |
+| A generic Worker history POST endpoint | Without authoritative session validation, the same abuse moves to shared Worker/D1 capacity | Workers Free includes 100,000 requests per day; D1 Free includes 100,000 rows written per day, and index updates can add row writes |
+| Worker saves automatically after a successful reveal | History is authoritative and remains bounded by authentication, reveal rate limits, and the daily reading quota | Safest server-side design, but adds D1 writes and operational coupling to every successful reveal |
+
+The Firestore approach reaches its free write allowance sooner under direct write abuse, but the blast radius is primarily Firestore. A naive Worker POST endpoint can be worse operationally because exhausting the account-wide Worker or D1 allowance can make the complete Tarot API unavailable. If history later becomes trusted business data, move persistence into the existing reveal transaction or another server-controlled flow; do not add a client-supplied generic history endpoint.
+
+Current limits should be rechecked before an architecture change: [Firestore pricing and free quota](https://firebase.google.com/docs/firestore/pricing), [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), and [Cloudflare D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/).
+
 ---
 
 ## 6. Performance and Bandwidth Optimizations
@@ -211,7 +238,7 @@ The application is tuned to minimize Firestore reads and hosting bandwidth:
 | Calendar | tasks dated in selected month + active unscheduled + small collections |
 | Design | diagrams/use cases + nodes and edges for the selected diagram |
 | Votes | open polls + up to 50 closed polls + votes for visible polls (IDs chunked by 30) |
-| Notes / Documents | sticky notes + active task choices; documents only when opened, up to 50 |
+| Notes / Documents | sticky notes + active task choices; up to 50 document metadata records, plus one body only when opened |
 | Feedback | latest 50 matching records |
 
 Counts are upper bounds based on returned documents. Listener reconnects, local cache state, and concurrent changes can affect billing.

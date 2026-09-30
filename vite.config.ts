@@ -19,6 +19,7 @@ export default defineConfig({
         manualChunks: {
           react: ['react', 'react-dom', 'react-router-dom'],
           editor: ['marked', 'dompurify'],
+          mermaid: ['mermaid'],
           firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
         },
       },

@@ -5,6 +5,7 @@ export interface AppContextValue {
   user: User;
   profile: UserProfile;
   projects: Project[];
+  projectsLoaded: boolean;
   siteRole: SiteRole | null;
   locale: Locale;
   t: (key: string) => string;

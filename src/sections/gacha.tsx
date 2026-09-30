@@ -4,7 +4,7 @@ import { Avatar, PageTitle } from '@/components/common';
 import { attempt, toast } from '@/components/toast';
 import type { SectionProps } from '@/context/AppContext';
 import { useActiveTasks, useProjectItems } from '@/hooks';
-import { MAX_GACHA_CARDS, MAX_GACHA_TARGETS, runGachaDraw, subscribeRecentGachaDraws } from '@/services';
+import { MAX_GACHA_CARDS, MAX_GACHA_TARGETS, runGachaDraw } from '@/services';
 import type { GachaBag, GachaDraw, GachaTargetType, ProjectUseCase, Task } from '@/types';
 import { oddsFor } from '@/utils/gacha';
 import { formatDateTime, pick } from '@/utils/formatters';
@@ -13,13 +13,11 @@ import { GenericGachaReveal, type GenericAnimation, type GenericRevealData } fro
 
 type Filter = 'all' | GachaTargetType;
 
-export function Gacha({ context, project, members, readOnly }: SectionProps) {
+export function Gacha({ context, project, members, readOnly, draws }: SectionProps & { draws: GachaDraw[] }) {
   const [modeParams, setModeParams] = useSearchParams();
   const tasks = useActiveTasks(project.id);
   const useCases = useProjectItems<ProjectUseCase>(project.id, 'useCases');
   const bags = useProjectItems<GachaBag>(project.id, 'gachaBags');
-  const [draws, setDraws] = useState<GachaDraw[]>([]);
-  useEffect(() => subscribeRecentGachaDraws(project.id, 15, setDraws), [project.id]);
   const [candidateIds, setCandidateIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [winnerCounts, setWinnerCounts] = useState<Record<string, number>>({});
