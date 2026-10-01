@@ -107,8 +107,14 @@ service cloud.firestore {
       function validTime(key) {
         return !(key in request.resource.data) || (request.resource.data[key] is string && request.resource.data[key].matches('^(([01][0-9]|2[0-3]):[0-5][0-9])?$'));
       }
+      function validLabelIds() {
+        return !('labelIds' in request.resource.data) || (request.resource.data.labelIds is list && request.resource.data.labelIds.size() <= 50);
+      }
+      function validDocumentLinks() {
+        return !('taskIds' in request.resource.data) || (request.resource.data.taskIds is list && request.resource.data.taskIds.size() <= 100);
+      }
       function validTaskLists() {
-        return (!('labelIds' in request.resource.data) || (request.resource.data.labelIds is list && request.resource.data.labelIds.size() <= 50))
+        return validLabelIds()
           && (!('checklist' in request.resource.data) || (request.resource.data.checklist is list && request.resource.data.checklist.size() <= 100));
       }
       function validDriveMetadata() {
@@ -141,24 +147,7 @@ service cloud.firestore {
       }
       match /taskAttachments/{itemId} {
         allow read: if isMember(projectId);
-        allow create: if validWorkCreate(projectId)
-          && request.resource.data.keys().hasAll(['taskId','driveFileId','name','mimeType','shareMode','sharedMemberIds','createdBy','createdAt','updatedAt'])
-          && request.resource.data.keys().hasOnly(['taskId','driveFileId','name','mimeType','sizeBytes','shareMode','sharedMemberIds','managedPermissionIds','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
-          && request.resource.data.taskId is string
-          && itemId == request.resource.data.taskId + '_' + request.resource.data.driveFileId
-          && exists(/databases/$(database)/documents/projects/$(projectId)/tasks/$(request.resource.data.taskId))
-          && validDriveMetadata()
-          && request.resource.data.createdAt == request.time
-          && request.resource.data.updatedAt == request.time;
-        allow update: if projectActive(projectId) && isMember(projectId)
-          && resource.data.createdBy == request.auth.uid
-          && request.resource.data.createdBy == resource.data.createdBy
-          && request.resource.data.shareMode == 'members'
-          && request.resource.data.createdAt == resource.data.createdAt
-          && request.resource.data.updatedAt == request.time
-          && request.resource.data.permissionsSyncedAt == request.time
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sharedMemberIds','managedPermissionIds','permissionsSyncedAt','updatedAt'])
-          && validDriveMetadata();
+        allow create, update: if false;
         allow delete: if projectActive(projectId) && (isAdmin(projectId)
           || (isMember(projectId) && resource.data.createdBy == request.auth.uid)
           || (isMember(projectId) && get(/databases/$(database)/documents/projects/$(projectId)/tasks/$(resource.data.taskId)).data.createdBy == request.auth.uid));
@@ -195,26 +184,31 @@ service cloud.firestore {
       }
       match /documents/{itemId} {
         function validLegacyDocument() {
-          return request.resource.data.keys().hasOnly(['title','content','createdBy','createdAt','updatedAt'])
+          return request.resource.data.keys().hasOnly(['title','content','labelIds','taskIds','createdBy','createdAt','updatedAt'])
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
-            && request.resource.data.content is string && request.resource.data.content.toUtf8().size() <= 921600;
+            && request.resource.data.content is string && request.resource.data.content.toUtf8().size() <= 921600
+            && validLabelIds() && validDocumentLinks();
         }
         function validV2Document() {
-          return request.resource.data.keys().hasOnly(['kind','schemaVersion','title','excerpt','contentBytes','createdBy','createdAt','updatedAt'])
+          return request.resource.data.keys().hasOnly(['kind','schemaVersion','title','labelIds','taskIds','excerpt','contentBytes','createdBy','createdAt','updatedAt'])
             && (!('kind' in request.resource.data) || request.resource.data.kind == 'markdown')
             && request.resource.data.schemaVersion == 2
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
             && request.resource.data.excerpt is string && request.resource.data.excerpt.size() <= 240
             && request.resource.data.contentBytes is int && request.resource.data.contentBytes >= 0 && request.resource.data.contentBytes <= 921600
+            && validLabelIds() && validDocumentLinks()
             && existsAfter(projectDocumentBodyPath(projectId, itemId))
             && getAfter(projectDocumentBodyPath(projectId, itemId)).data.content.toUtf8().size() == request.resource.data.contentBytes;
         }
         function validDriveDocument() {
           return request.resource.data.keys().hasAll(['kind','title','driveFileId','name','mimeType','shareMode','sharedMemberIds','createdBy','createdAt','updatedAt'])
-            && request.resource.data.keys().hasOnly(['kind','title','driveFileId','name','mimeType','sizeBytes','shareMode','sharedMemberIds','managedPermissionIds','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
+            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','driveFileId','name','mimeType','sizeBytes','shareMode','sharedMemberIds','managedPermissionIds','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
             && request.resource.data.kind == 'drive'
             && itemId == 'drive_' + request.resource.data.driveFileId
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
+            && (!('nickname' in request.resource.data) || (request.resource.data.nickname is string && request.resource.data.nickname.size() <= 200))
+            && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 1000))
+            && validLabelIds() && validDocumentLinks()
             && validDriveMetadata();
         }
         allow read: if isMember(projectId);
@@ -222,6 +216,9 @@ service cloud.firestore {
           || (validDriveDocument() && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time));
         allow update: if projectActive(projectId) && isMember(projectId) && request.resource.data.createdBy == resource.data.createdBy
           && (validLegacyDocument() || validV2Document()
+            || (resource.data.kind == 'drive' && request.resource.data.updatedAt == request.time
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname','description','labelIds','taskIds','updatedAt'])
+              && validDriveDocument())
             || (resource.data.kind == 'drive'
               && resource.data.createdBy == request.auth.uid
               && request.resource.data.shareMode == 'members'

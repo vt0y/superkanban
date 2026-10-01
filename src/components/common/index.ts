@@ -12,3 +12,4 @@ export * from './CanvasControls';
 export * from './TimeField';
 export * from './MarkdownRenderer';
 export * from './DriveAttachmentControl';
+export * from './DocumentPickerModal';

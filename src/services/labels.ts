@@ -1,5 +1,5 @@
 import type { User } from 'firebase/auth';
-import { collection, doc, serverTimestamp, writeBatch, type WriteBatch } from 'firebase/firestore';
+import { collection, doc, getCountFromServer, getDocs, query, serverTimestamp, where, writeBatch, type WriteBatch } from 'firebase/firestore';
 import { LABEL_COLORS } from '@/config/constants';
 import type { Label, Task } from '@/types';
 import { activityData, BATCH_CHUNK, database } from './helpers';
@@ -22,14 +22,30 @@ export async function createLabel(projectId: string, name: string, color: string
   return ref.id;
 }
 
-/** Deletes a label and removes it from every task that uses it. */
-export async function deleteLabel(projectId: string, labelId: string, tasks: Task[]): Promise<void> {
+/** Deletes a label after removing it from every task and document that uses it. */
+export async function deleteLabel(projectId: string, labelId: string): Promise<void> {
   const store = database();
+  const [tasks, documents] = await Promise.all([
+    getDocs(query(collection(store, 'projects', projectId, 'tasks'), where('labelIds', 'array-contains', labelId))),
+    getDocs(query(collection(store, 'projects', projectId, 'documents'), where('labelIds', 'array-contains', labelId))),
+  ]);
   await chunked([
-    ...tasks.filter((task) => task.labelIds?.includes(labelId)).map((task) => (batch: WriteBatch) =>
-      batch.update(doc(store, 'projects', projectId, 'tasks', task.id), { labelIds: task.labelIds!.filter((id) => id !== labelId), updatedAt: serverTimestamp() })),
+    ...tasks.docs.map((item) => (batch: WriteBatch) => batch.update(item.ref, { labelIds: ((item.data().labelIds || []) as string[]).filter((id) => id !== labelId), updatedAt: serverTimestamp() })),
+    ...documents.docs.map((item) => (batch: WriteBatch) => batch.update(item.ref, { labelIds: ((item.data().labelIds || []) as string[]).filter((id) => id !== labelId), updatedAt: serverTimestamp() })),
     (batch: WriteBatch) => batch.delete(doc(store, 'projects', projectId, 'labels', labelId)),
   ]);
+}
+
+export async function getLabelUsageCounts(projectId: string, labelIds: string[]): Promise<Record<string, number>> {
+  const store = database();
+  const entries = await Promise.all(labelIds.map(async (labelId) => {
+    const [tasks, documents] = await Promise.all([
+      getCountFromServer(query(collection(store, 'projects', projectId, 'tasks'), where('labelIds', 'array-contains', labelId))),
+      getCountFromServer(query(collection(store, 'projects', projectId, 'documents'), where('labelIds', 'array-contains', labelId))),
+    ]);
+    return [labelId, tasks.data().count + documents.data().count] as const;
+  }));
+  return Object.fromEntries(entries);
 }
 
 /**

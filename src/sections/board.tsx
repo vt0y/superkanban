@@ -13,7 +13,7 @@ import { blockingMilestones } from '@/utils/milestone-deps';
 import { canDeleteItem } from '@/utils/permissions';
 import { isNoopDrop, ordersForDrop } from '@/utils/board-order';
 import { matchTask, parseTaskQuery, queryValue, toggleQueryTerm } from '@/utils/task-filter';
-import { bulkUpdateWorkItems, createWorkItem, deleteTasksWithAttachments } from '@/services';
+import { bulkUpdateWorkItems, createWorkItem, deleteTasksAndUnlinkDocuments } from '@/services';
 import type { Label, Milestone, Priority, Task, TaskStatus } from '@/types';
 import { attempt, toast } from '@/components/toast';
 import { formatDue, pick } from '@/utils/formatters';
@@ -134,7 +134,7 @@ export function Board({ context, project, members, role, readOnly }: SectionProp
     const skipped = selectedIds.length - deletable.length;
     if (!deletable.length) { toast(pick(locale, 'ไม่มีสิทธิ์ลบงานที่เลือก', 'You cannot delete the selected tasks'), 'error'); return; }
     if (!confirm(pick(locale, `ลบ ${deletable.length} งาน?`, `Delete ${deletable.length} tasks?`) + (skipped ? pick(locale, ` (ข้าม ${skipped} งานที่ไม่มีสิทธิ์)`, ` (${skipped} skipped — no permission)`) : ''))) return;
-    const done = await attempt(() => deleteTasksWithAttachments(project.id, deletable).then(() => true), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed'));
+    const done = await attempt(() => deleteTasksAndUnlinkDocuments(project.id, deletable).then(() => true), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed'));
     if (done) { selection.clear(); toast(pick(locale, `ลบ ${deletable.length} งานแล้ว`, `Deleted ${deletable.length} tasks`), 'success'); }
   };
 

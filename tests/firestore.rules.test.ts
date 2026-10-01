@@ -137,6 +137,8 @@ describe('ProjectSpace Firestore rules', () => {
     await assertSucceeds(getDoc(metadata));
     await assertSucceeds(getDoc(body));
     await assertFails(getDoc(doc(context('outsider'), body.path)));
+    await assertSucceeds(updateDoc(metadata, { labelIds: ['planning'], updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(metadata, { labelIds: Array.from({ length: 51 }, (_, index) => `label-${index}`), updatedAt: serverTimestamp() }));
 
     const adminDb = context('admin');
     const update = writeBatch(adminDb);
@@ -194,6 +196,12 @@ describe('ProjectSpace Firestore rules', () => {
     }));
     await assertSucceeds(getDoc(doc(context('owner'), driveDoc.path)));
     await assertFails(getDoc(doc(context('outsider'), driveDoc.path)));
+    await assertSucceeds(updateDoc(doc(context('admin'), driveDoc.path), { labelIds: ['review'], updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(context('admin'), driveDoc.path), { nickname: 'Client review', description: 'Final approval copy', taskIds: ['task-1'], updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { labelIds: Array.from({ length: 51 }, (_, index) => `label-${index}`), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { nickname: 'x'.repeat(201), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { description: 'x'.repeat(1001), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { taskIds: Array.from({ length: 101 }, (_, index) => `task-${index}`), updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(driveDoc, { name: 'Changed.pdf' }));
     await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'documents', 'wrong-id'), {
       kind: 'drive', title: 'Wrong', driveFileId: 'file-2', name: 'Wrong', mimeType: 'text/plain',
@@ -218,22 +226,24 @@ describe('ProjectSpace Firestore rules', () => {
     await assertSucceeds(deleteDoc(doc(context('admin'), ownerDocPath)));
   });
 
-  it('task attachments ตรวจ parent, membership snapshot และสิทธิ์ detach', async () => {
+  it('task attachments รุ่นเดิมอ่าน/ลบได้แต่สร้างหรือแก้เพิ่มไม่ได้', async () => {
     await seedProject();
-    await environment.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'projects', projectId, 'tasks', 'task-1'), { title: 'Task', status: 'todo', priority: 'medium', createdBy: 'member' }));
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'projects', projectId, 'tasks', 'task-1'), { title: 'Task', status: 'todo', priority: 'medium', createdBy: 'member' });
+      await setDoc(doc(db, 'projects', projectId, 'taskAttachments', 'task-1_file-1'), {
+        taskId: 'task-1', driveFileId: 'file-1', name: 'Design.png', mimeType: 'image/png', sizeBytes: 200,
+        shareMode: 'members', sharedMemberIds: ['owner', 'member', 'admin'], createdBy: 'admin', createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+      });
+    });
     const adminDb = context('admin');
     const attachment = doc(adminDb, 'projects', projectId, 'taskAttachments', 'task-1_file-1');
-    await assertSucceeds(setDoc(attachment, {
-      taskId: 'task-1', driveFileId: 'file-1', name: 'Design.png', mimeType: 'image/png', sizeBytes: 200,
-      shareMode: 'members', sharedMemberIds: ['owner', 'member', 'admin'], createdBy: 'admin', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-    }));
     await assertSucceeds(getDoc(doc(context('member'), attachment.path)));
     await assertFails(getDoc(doc(context('outsider'), attachment.path)));
-    await assertSucceeds(updateDoc(attachment, { managedPermissionIds: { member: 'permission-member' }, permissionsSyncedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
-    await assertFails(updateDoc(doc(context('member'), attachment.path), { managedPermissionIds: {}, permissionsSyncedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(attachment, { managedPermissionIds: { member: 'permission-member' }, permissionsSyncedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(attachment, { name: 'Changed.png' }));
-    await assertFails(setDoc(doc(adminDb, 'projects', projectId, 'taskAttachments', 'missing_file-2'), {
-      taskId: 'missing', driveFileId: 'file-2', name: 'No parent', mimeType: 'text/plain', shareMode: 'link', sharedMemberIds: [], createdBy: 'admin', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    await assertFails(setDoc(doc(adminDb, 'projects', projectId, 'taskAttachments', 'task-1_file-2'), {
+      taskId: 'task-1', driveFileId: 'file-2', name: 'New.txt', mimeType: 'text/plain', shareMode: 'link', sharedMemberIds: [], createdBy: 'admin', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     }));
     // The task creator can remove every reference while deleting their task.
     await assertSucceeds(deleteDoc(doc(context('member'), attachment.path)));

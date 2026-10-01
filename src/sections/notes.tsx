@@ -1,93 +1,144 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { documentId, limit, orderBy } from 'firebase/firestore';
+import { documentId, limit, orderBy, where, type QueryConstraint } from 'firebase/firestore';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
 import { CanvasControls, DriveAttachmentControl, DriveFileRow, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
-import { useActiveTasks, useCanvasViewport, useItemDrag, useProjectItems } from '@/hooks';
+import { useActiveTasks, useCanvasViewport, useItemDrag, useProjectItems, useProjectItemsState } from '@/hooks';
 import { NOTE_COLORS } from '@/config/constants';
 import { parseContentWithLinks } from '@/utils/linkify';
 import { canDeleteItem } from '@/utils/permissions';
-import { attachDriveProjectDocument, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, subscribeProjectDocument, subscribeProjectQuery, updateProjectDocument, updateWorkItem, type CollectionCursor } from '@/services';
-import type { LoadedProjectDocument, Locale, Membership, ProjectDocument, Role, StickyNote, Task } from '@/types';
-import { attempt } from '@/components/toast';
+import { attachDriveProjectDocument, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, subscribeProjectDocument, subscribeProjectQuery, updateDriveProjectDocumentDetails, updateProjectDocument, updateProjectDocumentLabels, updateWorkItem, type CollectionCursor } from '@/services';
+import type { DriveProjectDocument, Label, LoadedProjectDocument, Membership, ProjectDocument, Role, StickyNote, Task } from '@/types';
+import { attempt, toast } from '@/components/toast';
 import { pick, relativeTime } from '@/utils/formatters';
 import { DOCUMENT_BODY_MAX_BYTES, DOCUMENT_TITLE_MAX_LENGTH, documentContentBytes } from '@/utils/documents';
 import { isGoogleDriveEnabled } from '@/config/features';
+import { LabelChip } from '@/components/board/LabelChip';
+import { LabelManager } from '@/components/board/LabelManager';
+import { LabelPicker } from '@/components/board/LabelPicker';
+import { DocumentFilterBar } from '@/components/board/DocumentFilterBar';
+import { matchDocument, parseDocumentQuery, tokenizeDocumentQuery } from '@/utils/document-filter';
+import { queryValue, toggleQueryTerm } from '@/utils/task-filter';
 
 const NOTE_W = 210;
 const NOTE_H = 160;
 
-export function Notes({ context, project, members, role, readOnly, documentId: selectedDocumentId }: SectionProps & { documentId?: string }) {
-  if (selectedDocumentId) return <DocumentReader documentId={selectedDocumentId} projectId={project.id} context={context} role={role} readOnly={readOnly} />;
-  return <NotesOverview context={context} project={project} members={members} role={role} readOnly={readOnly} />;
+export function Notes({ context, project, members, role, readOnly }: SectionProps) {
+  return <NotesOverview context={context} project={project} members={members} role={role} readOnly={readOnly} mode="sticky" />;
 }
 
-function NotesOverview({ context, project, members, role, readOnly }: SectionProps) {
+export function Documents({ context, project, members, role, readOnly, documentId: selectedDocumentId }: SectionProps & { documentId?: string }) {
+  if (selectedDocumentId) return <DocumentReader documentId={selectedDocumentId} projectId={project.id} context={context} role={role} readOnly={readOnly} />;
+  return <NotesOverview context={context} project={project} members={members} role={role} readOnly={readOnly} mode="documents" />;
+}
+
+function NotesOverview({ context, project, members, role, readOnly, mode }: SectionProps & { mode: 'sticky' | 'documents' }) {
   const notes = useProjectItems<StickyNote>(project.id, 'stickyNotes');
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<'sticky' | 'documents'>(() => searchParams.get('tab') === 'documents' ? 'documents' : 'sticky');
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
-  const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [documentCursor, setDocumentCursor] = useState<CollectionCursor | null>(null);
   const [documentsHaveMore, setDocumentsHaveMore] = useState(false);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const documentsPaged = useRef(false);
+  const liveDocumentIds = useRef<Set<string>>(new Set());
   const tasks = useActiveTasks(project.id);
+  const documentTasks = useProjectItems<Task>(project.id, 'tasks');
+  const { items: labels, loaded: labelsLoaded } = useProjectItemsState<Label>(project.id, 'labels');
   const [noteModal, setNoteModal] = useState<StickyNote | { x: number; y: number } | null>(null);
   const [docModal, setDocModal] = useState<LoadedProjectDocument | 'new' | null>(null);
+  const [driveModal, setDriveModal] = useState<DriveProjectDocument | null>(null);
+  const [labelsOpen, setLabelsOpen] = useState(false);
   const navigate = useNavigate();
   const { locale } = context;
+  const query = searchParams.get('q') || '';
+  const parsedQuery = useMemo(() => parseDocumentQuery(query), [query]);
+  const queryLabelNames = parsedQuery.terms.filter((term) => term.key === 'label' && !term.negated).map((term) => term.value);
+  const queryTaskNames = parsedQuery.terms.filter((term) => term.key === 'task' && !term.negated).map((term) => term.value);
+  const selectedLabelIds = [...new Set([
+    ...(searchParams.get('labels') || '').split(',').filter(Boolean),
+    ...labels.filter((label) => queryLabelNames.includes(label.name.toLowerCase())).map((label) => label.id),
+  ])].filter((id) => labels.some((label) => label.id === id)).slice(0, 30);
+  const selectedTaskIds = [...new Set(documentTasks.filter((task) => queryTaskNames.includes(task.title.toLowerCase())).map((task) => task.id))].slice(0, 30);
+  const labelFilterKey = [...selectedLabelIds].sort().join(',');
+  const taskFilterKey = [...selectedTaskIds].sort().join(',');
+  const documentFilters: QueryConstraint[] = selectedTaskIds.length ? [where('taskIds', 'array-contains-any', selectedTaskIds)] : selectedLabelIds.length ? [where('labelIds', 'array-contains-any', selectedLabelIds)] : [];
 
   useEffect(() => {
-    setTab(searchParams.get('tab') === 'documents' ? 'documents' : 'sticky');
-  }, [searchParams]);
+    if (mode !== 'documents' || !labelsLoaded || !searchParams.has('labels')) return;
+    const legacy = (searchParams.get('labels') || '').split(',').map((id) => labels.find((label) => label.id === id)).filter(Boolean) as Label[];
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      let nextQuery = params.get('q') || '';
+      legacy.forEach((label) => { const term = `label:${queryValue(label.name)}`; if (!tokenizeDocumentQuery(nextQuery).includes(term)) nextQuery = `${nextQuery} ${term}`.trim(); });
+      if (nextQuery) params.set('q', nextQuery);
+      params.delete('labels');
+      params.delete('tab');
+      return params;
+    }, { replace: true });
+  }, [mode, labelsLoaded, labels, searchParams, setSearchParams]);
 
-  const selectTab = (next: 'sticky' | 'documents') => {
-    setTab(next);
-    setSearchParams(next === 'documents' ? { tab: 'documents' } : {}, { replace: true });
+  const toggleLabelFilter = (label: Label) => {
+    const term = `label:${queryValue(label.name)}`;
+    const selected = queryLabelNames.includes(label.name.toLowerCase());
+    if (!selected && queryLabelNames.length >= 30) {
+      toast(pick(locale, 'กรองได้สูงสุด 30 labels พร้อมกัน', 'You can filter by up to 30 labels at once'), 'error');
+      return;
+    }
+    setSearchParams((current) => { const params = new URLSearchParams(current); const next = toggleQueryTerm(params.get('q') || '', term); if (next) params.set('q', next); else params.delete('q'); return params; }, { replace: true });
   };
 
   useEffect(() => {
-    // Document records contain only lightweight metadata; subscribe immediately so
-    // the tab badge is truthful before the user opens the Documents tab. Bodies
-    // remain lazy-loaded by DocumentReader.
+    if (mode !== 'documents') return;
+    // Document records contain only lightweight metadata; bodies remain
+    // lazy-loaded by DocumentReader.
     setDocuments([]);
-    setDocumentsLoaded(false);
     documentsPaged.current = false;
-    return subscribeProjectQuery<ProjectDocument>(project.id, 'documents', 'recent:50', [orderBy('updatedAt', 'desc'), orderBy(documentId()), limit(50)], (items) => {
-      setDocuments((current) => [...items, ...current.filter((item) => !items.some((recent) => recent.id === item.id))]);
-      setDocumentsLoaded(true);
+    liveDocumentIds.current = new Set();
+    return subscribeProjectQuery<ProjectDocument>(project.id, 'documents', `recent:50:labels:${labelFilterKey || '*'}:tasks:${taskFilterKey || '*'}`, [...documentFilters, orderBy('updatedAt', 'desc'), orderBy(documentId()), limit(50)], (items) => {
+      const previousLiveIds = liveDocumentIds.current;
+      liveDocumentIds.current = new Set(items.map((item) => item.id));
+      setDocuments((current) => [...items, ...current.filter((item) => !previousLiveIds.has(item.id) && !liveDocumentIds.current.has(item.id))]);
       const last = items.at(-1);
       if (!documentsPaged.current) {
         setDocumentCursor(last?.updatedAt ? { value: last.updatedAt, id: last.id } : null);
         setDocumentsHaveMore(items.length === 50);
       }
     });
-  }, [project.id]);
+  }, [mode, project.id, labelFilterKey, taskFilterKey]);
 
   const loadMoreDocuments = async () => {
     if (!documentCursor || loadingDocuments) return;
     setLoadingDocuments(true);
     documentsPaged.current = true;
     try {
-      const page = await loadProjectCollectionPage<ProjectDocument>(project.id, 'documents', documentCursor, 50);
+      const page = await loadProjectCollectionPage<ProjectDocument>(project.id, 'documents', documentCursor, 50, 'updatedAt', documentFilters);
       setDocuments((current) => [...current, ...page.items.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setDocumentCursor(page.nextCursor);
       setDocumentsHaveMore(page.hasMore);
     } finally { setLoadingDocuments(false); }
   };
 
+  const visibleDocuments = useMemo(() => documents.filter((document) => matchDocument(document, parsedQuery, labels, documentTasks)), [documents, parsedQuery, labels, documentTasks]);
+  const setDocumentQuery = (value: string) => setSearchParams((current) => { const params = new URLSearchParams(current); if (value.trim()) params.set('q', value); else params.delete('q'); return params; }, { replace: true });
+
   return <>
-    <PageTitle eyebrow="KNOWLEDGE SPACE" title={context.t('notes')} description={pick(locale, 'เก็บไอเดีย โน้ตสั้น และเอกสารสำคัญของโปรเจกต์', 'Ideas, quick notes and key documents')} action={!readOnly && <button className="primary" onClick={() => tab === 'sticky' ? setNoteModal({ x: NaN, y: NaN }) : setDocModal('new')}>＋ {tab === 'sticky' ? context.t('sticky') : context.t('documents')}</button>} />
-    <div className="content-tabs"><button className={tab === 'sticky' ? 'active' : ''} onClick={() => selectTab('sticky')}>{context.t('sticky')} <b>{notes.length}</b></button><button className={tab === 'documents' ? 'active' : ''} onClick={() => selectTab('documents')}>{context.t('documents')} <b>{documentsLoaded ? `${documents.length}${documentsHaveMore ? '+' : ''}` : '…'}</b></button></div>
-    {tab === 'sticky'
+    <PageTitle eyebrow={mode === 'sticky' ? 'QUICK NOTES' : 'KNOWLEDGE SPACE'} title={mode === 'sticky' ? context.t('notes') : context.t('documents')}
+      description={mode === 'sticky' ? pick(locale, 'แปะไอเดียและโน้ตสั้นบนพื้นที่อิสระ', 'Capture ideas and quick notes on a freeform canvas') : pick(locale, 'ค้นหา จัดหมวดหมู่ และแชร์เอกสารสำคัญของโปรเจกต์', 'Find, organize and share key project documents')}
+      action={mode === 'sticky'
+        ? (!readOnly && <button className="primary" onClick={() => setNoteModal({ x: NaN, y: NaN })}>＋ {context.t('sticky')}</button>)
+        : <div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}>🏷 {pick(locale, 'จัดการ Labels', 'Manage labels')}</button>{!readOnly && <button className="primary" onClick={() => setDocModal('new')}>＋ {context.t('documents')}</button>}</div>} />
+    {mode === 'sticky'
       ? <StickyCanvas notes={notes} tasks={tasks} context={context} projectId={project.id} role={role} readOnly={readOnly} onEdit={setNoteModal} />
-      : <>{!readOnly && isGoogleDriveEnabled && <DriveAttachmentControl project={project} members={members} user={context.user} locale={locale} existingFileIds={new Set(documents.filter(isDriveProjectDocument).map((item) => item.driveFileId))}
+      : <><div className="board-toolbar document-toolbar"><DocumentFilterBar value={query} onChange={setDocumentQuery} labels={labels} tasks={documentTasks} locale={locale} /></div>
+        {query && <p className="filter-summary">{pick(locale, `พบ ${visibleDocuments.length} จาก ${documents.length} เอกสารที่โหลดแล้ว`, `${visibleDocuments.length} of ${documents.length} loaded documents`)} · <button type="button" className="link-button" onClick={() => setDocumentQuery('')}>{pick(locale, 'ล้างตัวกรอง', 'Clear filter')}</button></p>}
+        {!readOnly && isGoogleDriveEnabled && selectedLabelIds.length === 0 && <DriveAttachmentControl project={project} members={members} user={context.user} locale={locale} existingFileIds={new Set(documents.filter(isDriveProjectDocument).map((item) => item.driveFileId))}
           onAttach={(file, mode, sharing) => attachDriveProjectDocument(project.id, file, mode, sharing, context.user)} />}
-        <DocumentList documents={documents} projectId={project.id} locale={locale} members={members} role={role} readOnly={readOnly} userId={context.user.uid} />
+        <DocumentList documents={visibleDocuments} labels={labels} tasks={documentTasks} filtered={!!query} projectId={project.id} context={context} members={members} role={role} readOnly={readOnly} userId={context.user.uid} onFilter={toggleLabelFilter} onTaskFilter={(task) => setDocumentQuery(toggleQueryTerm(query, `task:${queryValue(task.title)}`))} onEditDrive={setDriveModal} />
         {documentsHaveMore && <div className="load-more-row"><button type="button" className="secondary" disabled={loadingDocuments} onClick={() => void loadMoreDocuments()}>{loadingDocuments ? pick(locale, 'กำลังโหลด…', 'Loading…') : pick(locale, 'โหลดเอกสารเพิ่มเติม', 'Load more documents')}</button></div>}</>}
     {noteModal && <StickyModal item={'id' in noteModal ? noteModal : null} position={'id' in noteModal ? undefined : noteModal} projectId={project.id} tasks={tasks} context={context} role={role} readOnly={readOnly} onClose={() => setNoteModal(null)} />}
-    {docModal && <DocumentModal item={docModal === 'new' ? null : docModal} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} onSaved={(id) => { setDocModal(null); navigate(`/p/${project.id}/notes/${id}`); }} />}
+    {docModal && <DocumentModal item={docModal === 'new' ? null : docModal} labels={labels} tasks={documentTasks} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} onSaved={(id) => { setDocModal(null); navigate(`/p/${project.id}/documents/${id}`); }} />}
+    {driveModal && <DriveDocumentDetailsModal item={driveModal} labels={labels} tasks={documentTasks} projectId={project.id} context={context} readOnly={readOnly} onClose={() => setDriveModal(null)} />}
+    {labelsOpen && <LabelManager labels={labels} tasks={tasks} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setLabelsOpen(false)} onFilter={(label) => { toggleLabelFilter(label); setLabelsOpen(false); }} />}
   </>;
 }
 
@@ -165,13 +216,64 @@ function StickyModal({ item, position, projectId, tasks, context, role, readOnly
   return <Modal title={item ? (readOnly ? t('sticky') : t('edit')) : t('sticky')} onClose={onClose} actions={!readOnly && <button form={formId} className="primary">{t('save')}</button>}><form id={formId} className="stack-form" onSubmit={submit}><fieldset className="read-only-fields" disabled={readOnly}><label>{pick(locale, 'ข้อความ', 'Text')}<textarea autoFocus rows={6} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} required maxLength={800} /></label><fieldset><legend>{pick(locale, 'สี', 'Color')}</legend><div className="color-picker light">{NOTE_COLORS.map((color) => <button type="button" key={color} className={form.color === color ? 'selected' : ''} style={{ background: color }} onClick={() => setForm({ ...form, color })} aria-label={color} />)}</div></fieldset><label>{pick(locale, 'ผูกกับ Task', 'Linked task')}<select value={form.taskId} onChange={(e) => setForm({ ...form, taskId: e.target.value })}><option value="">—</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label><label className="simple-check"><input type="checkbox" checked={form.pinned} onChange={(e) => setForm({ ...form, pinned: e.target.checked })} /> {pick(locale, 'ปักหมุด (ล็อกตำแหน่ง)', 'Pinned (lock position)')}</label></fieldset><div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(t('delete') + '?')) { await attempt(() => deleteWorkItem(projectId, 'stickyNotes', item.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary">{t('save')}</button>}</div></form></Modal>;
 }
 
-function DocumentList({ documents, projectId, locale, members, role, readOnly, userId }: { documents: ProjectDocument[]; projectId: string; locale: Locale; members: Membership[]; role: Role | null; readOnly: boolean; userId: string }) {
+function DocumentLabelRow({ document, labels, projectId, context, readOnly, onFilter }: { document: ProjectDocument; labels: Label[]; projectId: string; context: AppContextValue; readOnly: boolean; onFilter: (label: Label) => void }) {
+  const [value, setValue] = useState(document.labelIds || []);
+  useEffect(() => setValue(document.labelIds || []), [document.labelIds]);
+  const selected = labels.filter((label) => value.includes(label.id));
+  const save = async (labelIds: string[]) => {
+    const previous = value;
+    setValue(labelIds);
+    const ok = await attempt(() => updateProjectDocumentLabels(projectId, document.id, labelIds).then(() => true), pick(context.locale, 'บันทึก label ไม่สำเร็จ', 'Could not save labels'));
+    if (!ok) setValue(previous);
+  };
+  return <div className="document-label-row">{selected.map((label) => <LabelChip key={label.id} label={label} onClick={() => onFilter(label)} />)}{!readOnly && <LabelPicker labels={labels} value={value} onChange={(labelIds) => void save(labelIds)} projectId={projectId} context={context} readOnly={readOnly} showSelected={false} />}</div>;
+}
+
+function DocumentList({ documents, labels, tasks, filtered, projectId, context, members, role, readOnly, userId, onFilter, onTaskFilter, onEditDrive }: { documents: ProjectDocument[]; labels: Label[]; tasks: Task[]; filtered: boolean; projectId: string; context: AppContextValue; members: Membership[]; role: Role | null; readOnly: boolean; userId: string; onFilter: (label: Label) => void; onTaskFilter: (task: Task) => void; onEditDrive: (item: DriveProjectDocument) => void }) {
+  const { locale } = context;
   return <div className="document-list">{documents.map((document) => isDriveProjectDocument(document)
-    ? <DriveFileRow key={document.id} file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName} canDetach={!readOnly && canDeleteItem(role, document.createdBy, userId)} onDetach={() => {
+    ? <div className="document-entry" key={document.id}><DriveFileRow file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName} canDetach={!readOnly && canDeleteItem(role, document.createdBy, userId)} onDetach={() => {
       if (!confirm(pick(locale, 'นำไฟล์แนบนี้ออกจาก SuperKanban หรือไม่? ไฟล์ต้นฉบับและสิทธิ์การแชร์ใน Google Drive จะไม่เปลี่ยนแปลง', 'Remove this attachment from SuperKanban? The original file and its Google Drive sharing permissions will stay unchanged.'))) return false;
       return attempt(() => detachDriveProjectDocument(projectId, document.id).then(() => true), pick(locale, 'นำไฟล์ออกไม่สำเร็จ', 'Could not detach file')).then((ok) => ok === true);
-    }} />
-    : <Link key={document.id} to={`/p/${projectId}/notes/${document.id}`}><span>▤</span><div><h3>{document.title}</h3><p>{document.excerpt || document.content?.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b>→</b></Link>)}{!documents.length && <Empty icon="▤" title={pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={pick(locale, 'สร้างเอกสาร Markdown หรือแนบไฟล์จาก Google Drive', 'Create a Markdown document or attach a Google Drive file')} />}</div>;
+    }} /><DocumentMetadataRow document={document} labels={labels} tasks={tasks} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} onTaskFilter={onTaskFilter} onEdit={() => onEditDrive(document)} /></div>
+    : <div className="document-entry" key={document.id}><Link to={`/p/${projectId}/documents/${document.id}`}><span>▤</span><div><h3>{document.title}</h3><p>{document.excerpt || document.content?.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b>→</b></Link><DocumentMetadataRow document={document} labels={labels} tasks={tasks} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} onTaskFilter={onTaskFilter} /></div>)}{!documents.length && <Empty icon="▤" title={filtered ? pick(locale, 'ไม่พบเอกสารที่ตรงกับตัวกรอง', 'No documents match this filter') : pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={filtered ? pick(locale, 'ลองแก้คำค้นหาหรือล้างตัวกรอง', 'Try changing or clearing the filter') : pick(locale, 'สร้างเอกสาร Markdown หรือแนบไฟล์จาก Google Drive', 'Create a Markdown document or attach a Google Drive file')} />}</div>;
+}
+
+function DocumentMetadataRow({ document, labels, tasks, projectId, context, readOnly, onFilter, onTaskFilter, onEdit }: { document: ProjectDocument; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; readOnly: boolean; onFilter: (label: Label) => void; onTaskFilter: (task: Task) => void; onEdit?: () => void }) {
+  const linkedTasks = tasks.filter((task) => (document.taskIds || []).includes(task.id));
+  return <div className="document-metadata-row"><div className="document-metadata-tags"><DocumentLabelRow document={document} labels={labels} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} /><div className="document-task-chips">{linkedTasks.map((task) => <button type="button" key={task.id} onClick={() => onTaskFilter(task)}>▣ {task.title}</button>)}</div></div>{onEdit && !readOnly && <button type="button" className="document-details-button" onClick={onEdit}><span className="document-details-icon" aria-hidden="true">✎</span><span><strong>{pick(context.locale, 'แก้ไขข้อมูลเอกสาร', 'Edit document details')}</strong><small>{pick(context.locale, 'ชื่อที่แสดง · คำอธิบาย · Labels · Tasks', 'Display name · description · labels · tasks')}</small></span><b aria-hidden="true">›</b></button>}</div>;
+}
+
+function DriveDocumentDetailsModal({ item, labels, tasks, projectId, context, readOnly, onClose }: { item: DriveProjectDocument; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; readOnly: boolean; onClose: () => void }) {
+  const { locale } = context;
+  const [nickname, setNickname] = useState(item.nickname || '');
+  const [description, setDescription] = useState(item.description || '');
+  const [labelIds, setLabelIds] = useState(item.labelIds || []);
+  const [taskIds, setTaskIds] = useState(item.taskIds || []);
+  const [busy, setBusy] = useState(false);
+  const formId = useId();
+  const displayName = nickname.trim() || item.name;
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy || readOnly) return;
+    setBusy(true);
+    const ok = await attempt(() => updateDriveProjectDocumentDetails(projectId, item.id, { nickname, description, labelIds, taskIds }).then(() => true), pick(locale, 'บันทึกรายละเอียดไม่สำเร็จ', 'Could not save document details'));
+    setBusy(false);
+    if (ok) onClose();
+  };
+  const saveLabel = pick(locale, 'บันทึกรายละเอียด', 'Save details');
+  return <Modal title={pick(locale, 'แก้ไขข้อมูลเอกสาร', 'Edit document details')} onClose={onClose} wide actions={!readOnly && <button form={formId} className="primary" disabled={busy}>{saveLabel}</button>}><form id={formId} className="stack-form drive-document-details" onSubmit={submit}>
+    <div className="drive-details-file"><span className="drive-details-cloud">☁</span><div><small>{pick(locale, 'ตัวอย่างชื่อที่จะแสดง', 'Display preview')}</small><strong>{displayName}</strong>{nickname.trim() && <em>{pick(locale, 'ไฟล์ต้นฉบับ', 'Original file')}: {item.name}</em>}</div><span className="drive-details-safe">✓ {pick(locale, 'ไม่แก้ไฟล์ใน Drive', 'Drive file unchanged')}</span></div>
+    <section className="drive-details-section"><header><span>1</span><div><h3>{pick(locale, 'ชื่อและคำอธิบาย', 'Name and description')}</h3><p>{pick(locale, 'ช่วยให้ทีมเข้าใจเอกสารโดยไม่ต้องเปิดไฟล์', 'Help the team understand the document before opening it')}</p></div></header>
+      <label><span className="field-name">{pick(locale, 'ชื่อที่ใช้แสดง', 'Display name')} <i>{pick(locale, 'ไม่บังคับ', 'Optional')}</i></span><input autoFocus value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={200} placeholder={item.name} disabled={readOnly} /><small className="field-help"><span>{pick(locale, 'เว้นว่างเพื่อใช้ชื่อไฟล์จริง', 'Leave blank to use the original filename')}</span><b>{nickname.length}/200</b></small></label>
+      <label><span className="field-name">{pick(locale, 'คำอธิบายเอกสาร', 'Document description')} <i>{pick(locale, 'ไม่บังคับ', 'Optional')}</i></span><textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} maxLength={1000} placeholder={pick(locale, 'เช่น ใช้สำหรับรีวิว requirement รอบสุดท้าย…', 'For example: Final requirements review copy…')} disabled={readOnly} /><small className="field-help"><span>{pick(locale, 'แสดงใต้ชื่อเอกสารและค้นหาได้', 'Shown below the document name and included in search')}</span><b>{description.length}/1000</b></small></label>
+    </section>
+    <section className="drive-details-section"><header><span>2</span><div><h3>{pick(locale, 'จัดหมวดหมู่และเชื่อมงาน', 'Organize and link work')}</h3><p>{pick(locale, 'เพิ่ม Labels และเลือก Tasks ที่ใช้เอกสารนี้', 'Add labels and select tasks that use this document')}</p></div></header>
+      <div className="document-editor-labels"><span>Labels</span><LabelPicker labels={labels} value={labelIds} onChange={setLabelIds} projectId={projectId} context={context} readOnly={readOnly} /></div>
+      <fieldset disabled={readOnly}><legend>{pick(locale, `Tasks ที่เชื่อม (${taskIds.length})`, `Linked tasks (${taskIds.length})`)}</legend><div className="document-task-picker">{tasks.map((task) => <label key={task.id} className={taskIds.includes(task.id) ? 'selected' : ''}><input type="checkbox" checked={taskIds.includes(task.id)} onChange={(event) => setTaskIds((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} /><span>{task.title}</span><small>{task.status.replace('_', ' ')}</small></label>)}</div>{!tasks.length && <p className="muted drive-details-no-tasks">{pick(locale, 'ยังไม่มี Task ในโปรเจกต์นี้', 'No tasks in this project yet')}</p>}</fieldset>
+    </section>
+    <div className="form-actions drive-details-actions"><span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : context.t('cancel')}</button>{!readOnly && <button className="primary" disabled={busy}>{busy ? pick(locale, 'กำลังบันทึก…', 'Saving…') : saveLabel}</button>}</div>
+  </form></Modal>;
 }
 
 function DocumentReader({ documentId, projectId, context, role, readOnly }: { documentId: string; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean }) {
@@ -180,6 +282,8 @@ function DocumentReader({ documentId, projectId, context, role, readOnly }: { do
   const [item, setItem] = useState<LoadedProjectDocument | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(false);
+  const labels = useProjectItems<Label>(projectId, 'labels');
+  const tasks = useProjectItems<Task>(projectId, 'tasks');
 
   useEffect(() => {
     setItem(undefined);
@@ -193,24 +297,24 @@ function DocumentReader({ documentId, projectId, context, role, readOnly }: { do
   }, [item?.id, item?.schemaVersion, projectId, documentId, readOnly]);
 
   if (item === undefined && !failed) return <div className="document-reader-state"><span className="loader" /></div>;
-  if (!item || failed) return <div className="document-reader-state"><Empty icon="▤" title={pick(locale, 'ไม่พบเอกสาร', 'Document not found')} description={pick(locale, 'เอกสารนี้อาจถูกลบหรือคุณไม่มีสิทธิ์เข้าถึง', 'It may have been deleted or you may not have access.')} /><Link className="secondary" to={`/p/${projectId}/notes?tab=documents`}>{pick(locale, 'กลับไปเอกสาร', 'Back to documents')}</Link></div>;
+  if (!item || failed) return <div className="document-reader-state"><Empty icon="▤" title={pick(locale, 'ไม่พบเอกสาร', 'Document not found')} description={pick(locale, 'เอกสารนี้อาจถูกลบหรือคุณไม่มีสิทธิ์เข้าถึง', 'It may have been deleted or you may not have access.')} /><Link className="secondary" to={`/p/${projectId}/documents`}>{pick(locale, 'กลับไปเอกสาร', 'Back to documents')}</Link></div>;
 
   return <>
     <section className="document-reader-shell">
       <header className="document-reader-toolbar">
-        <button type="button" className="secondary document-back" onClick={() => navigate(`/p/${projectId}/notes?tab=documents`)}><span aria-hidden="true">←</span><span>{pick(locale, 'เอกสาร', 'Documents')}</span></button>
-        <div><h1>{item.title}</h1><small>{pick(locale, 'แก้ไขล่าสุด', 'Updated')} {relativeTime(item.updatedAt?.toDate(), locale)}</small></div>
+        <button type="button" className="secondary document-back" onClick={() => navigate(`/p/${projectId}/documents`)}><span aria-hidden="true">←</span><span>{pick(locale, 'เอกสาร', 'Documents')}</span></button>
+        <div><h1>{item.title}</h1><div className="document-reader-labels">{labels.filter((label) => (item.labelIds || []).includes(label.id)).map((label) => <LabelChip key={label.id} label={label} />)}</div><small>{pick(locale, 'แก้ไขล่าสุด', 'Updated')} {relativeTime(item.updatedAt?.toDate(), locale)}</small></div>
         {!readOnly && <button type="button" className="primary" onClick={() => setEditing(true)}>{pick(locale, 'แก้ไข', 'Edit')}</button>}
       </header>
       <MarkdownRenderer content={item.content} locale={locale} className="document-reader-content" />
     </section>
-    {editing && <DocumentModal item={item} projectId={projectId} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} onDeleted={() => navigate(`/p/${projectId}/notes?tab=documents`)} />}
+    {editing && <DocumentModal item={item} labels={labels} tasks={tasks} projectId={projectId} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} onDeleted={() => navigate(`/p/${projectId}/documents`)} />}
   </>;
 }
 
-function DocumentModal({ item, projectId, context, role, readOnly, onClose, onSaved, onDeleted }: { item: LoadedProjectDocument | null; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void; onSaved: (id: string) => void; onDeleted?: () => void }) {
+function DocumentModal({ item, labels, tasks, projectId, context, role, readOnly, onClose, onSaved, onDeleted }: { item: LoadedProjectDocument | null; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void; onSaved: (id: string) => void; onDeleted?: () => void }) {
   const { user, t, locale } = context;
-  const [title, setTitle] = useState(item?.title || 'Untitled'); const [content, setContent] = useState(item?.content || '# New document\n'); const [preview, setPreview] = useState(readOnly);
+  const [title, setTitle] = useState(item?.title || 'Untitled'); const [content, setContent] = useState(item?.content || '# New document\n'); const [labelIds, setLabelIds] = useState(item?.labelIds || []); const [taskIds, setTaskIds] = useState(item?.taskIds || []); const [preview, setPreview] = useState(readOnly);
   const contentBytes = useMemo(() => documentContentBytes(content), [content]);
   const tooLarge = contentBytes > DOCUMENT_BODY_MAX_BYTES;
   const submit = async (e: FormEvent) => {
@@ -218,13 +322,13 @@ function DocumentModal({ item, projectId, context, role, readOnly, onClose, onSa
     if (tooLarge) return;
     let savedId = item?.id || '';
     const ok = await attempt(async () => {
-      if (item) await updateProjectDocument(projectId, item.id, title, content);
-      else savedId = await createProjectDocument(projectId, title, content, user);
+      if (item) await updateProjectDocument(projectId, item.id, title, content, labelIds, taskIds);
+      else savedId = await createProjectDocument(projectId, title, content, labelIds, user, taskIds);
       return true;
     }, pick(locale, 'บันทึกไม่สำเร็จ', 'Save failed'));
     if (ok) onSaved(savedId);
   };
   const formId = useId();
   const sizeLabel = `${(contentBytes / 1024).toFixed(contentBytes < 10240 ? 1 : 0)} / ${DOCUMENT_BODY_MAX_BYTES / 1024} KB`;
-  return <Modal title={item ? (readOnly ? item.title : t('edit')) : t('documents')} onClose={onClose} wide actions={!readOnly && <button form={formId} className="primary" disabled={tooLarge}>{t('save')}</button>}><form id={formId} className="document-editor" onSubmit={submit}><div className="document-title-row"><input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={DOCUMENT_TITLE_MAX_LENGTH} disabled={readOnly} /><div>{!readOnly && <button type="button" className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>Edit</button>}<button type="button" className={preview ? 'active' : ''} onClick={() => setPreview(true)}>Preview</button></div></div>{preview ? <MarkdownRenderer content={content} locale={locale} /> : <textarea value={content} onChange={(e) => setContent(e.target.value)} spellCheck disabled={readOnly} />}<div className={`document-size ${tooLarge ? 'over' : ''}`}><span>{tooLarge ? pick(locale, 'เอกสารใหญ่เกินขีดจำกัด 900 KB', 'Document exceeds the 900 KB limit') : pick(locale, 'ขนาด UTF-8', 'UTF-8 size')}</span><b>{sizeLabel}</b></div><div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(`${t('delete')}?`)) { const ok = await attempt(() => deleteProjectDocument(projectId, item.id).then(() => true), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); if (ok) { onClose(); onDeleted?.(); } } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary" disabled={tooLarge}>{t('save')}</button>}</div></form></Modal>;
+  return <Modal title={item ? (readOnly ? item.title : t('edit')) : t('documents')} onClose={onClose} wide actions={!readOnly && <button form={formId} className="primary" disabled={tooLarge}>{t('save')}</button>}><form id={formId} className="document-editor" onSubmit={submit}><div className="document-title-row"><input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={DOCUMENT_TITLE_MAX_LENGTH} disabled={readOnly} /><div>{!readOnly && <button type="button" className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>Edit</button>}<button type="button" className={preview ? 'active' : ''} onClick={() => setPreview(true)}>Preview</button></div></div><div className="document-editor-labels"><span>{pick(locale, 'Labels', 'Labels')}</span><LabelPicker labels={labels} value={labelIds} onChange={setLabelIds} projectId={projectId} context={context} readOnly={readOnly} /></div><fieldset className="document-task-field" disabled={readOnly}><legend>{pick(locale, 'เชื่อมกับ Tasks', 'Linked tasks')}</legend><div className="document-task-picker">{tasks.map((task) => <label key={task.id}><input type="checkbox" checked={taskIds.includes(task.id)} onChange={(event) => setTaskIds((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} /><span>{task.title}</span></label>)}</div></fieldset>{preview ? <MarkdownRenderer content={content} locale={locale} /> : <textarea value={content} onChange={(e) => setContent(e.target.value)} spellCheck disabled={readOnly} />}<div className={`document-size ${tooLarge ? 'over' : ''}`}><span>{tooLarge ? pick(locale, 'เอกสารใหญ่เกินขีดจำกัด 900 KB', 'Document exceeds the 900 KB limit') : pick(locale, 'ขนาด UTF-8', 'UTF-8 size')}</span><b>{sizeLabel}</b></div><div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(`${t('delete')}?`)) { const ok = await attempt(() => deleteProjectDocument(projectId, item.id).then(() => true), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); if (ok) { onClose(); onDeleted?.(); } } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary" disabled={tooLarge}>{t('save')}</button>}</div></form></Modal>;
 }

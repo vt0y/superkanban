@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { signOut } from 'firebase/auth';
-import { NavLink, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { AppContextValue } from '@/context/AppContext';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { auth } from '@/config/firebase';
@@ -31,6 +31,7 @@ const Calendar = lazy(() => loadCalendar().then((m) => ({ default: m.Calendar })
 const SoftwareDesign = lazy(() => loadDesign().then((m) => ({ default: m.SoftwareDesign })));
 const Milestones = lazy(() => loadMilestones().then((m) => ({ default: m.Milestones })));
 const Notes = lazy(() => loadNotes().then((m) => ({ default: m.Notes })));
+const Documents = lazy(() => loadNotes().then((m) => ({ default: m.Documents })));
 const Settings = lazy(() => loadSettings().then((m) => ({ default: m.Settings })));
 const Team = lazy(() => loadTeam().then((m) => ({ default: m.Team })));
 const Votes = lazy(() => loadVotes().then((m) => ({ default: m.Votes })));
@@ -39,30 +40,30 @@ const GachaReveal = lazy(() => import('@/components/gacha/GachaReveal').then((m)
 
 const NAV_GROUPS: { th: string; en: string; items: [path: string, icon: string, label: MessageKey][] }[] = [
   {
-    th: 'วางแผน',
-    en: 'Plan',
+    th: 'งานหลัก',
+    en: 'Work',
     items: [
       ['dashboard', '⌂', 'dashboard'],
       ['board', '▦', 'board'],
       ['calendar', '▣', 'calendar'],
-      ['milestones', '◇', 'milestones'],
-      ['gacha', '✦', 'gacha'],
+      ['notes', '▱', 'notes'],
+      ['documents', '▤', 'documents'],
     ],
   },
-  { th: 'ออกแบบ', en: 'Design', items: [['design', '◈', 'design']] },
+  { th: 'วางแผนและออกแบบ', en: 'Plan & Design', items: [['milestones', '◇', 'milestones'], ['design', '◈', 'design']] },
   {
     th: 'ร่วมมือ',
     en: 'Collaborate',
     items: [
-      ['notes', '▤', 'notes'],
+      ['team', '♙', 'team'],
       ['votes', '☑', 'votes'],
+      ['gacha', '✦', 'gacha'],
     ],
   },
   {
     th: 'จัดการ',
     en: 'Manage',
     items: [
-      ['team', '♙', 'team'],
       ['settings', '⚙', 'settings'],
     ],
   },
@@ -71,7 +72,8 @@ const SECTIONS = new Set(NAV_GROUPS.flatMap((group) => group.items.map(([path]) 
 const MOBILE_PRIMARY = [
   ['dashboard', '⌂', 'dashboard'],
   ['board', '▦', 'board'],
-  ['notes', '▤', 'notes'],
+  ['notes', '▱', 'notes'],
+  ['documents', '▤', 'documents'],
 ] as const;
 const MOBILE_MORE = NAV_GROUPS.flatMap((group) => group.items).filter(
   ([path]) => !MOBILE_PRIMARY.some(([primary]) => primary === path),
@@ -80,7 +82,8 @@ const MOBILE_MORE = NAV_GROUPS.flatMap((group) => group.items).filter(
 export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   const params = useParams();
   const projectId = params.projectId || '';
-  const section = params.documentId ? 'notes' : (params.section || 'dashboard');
+  // A document detail route belongs to the standalone Documents section.
+  const section = params.documentId ? 'documents' : (params.section || 'dashboard');
   const documentId = params.documentId;
   const contextProject = context.projects.find((item) => item.id === projectId);
   const [fallbackProject, setFallbackProject] = useState<{ projectId: string; project: Project | null } | null>(null);
@@ -88,6 +91,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   const [gachaState, setGachaState] = useState<{ projectId: string; draws: GachaDraw[] } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const fallbackMatches = fallbackProject?.projectId === projectId;
   const project = contextProject ? contextProject : fallbackMatches ? fallbackProject.project : undefined;
   const projectPending = !context.projectsLoaded || (!contextProject && !fallbackMatches);
@@ -170,6 +174,8 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   if (!project || !project.memberIds.includes(context.user.uid)) return <Navigate to="/" replace />;
   // The old "Use Cases" page is now part of Software Design.
   if (section === 'use-cases') return <Navigate to={`/p/${project.id}/design?view=list`} replace />;
+  // Preserve bookmarks to the former Documents tab after splitting it from Notes.
+  if (section === 'notes' && new URLSearchParams(location.search).get('tab') === 'documents') return <Navigate to={`/p/${project.id}/documents`} replace />;
   const role = roleFor(members, context.user.uid);
   const readOnly = project.archived;
   const common = { context, project, members, role, readOnly };
@@ -259,7 +265,8 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
           {section === 'milestones' && <Milestones {...common} />}
           {section === 'gacha' && <Gacha {...common} draws={gachaDraws} />}
           {section === 'design' && <SoftwareDesign {...common} />}
-          {section === 'notes' && <Notes {...common} documentId={documentId} />}
+          {section === 'notes' && <Notes {...common} />}
+          {section === 'documents' && <Documents {...common} documentId={documentId} />}
           {section === 'votes' && <Votes {...common} />}
           {section === 'team' && <Team {...common} />}
           {section === 'settings' && <Settings {...common} />}

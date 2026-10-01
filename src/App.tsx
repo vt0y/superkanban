@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { auth, googleProvider, missingFirebaseConfig } from '@/config/firebase';
 import { getDomainErrorMessage, isAllowedEmail } from '@/config/auth-domains';
 import type { AppContextValue } from '@/context/AppContext';
@@ -29,6 +29,11 @@ const TarotPage = lazy(() => import('@/pages/TarotPage').then((m) => ({ default:
 export type { AppContextValue } from '@/context/AppContext';
 export { AppHeader } from '@/components/layout/AppHeader';
 export { Avatar, Empty, Modal } from '@/components/common';
+
+function LegacyDocumentRedirect() {
+  const { projectId = '', documentId = '' } = useParams();
+  return <Navigate to={`/p/${projectId}/documents/${documentId}`} replace />;
+}
 
 export default function App() {
   if (!auth || missingFirebaseConfig.length) {
@@ -140,7 +145,8 @@ function AuthGate() {
           <Route path="/invite/:inviteId" element={<InviteAccept context={context} />} />
           <Route path="/feedback" element={<SiteFeedbackPage context={context} />} />
           <Route path="/tarot" element={<TarotPage context={context} />} />
-          <Route path="/p/:projectId/notes/:documentId" element={<ProjectWorkspace context={context} />} />
+          <Route path="/p/:projectId/documents/:documentId" element={<ProjectWorkspace context={context} />} />
+          <Route path="/p/:projectId/notes/:documentId" element={<LegacyDocumentRedirect />} />
           <Route path="/p/:projectId/:section?" element={<ProjectWorkspace context={context} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

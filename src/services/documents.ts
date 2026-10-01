@@ -1,11 +1,14 @@
 import type { User } from 'firebase/auth';
 import {
   collection,
+  arrayRemove,
+  arrayUnion,
   deleteField,
   doc,
   onSnapshot,
   runTransaction,
   serverTimestamp,
+  updateDoc,
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
@@ -57,32 +60,55 @@ export function subscribeProjectDocument(
   return () => { stopMetadata(); stopBody(); };
 }
 
-export async function createProjectDocument(projectId: string, title: string, content: string, user: User): Promise<string> {
+export async function createProjectDocument(projectId: string, title: string, content: string, labelIds: string[], user: User, taskIds: string[] = []): Promise<string> {
   assertDocumentSize(content);
   const store = database();
   const itemRef = doc(collection(store, 'projects', projectId, 'documents'));
   const itemBodyRef = doc(store, 'projects', projectId, 'documentBodies', itemRef.id);
   const activityRef = doc(collection(store, 'projects', projectId, 'activities'));
   const batch = writeBatch(store);
-  batch.set(itemRef, { kind: 'markdown', title, ...documentMetadata(content), createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  batch.set(itemRef, { kind: 'markdown', title, labelIds: [...new Set(labelIds)].slice(0, 50), taskIds: [...new Set(taskIds)].slice(0, 100), ...documentMetadata(content), createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   batch.set(itemBodyRef, { content });
   batch.set(activityRef, activityData(user, 'document_created', `สร้างเอกสาร “${title}”`, `created document “${title}”`, itemRef.id));
   await batch.commit();
   return itemRef.id;
 }
 
-export async function updateProjectDocument(projectId: string, documentId: string, title: string, content: string): Promise<void> {
+export async function updateProjectDocument(projectId: string, documentId: string, title: string, content: string, labelIds: string[], taskIds: string[] = []): Promise<void> {
   assertDocumentSize(content);
   const store = database();
   const batch = writeBatch(store);
   batch.update(doc(store, 'projects', projectId, 'documents', documentId), {
     title,
+    labelIds: [...new Set(labelIds)].slice(0, 50),
+    taskIds: [...new Set(taskIds)].slice(0, 100),
     ...documentMetadata(content),
     content: deleteField(),
     updatedAt: serverTimestamp(),
   });
   batch.set(doc(store, 'projects', projectId, 'documentBodies', documentId), { content });
   await batch.commit();
+}
+
+export async function linkProjectDocumentsToTask(projectId: string, documentIds: string[], taskId: string): Promise<void> {
+  const ids = [...new Set(documentIds)];
+  for (let start = 0; start < ids.length; start += 450) {
+    const batch = writeBatch(database());
+    ids.slice(start, start + 450).forEach((id) => batch.update(metadataRef(projectId, id), { taskIds: arrayUnion(taskId), updatedAt: serverTimestamp() }));
+    await batch.commit();
+  }
+}
+
+export async function unlinkProjectDocumentFromTask(projectId: string, documentId: string, taskId: string): Promise<void> {
+  await updateDoc(metadataRef(projectId, documentId), { taskIds: arrayRemove(taskId), updatedAt: serverTimestamp() });
+}
+
+/** Updates lightweight document metadata without touching a Markdown body or Drive permissions. */
+export async function updateProjectDocumentLabels(projectId: string, documentId: string, labelIds: string[]): Promise<void> {
+  await updateDoc(metadataRef(projectId, documentId), {
+    labelIds: [...new Set(labelIds)].slice(0, 50),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function deleteProjectDocument(projectId: string, documentId: string): Promise<void> {

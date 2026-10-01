@@ -77,6 +77,9 @@ function errorDetails(error: unknown, locale: Locale): { message: string; retrya
   if (code.includes('popup-closed-by-user') || code.includes('cancelled-popup-request')) {
     return { message: pick(locale, 'ยกเลิกการเชื่อมต่อ Google Drive', 'Google Drive connection was cancelled'), retryable: true };
   }
+  if (code.startsWith('DRIVE_PICKER_CALLBACK_') || code === 'DRIVE_PICKER_RESULT_MISSING') {
+    return { message: pick(locale, 'เบราว์เซอร์ไม่ได้ส่งไฟล์ที่เลือกกลับมา กรุณาลองเปิดตัวเลือก Drive อีกครั้ง', 'The browser did not return the selected file. Please reopen the Drive picker.'), retryable: true };
+  }
   if (code.startsWith('DRIVE_HTTP_403')) {
     return { message: pick(locale, 'Google Drive ไม่อนุญาตให้แชร์ไฟล์ตามรูปแบบที่เลือก', 'Google Drive could not apply the selected sharing mode'), retryable: true };
   }
@@ -259,10 +262,16 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
   return <section className={`drive-attach-control ${dragging ? 'is-dragging' : ''}`} aria-busy={busy}>
     <div className="drive-attach-head">
       <div className="drive-attach-title"><span className="drive-cloud-mark" aria-hidden="true">↑</span><div><strong>{pick(locale, 'แนบไฟล์', 'Attach files')}</strong><small>{pick(locale, `ไฟล์ละไม่เกิน ${LOCAL_DRIVE_FILE_MAX_BYTES / 1024 / 1024} MB · จัดเก็บใน Google Drive`, `Up to ${LOCAL_DRIVE_FILE_MAX_BYTES / 1024 / 1024} MB each · stored in Google Drive`)}</small></div></div>
-      <button type="button" className={`drive-access-summary ${mode === 'link' ? 'external' : ''}`} aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen((open) => !open)}>
-        <span>{pick(locale, 'สิทธิ์', 'Access')}: <b>{mode === 'members' ? pick(locale, 'สมาชิกโปรเจกต์', 'Project members') : pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with link')}</b></span><i aria-hidden="true">⌄</i>
-      </button>
+      <div className="drive-attach-head-actions">
+        {folderId
+          ? <a className="drive-folder-shortcut" href={driveFolderUrl(folderId)} target="_blank" rel="noreferrer" title={`${DRIVE_ROOT_FOLDER_NAME} / ${project.name}`}>{pick(locale, 'เปิดโฟลเดอร์', 'Open folder')} ↗</a>
+          : <button type="button" className="drive-folder-shortcut" disabled={folderBusy || busy} onClick={() => void locateFolder()}>{folderBusy ? pick(locale, 'กำลังค้นหา…', 'Locating…') : pick(locale, 'ค้นหาโฟลเดอร์', 'Locate folder')}</button>}
+        <button type="button" className={`drive-access-summary ${mode === 'link' ? 'external' : ''}`} aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen((open) => !open)}>
+          <span>{pick(locale, 'สิทธิ์', 'Access')}: <b>{mode === 'members' ? pick(locale, 'สมาชิกโปรเจกต์', 'Project members') : pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with link')}</b></span><i aria-hidden="true">⌄</i>
+        </button>
+      </div>
     </div>
+    {folderError && <small className="drive-folder-error" role="status">{folderError}</small>}
 
     <div className="drive-drop-zone" onDragEnter={(event) => { event.preventDefault(); if (!busy) setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={drop}>
       <div className="drive-drop-copy"><strong>{dragging ? pick(locale, 'วางไฟล์เพื่ออัปโหลด', 'Drop to upload') : pick(locale, 'ลากไฟล์มาวาง หรือเลือกแหล่งที่มา', 'Drop files here or choose a source')}</strong><small>{pick(locale, 'ไฟล์จากเครื่องจะอยู่ในโฟลเดอร์โปรเจกต์ของคุณ', 'Device files go to your project upload folder')}</small></div>
@@ -287,13 +296,6 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
             <span><b>{pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with the link')}</b><small>{pick(locale, 'เข้าถึงจากภายนอกได้ · ใช้เมื่อจำเป็น', 'External access · use only when needed')}</small></span>
           </label>
         </div>
-      </div>
-      <div className="drive-folder-location">
-        <span className="drive-detail-icon" aria-hidden="true">⌑</span>
-        <div><strong>{pick(locale, 'โฟลเดอร์อัปโหลดจากเครื่อง', 'Device upload folder')}</strong><span>{DRIVE_ROOT_FOLDER_NAME} / {project.name}</span>{folderError && <small>{folderError}</small>}</div>
-        {folderId
-          ? <a className="secondary small" href={driveFolderUrl(folderId)} target="_blank" rel="noreferrer">{pick(locale, 'เปิดโฟลเดอร์', 'Open folder')} ↗</a>
-          : <button type="button" className="secondary small" disabled={folderBusy || busy} onClick={() => void locateFolder()}>{folderBusy ? pick(locale, 'กำลังค้นหา…', 'Locating…') : pick(locale, 'ค้นหาโฟลเดอร์', 'Locate folder')}</button>}
       </div>
     </div>}
 
@@ -372,12 +374,13 @@ function fileKind(file: Pick<DriveFileRef, 'mimeType' | 'name'>): { label: strin
   return { label: 'FILE', className: 'generic' };
 }
 
-export function DriveFileRow({ file, locale, uploader, canDetach, onDetach }: {
+export function DriveFileRow({ file, locale, uploader, canDetach, onDetach, detachLabel }: {
   file: DriveFileRef & { id: string };
   locale: Locale;
   uploader?: string;
   canDetach: boolean;
   onDetach: DetachAction;
+  detachLabel?: string;
 }) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
@@ -386,9 +389,9 @@ export function DriveFileRow({ file, locale, uploader, canDetach, onDetach }: {
   return <div className="drive-file-row">
     <a className="drive-file-main" href={driveOpenUrl(file.driveFileId)} target="_blank" rel="noreferrer" title={pick(locale, 'เปิดใน Google Drive', 'Open in Google Drive')}>
       <span className={`drive-file-icon ${kind.className}`} aria-hidden="true">{kind.label}</span>
-      <div className="drive-file-copy"><strong>{file.name}</strong><span className="drive-file-meta">{formatFileSize(file.sizeBytes) && <small>{formatFileSize(file.sizeBytes)}</small>}{uploader && <small>{uploader}</small>}<small className={`drive-access-badge ${file.shareMode === 'link' ? 'external' : ''}`}>{file.shareMode === 'link' ? pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with link') : pick(locale, 'สมาชิกโปรเจกต์', 'Project members')}</small></span></div>
+      <div className="drive-file-copy"><strong>{file.nickname?.trim() || file.name}</strong>{file.nickname?.trim() && <small className="drive-original-name">{file.name}</small>}{file.description?.trim() && <p className="drive-file-description">{file.description}</p>}<span className="drive-file-meta">{formatFileSize(file.sizeBytes) && <small>{formatFileSize(file.sizeBytes)}</small>}{uploader && <small>{uploader}</small>}<small className={`drive-access-badge ${file.shareMode === 'link' ? 'external' : ''}`}>{file.shareMode === 'link' ? pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with link') : pick(locale, 'สมาชิกโปรเจกต์', 'Project members')}</small></span></div>
       <span className="drive-open-mark" aria-hidden="true">↗</span>
     </a>
-    {canDetach && <button type="button" className="drive-detach" onClick={() => beginOptimisticDetach(onDetach, setHidden)} aria-label={pick(locale, `นำ ${file.name} ออกจาก SuperKanban`, `Remove ${file.name} from SuperKanban`)} title={pick(locale, 'นำออกจาก SuperKanban (ไฟล์และสิทธิ์ใน Drive จะไม่เปลี่ยน)', 'Remove from SuperKanban (Drive file and access stay unchanged)')}><span aria-hidden="true">×</span><b>{pick(locale, 'นำออก', 'Remove')}</b></button>}
+    {canDetach && <button type="button" className="drive-detach" onClick={() => beginOptimisticDetach(onDetach, setHidden)} aria-label={detachLabel || pick(locale, `นำ ${file.name} ออกจาก SuperKanban`, `Remove ${file.name} from SuperKanban`)} title={detachLabel || pick(locale, 'นำออกจาก SuperKanban (ไฟล์และสิทธิ์ใน Drive จะไม่เปลี่ยน)', 'Remove from SuperKanban (Drive file and access stay unchanged)')}><span aria-hidden="true">×</span><b>{detachLabel || pick(locale, 'นำออก', 'Remove')}</b></button>}
   </div>;
 }

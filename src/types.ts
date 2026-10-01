@@ -155,6 +155,10 @@ export type DriveShareMode = 'members' | 'link';
 export interface DriveFileRef {
   driveFileId: string;
   name: string;
+  /** Project-local display name; never renames the Google Drive file. */
+  nickname?: string;
+  /** Project-local context; never writes to Google Drive metadata. */
+  description?: string;
   mimeType: string;
   sizeBytes?: number;
   shareMode: DriveShareMode;
@@ -171,6 +175,8 @@ export interface MarkdownProjectDocument {
   id: string;
   kind?: 'markdown';
   title: string;
+  labelIds?: string[];
+  taskIds?: string[];
   /** Present only on legacy records until their first v2 migration. */
   content?: string;
   schemaVersion?: 2;
@@ -185,14 +191,11 @@ export interface DriveProjectDocument extends DriveFileRef {
   id: string;
   kind: 'drive';
   title: string;
+  labelIds?: string[];
+  taskIds?: string[];
 }
 
 export type ProjectDocument = MarkdownProjectDocument | DriveProjectDocument;
-
-export interface TaskAttachment extends DriveFileRef {
-  id: string;
-  taskId: string;
-}
 
 export interface ProjectDocumentBody {
   content: string;

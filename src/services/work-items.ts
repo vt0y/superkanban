@@ -41,8 +41,9 @@ export async function loadProjectCollectionPage<T>(
   cursor: CollectionCursor | null,
   pageSize = 50,
   orderField = 'updatedAt',
+  filters: QueryConstraint[] = [],
 ): Promise<CollectionPage<T>> {
-  const constraints: QueryConstraint[] = [orderBy(orderField, 'desc'), orderBy(documentId())];
+  const constraints: QueryConstraint[] = [...filters, orderBy(orderField, 'desc'), orderBy(documentId())];
   if (cursor) constraints.push(startAfter(cursor.value, cursor.id));
   constraints.push(limit(pageSize + 1));
   const snapshot = await getDocs(query(collection(database(), 'projects', projectId, name), ...constraints));

@@ -281,6 +281,9 @@ declare global {
 }
 
 let pickerScriptPromise: Promise<void> | null = null;
+let activePicker: { setVisible(visible: boolean): void } | null = null;
+const PICKER_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
+
 function loadPicker(): Promise<void> {
   if (window.google?.picker) return Promise.resolve();
   if (pickerScriptPromise) return pickerScriptPromise;
@@ -303,20 +306,48 @@ export async function pickDriveFiles(user: User): Promise<DriveFileCandidate[]> 
   const picker = window.google?.picker;
   if (!picker) throw new Error('DRIVE_PICKER_LOAD_FAILED');
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeout = 0;
+    const finish = (result: DriveFileCandidate[] | Error) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      activePicker?.setVisible(false);
+      activePicker = null;
+      if (result instanceof Error) reject(result);
+      else resolve(result);
+    };
     const view = new picker.DocsView().setIncludeFolders(true).setSelectFolderEnabled(false);
-    new picker.PickerBuilder()
-      .setAppId(googleCloudProjectNumber)
-      .setDeveloperKey(googleDriveApiKey)
-      .setOAuthToken(token)
-      .addView(view)
-      .enableFeature(picker.Feature.MULTISELECT_ENABLED)
-      .setCallback((data: any) => {
-        if (data.action === picker.Action.CANCEL) resolve([]);
-        else if (data.action === picker.Action.PICKED) {
-          Promise.all((data.docs || []).map((item: { id: string }) => getDriveFile(user, item.id))).then(resolve, reject);
-        }
-      })
-      .build()
-      .setVisible(true);
+    try {
+      const built = new picker.PickerBuilder()
+        .setAppId(googleCloudProjectNumber)
+        .setDeveloperKey(googleDriveApiKey)
+        .setOAuthToken(token)
+        .setOrigin(window.location.origin)
+        .addView(view)
+        .enableFeature(picker.Feature.MULTISELECT_ENABLED)
+        .setCallback((data: any) => {
+          const pickerError = data?.[picker.Response?.ERROR || 'error'] || data?.error;
+          if (pickerError || data?.action === picker.Action.ERROR) {
+            finish(new Error('DRIVE_PICKER_CALLBACK_FAILED'));
+          } else if (data?.action === picker.Action.CANCEL) {
+            finish([]);
+          } else if (data?.action === picker.Action.PICKED) {
+            const docs = data.docs || [];
+            if (!docs.length) {
+              finish(new Error('DRIVE_PICKER_RESULT_MISSING'));
+              return;
+            }
+            Promise.all(docs.map((item: { id: string }) => getDriveFile(user, item.id))).then(finish, (error) => finish(error instanceof Error ? error : new Error('DRIVE_PICKER_FILE_FAILED')));
+          }
+        })
+        .build();
+      activePicker?.setVisible(false);
+      activePicker = built;
+      timeout = globalThis.setTimeout(() => finish(new Error('DRIVE_PICKER_CALLBACK_TIMEOUT')), PICKER_CALLBACK_TIMEOUT_MS) as unknown as number;
+      built.setVisible(true);
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error('DRIVE_PICKER_LOAD_FAILED'));
+    }
   });
 }

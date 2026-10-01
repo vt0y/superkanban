@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { driveDocumentId, taskAttachmentId } from './drive-attachments';
+import { driveDocumentId } from './drive-attachments';
 import {
   DEFAULT_DRIVE_SHARE_MODE,
   DRIVE_ROOT_FOLDER_NAME,
@@ -8,6 +8,7 @@ import {
   driveOpenUrl,
   getOrCreateProjectDriveFolder,
   LOCAL_DRIVE_FILE_MAX_BYTES,
+  pickDriveFiles,
   projectDriveFolderStorageKey,
   shareDriveFile,
   syncDriveFileMembers,
@@ -50,7 +51,6 @@ describe('Google Drive attachment helpers', () => {
 
   it('uses deterministic per-target reference IDs', () => {
     expect(driveDocumentId('file-1')).toBe('drive_file-1');
-    expect(taskAttachmentId('task-1', 'file-1')).toBe('task-1_file-1');
   });
 
   it('defaults new attachment batches to project-member sharing', () => {
@@ -59,6 +59,45 @@ describe('Google Drive attachment helpers', () => {
 
   it('uses SuperKanban as the upload root folder', () => {
     expect(DRIVE_ROOT_FOLDER_NAME).toBe('SuperKanban');
+  });
+
+  it('pins Picker to the app origin and keeps it alive through the selected-file callback', async () => {
+    let callback: ((data: Record<string, unknown>) => void) | undefined;
+    const setOrigin = vi.fn();
+    const setVisible = vi.fn();
+    class DocsView {
+      setIncludeFolders() { return this; }
+      setSelectFolderEnabled() { return this; }
+    }
+    class PickerBuilder {
+      setAppId() { return this; }
+      setDeveloperKey() { return this; }
+      setOAuthToken() { return this; }
+      setOrigin(origin: string) { setOrigin(origin); return this; }
+      addView() { return this; }
+      enableFeature() { return this; }
+      setCallback(next: (data: Record<string, unknown>) => void) { callback = next; return this; }
+      build() { return { setVisible }; }
+    }
+    vi.stubGlobal('window', {
+      location: { origin: 'https://app.example.com' },
+      google: { picker: {
+        DocsView,
+        PickerBuilder,
+        Feature: { MULTISELECT_ENABLED: 'multi' },
+        Action: { CANCEL: 'cancel', ERROR: 'error', PICKED: 'picked' },
+        Response: { ERROR: 'error' },
+      } },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'file-1', name: 'plan.pdf', mimeType: 'application/pdf', size: '42' }), { status: 200 })));
+
+    const selected = pickDriveFiles({ uid: 'user-1' } as never);
+    await vi.waitFor(() => expect(setOrigin).toHaveBeenCalledWith('https://app.example.com'));
+    expect(setVisible).toHaveBeenCalledWith(true);
+    callback?.({ action: 'picked', docs: [{ id: 'file-1' }] });
+
+    await expect(selected).resolves.toEqual([{ driveFileId: 'file-1', name: 'plan.pdf', mimeType: 'application/pdf', sizeBytes: 42 }]);
+    expect(setVisible).toHaveBeenLastCalledWith(false);
   });
 
   it('reuses and renames the existing marker-backed root instead of creating another root', async () => {

@@ -8,9 +8,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('firebase/firestore', () => ({
+  arrayRemove: vi.fn(),
+  arrayUnion: vi.fn(),
   collection: vi.fn((...parts: unknown[]) => parts.join('/')),
   deleteDoc: vi.fn(),
   doc: vi.fn((...parts: unknown[]) => parts.join('/')),
+  getDoc: vi.fn(),
   getDocs: mocks.getDocs,
   onSnapshot: vi.fn(),
   query: vi.fn((path: string, ...constraints: unknown[]) => ({ path, constraints })),
@@ -39,24 +42,19 @@ describe('project Drive permission sync', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it('covers owned document and task references while skipping link mode and non-Drive documents', async () => {
+  it('syncs only Drive documents from the unified library', async () => {
     mocks.getDocs
       .mockResolvedValueOnce({ docs: [
         snapshot('doc-1', { kind: 'drive', driveFileId: 'file-1', shareMode: 'members', managedPermissionIds: {} }),
         snapshot('markdown', { kind: 'markdown', createdBy: 'user-1' }),
-      ] })
-      .mockResolvedValueOnce({ docs: [
-        snapshot('task-link', { driveFileId: 'file-link', shareMode: 'link' }),
-        snapshot('task-member', { driveFileId: 'file-2', shareMode: 'members' }),
       ] });
     mocks.syncDriveFileMembers
-      .mockResolvedValueOnce({ state: 'updated', sharedMemberIds: ['user-1', 'member'], managedPermissionIds: { member: 'permission-1' }, createdPermissionIds: ['permission-1'] })
-      .mockResolvedValueOnce({ state: 'skipped', sharedMemberIds: ['user-1', 'member'], managedPermissionIds: {}, createdPermissionIds: [] });
+      .mockResolvedValueOnce({ state: 'updated', sharedMemberIds: ['user-1', 'member'], managedPermissionIds: { member: 'permission-1' }, createdPermissionIds: ['permission-1'] });
 
     const result = await syncProjectDrivePermissions('project-1', { uid: 'user-1' } as never, [{ userId: 'user-1' }, { userId: 'member' }] as never);
 
-    expect(result).toEqual({ total: 3, updated: 1, skipped: 2, failed: 0 });
-    expect(mocks.syncDriveFileMembers).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ total: 1, updated: 1, skipped: 0, failed: 0 });
+    expect(mocks.syncDriveFileMembers).toHaveBeenCalledTimes(1);
     expect(mocks.updateDoc).toHaveBeenCalledWith('ref:doc-1', expect.objectContaining({ managedPermissionIds: { member: 'permission-1' } }));
   });
 
