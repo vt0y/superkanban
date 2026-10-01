@@ -37,4 +37,12 @@ describe('document-filter', () => {
     expect(matchDocument(drive, parseDocumentQuery('no:task'), labels, tasks)).toBe(false);
     expect(matchDocument(document(), parseDocumentQuery('no:task'), labels, tasks)).toBe(true);
   });
+
+  it('matches Canva nickname and description', () => {
+    const canva = document({ kind: 'canva', title: 'Deck', canvaDesignId: 'DAGdeck0001', canvaEditToken: 'editTok1', nickname: 'Pitch v2', description: 'Investor round' });
+    expect(matchDocument(canva, parseDocumentQuery('pitch'), labels)).toBe(true);
+    expect(matchDocument(canva, parseDocumentQuery('investor deck'), labels)).toBe(true);
+    expect(matchDocument(canva, parseDocumentQuery('canva'), labels)).toBe(true);
+    expect(matchDocument(canva, parseDocumentQuery('spreadsheet'), labels)).toBe(false);
+  });
 });

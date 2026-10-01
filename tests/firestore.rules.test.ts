@@ -226,6 +226,71 @@ describe('ProjectSpace Firestore rules', () => {
     await assertSucceeds(deleteDoc(doc(context('admin'), ownerDocPath)));
   });
 
+  it('Canva documents เก็บแค่ ID/edit token ที่แก้ภายหลังไม่ได้ และถอดได้โดยผู้แนบหรือ admin', async () => {
+    await seedProject();
+    const memberDb = context('member');
+    const base = { kind: 'canva', title: 'Pitch deck', createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    const canvaRef = (id: string, db = memberDb) => doc(db, 'projects', projectId, 'documents', `canva_${id}`);
+
+    await assertSucceeds(setDoc(canvaRef('DAGdeck0001'), { ...base, canvaDesignId: 'DAGdeck0001', canvaEditToken: 'edit-Token_1', labelIds: [], taskIds: ['task-1'] }));
+    await assertSucceeds(setDoc(canvaRef('DAGplain001'), { ...base, canvaDesignId: 'DAGplain001' }));
+    await assertFails(getDoc(doc(context('outsider'), canvaRef('DAGdeck0001').path)));
+    await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'documents', 'canva_other'), { ...base, canvaDesignId: 'DAGwrong001' }));
+    await assertFails(setDoc(canvaRef('DAG.bad.0001'), { ...base, canvaDesignId: 'DAG.bad.0001' }));
+    await assertFails(setDoc(canvaRef('DAGtoken001'), { ...base, canvaDesignId: 'DAGtoken001', canvaEditToken: 'bad token/../x' }));
+    await assertFails(setDoc(canvaRef('DAGextra001'), { ...base, canvaDesignId: 'DAGextra001', url: 'https://evil.example' }));
+    await assertFails(setDoc(canvaRef('DAGnotitle1'), { ...base, title: '', canvaDesignId: 'DAGnotitle1' }));
+    await assertFails(setDoc(canvaRef('DAGtime0001'), { ...base, canvaDesignId: 'DAGtime0001', createdAt: Timestamp.fromDate(new Date(2020, 0, 1)) }));
+
+    await assertSucceeds(updateDoc(canvaRef('DAGdeck0001', context('owner')), { nickname: 'Final deck', description: 'Client copy', labelIds: ['label-1'], taskIds: [], updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(canvaRef('DAGdeck0001'), { title: 'Renamed', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(canvaRef('DAGdeck0001'), { canvaEditToken: 'otherToken', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(canvaRef('DAGdeck0001', context('admin')), { canvaEditToken: deleteField(), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(canvaRef('DAGplain001'), { canvaEditToken: 'addedLater', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(canvaRef('DAGview0001'), { ...base, canvaDesignId: 'DAGview0001', canvaViewToken: 'viewToken9' }));
+    await assertFails(setDoc(canvaRef('DAGauth0001'), { ...base, canvaDesignId: 'DAGauth0001', canvaAuthor: 'Jamie' }));
+
+    const ownerDocPath = `projects/${projectId}/documents/canva_DAGowner001`;
+    await environment.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), ownerDocPath), {
+      kind: 'canva', title: 'Owner deck', canvaDesignId: 'DAGowner001', createdBy: 'owner', createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    }));
+
+    await assertFails(deleteDoc(doc(memberDb, ownerDocPath)));
+    await assertSucceeds(deleteDoc(canvaRef('DAGdeck0001')));
+    await assertSucceeds(deleteDoc(doc(context('admin'), ownerDocPath)));
+
+    await environment.withSecurityRulesDisabled(async (ctx) => updateDoc(doc(ctx.firestore(), 'projects', projectId), { archived: true }));
+    await assertFails(updateDoc(canvaRef('DAGplain001'), { nickname: 'Archived', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(canvaRef('DAGnew00001'), { ...base, canvaDesignId: 'DAGnew00001' }));
+  });
+
+  it('Drive roles: ยกระดับได้เฉพาะไฟล์ Google, ลิงก์สาธารณะแก้ไขไม่ได้, ลิงก์ unmanaged ไม่มีสิทธิ์', async () => {
+    await seedProject();
+    const memberDb = context('member');
+    const base = { createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    const gdoc = { kind: 'drive', title: 'Spec', name: 'Spec', mimeType: 'application/vnd.google-apps.document' };
+    const docRef = (id: string) => doc(memberDb, 'projects', projectId, 'documents', `drive_${id}`);
+
+    await assertSucceeds(setDoc(docRef('gdoc-1'), { ...gdoc, ...base, driveFileId: 'gdoc-1', shareMode: 'members', role: 'writer', sharedMemberIds: ['owner', 'member', 'admin'], managedPermissionIds: {}, permissionsSyncedAt: serverTimestamp() }));
+    await assertSucceeds(setDoc(docRef('gdoc-2'), { ...gdoc, ...base, driveFileId: 'gdoc-2', shareMode: 'link', role: 'commenter', linkPermissionId: 'anyone-1', sharedMemberIds: [] }));
+    await assertFails(setDoc(docRef('gdoc-3'), { ...gdoc, ...base, driveFileId: 'gdoc-3', shareMode: 'link', role: 'writer', sharedMemberIds: [] }));
+    await assertFails(setDoc(docRef('pdf-1'), { ...gdoc, ...base, mimeType: 'application/pdf', driveFileId: 'pdf-1', shareMode: 'link', role: 'commenter', sharedMemberIds: [] }));
+    await assertFails(setDoc(docRef('gdoc-4'), { ...gdoc, ...base, driveFileId: 'gdoc-4', shareMode: 'link', role: 'owner', sharedMemberIds: [] }));
+    await assertFails(setDoc(docRef('gdoc-5'), { ...gdoc, ...base, driveFileId: 'gdoc-5', shareMode: 'members', linkPermissionId: 'anyone-1', sharedMemberIds: ['owner', 'member', 'admin'] }));
+
+    await assertSucceeds(setDoc(docRef('pasted-1'), { ...gdoc, ...base, driveFileId: 'pasted-1', shareMode: 'unmanaged', sharedMemberIds: [] }));
+    await assertFails(setDoc(docRef('pasted-2'), { ...gdoc, ...base, driveFileId: 'pasted-2', shareMode: 'unmanaged', sharedMemberIds: ['owner'] }));
+    await assertFails(setDoc(docRef('pasted-3'), { ...gdoc, ...base, driveFileId: 'pasted-3', shareMode: 'unmanaged', role: 'reader', sharedMemberIds: [] }));
+    await assertFails(setDoc(docRef('pasted-4'), { ...gdoc, ...base, driveFileId: 'pasted-4', shareMode: 'unmanaged', managedPermissionIds: {}, sharedMemberIds: [] }));
+
+    await assertSucceeds(updateDoc(docRef('gdoc-1'), { role: 'commenter', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(context('admin'), docRef('gdoc-1').path), { role: 'reader', updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(context('admin'), docRef('gdoc-1').path), { nickname: 'Spec v2', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(docRef('gdoc-2'), { role: 'writer', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(docRef('pasted-1'), { role: 'reader', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(docRef('pasted-1'), { sharedMemberIds: ['owner', 'member', 'admin'], permissionsSyncedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+  });
+
   it('task attachments รุ่นเดิมอ่าน/ลบได้แต่สร้างหรือแก้เพิ่มไม่ได้', async () => {
     await seedProject();
     await environment.withSecurityRulesDisabled(async (ctx) => {

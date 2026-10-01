@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { lockBodyScroll } from '@/utils/scroll-lock';
 
 export function Modal({
   title,
@@ -17,15 +18,12 @@ export function Modal({
   actions?: ReactNode;
   className?: string;
 }) {
+  // Lock once per open modal (not per parent render, since onClose is often a fresh arrow).
+  useEffect(() => lockBodyScroll(), []);
   useEffect(() => {
     const close = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     addEventListener('keydown', close);
-    return () => {
-      removeEventListener('keydown', close);
-      document.body.style.overflow = previousOverflow;
-    };
+    return () => removeEventListener('keydown', close);
   }, [onClose]);
 
   // Portal to <body> so a modal opened from inside a transformed/blurred ancestor isn't clipped by it.

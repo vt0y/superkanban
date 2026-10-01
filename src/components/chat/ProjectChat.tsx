@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { lockBodyScroll } from '@/utils/scroll-lock';
 import type { AppContextValue } from '@/context/AppContext';
 import { Avatar } from '@/components/common/Avatar';
 import { parseContentWithLinks } from '@/utils/linkify';
@@ -62,9 +63,7 @@ export function ProjectChat({ context, project, readOnly }: { context: AppContex
   // The chat is a full-screen sheet on phones: stop the page behind it from scrolling.
   useEffect(() => {
     if (!open || !matchMedia('(max-width: 760px)').matches) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = previous; };
+    return lockBodyScroll();
   }, [open]);
 
   useEffect(() => fitComposer(inputRef.current), [body]);

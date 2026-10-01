@@ -47,6 +47,7 @@ describe('Drive upload queue helpers', () => {
   it('chooses retry from the last durable checkpoint', () => {
     const localFile = {} as File;
     expect(uploadRetryAction({ state: 'error', source: 'local', localFile, retryable: true })).toBe('restart-upload');
+    expect(uploadRetryAction({ state: 'error', source: 'create', createType: 'document', retryable: true })).toBe('restart-upload');
     expect(uploadRetryAction({ state: 'error', source: 'local', localFile, candidate: { driveFileId: 'uploaded', name: 'plan.pdf', mimeType: 'application/pdf' }, retryable: true })).toBe('resume-attach');
     expect(uploadRetryAction({ state: 'error', source: 'drive', candidate: { driveFileId: 'picked', name: 'notes.md', mimeType: 'text/markdown' }, retryable: true })).toBe('resume-attach');
     expect(uploadRetryAction({ state: 'error', source: 'picker', retryable: true })).toBe('reopen-picker');

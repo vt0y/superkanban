@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import type { AppContextValue } from '@/context/AppContext';
-import { Avatar, DocumentPickerModal, DriveFileRow, Modal, TimeField } from '@/components/common';
+import { Avatar, CanvaFileRow, DocumentPickerModal, DriveFileRow, Modal, TimeField } from '@/components/common';
 import { CommentThread } from '@/components/comments/CommentThread';
 import { attempt, toast } from '@/components/toast';
 import { TASK_COLUMNS } from '@/config/constants';
-import { createWorkItem, deleteTasksAndUnlinkDocuments, isDriveProjectDocument, subscribeTaskDocuments, unlinkProjectDocumentFromTask, updateWorkItem } from '@/services';
+import { createWorkItem, deleteTasksAndUnlinkDocuments, isCanvaProjectDocument, isDriveProjectDocument, subscribeTaskDocuments, unlinkProjectDocumentFromTask, updateWorkItem } from '@/services';
 import type { ChecklistItem, Label, Membership, Milestone, Priority, ProjectDocument, Role, Task, TaskStatus } from '@/types';
 import { blockingMilestones } from '@/utils/milestone-deps';
 import { canDeleteItem } from '@/utils/permissions';
@@ -92,8 +92,10 @@ export function TaskModal({ task, defaults = {}, projectId, projectName, members
         {task && <section className="task-attachments span-2">
           <div className="task-documents-head"><h3>▤ {pick(locale, 'เอกสาร', 'Documents')} <b>{documents.length}</b></h3>{!readOnly && <button type="button" className="secondary small" onClick={() => setDocumentPickerOpen(true)}>＋ {pick(locale, 'เพิ่มเอกสาร', 'Add documents')}</button>}</div>
           {documents.length > 0 && <div className="drive-file-list">{documents.map((document) => isDriveProjectDocument(document) ? <DriveFileRow key={document.id} file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName}
-            canDetach={!readOnly} detachLabel={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onDetach={() => attempt(() => unlinkProjectDocumentFromTask(projectId, document.id, task.id).then(() => true), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document')).then((ok) => ok === true)} />
-            : <div className="task-document-row" key={document.id}><a href={`/p/${projectId}/documents/${document.id}`}><span>▤</span><span><strong>{document.title}</strong><small>{document.excerpt || pick(locale, 'เอกสาร Markdown', 'Markdown document')}</small></span><b>↗</b></a>{!readOnly && <button type="button" className="drive-detach" onClick={() => void attempt(() => unlinkProjectDocumentFromTask(projectId, document.id, task.id), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document'))}>× <b>{pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')}</b></button>}</div>)}</div>}
+            canDetach={!readOnly} iconOnlyDetach detachLabel={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onDetach={() => attempt(() => unlinkProjectDocumentFromTask(projectId, document.id, task.id).then(() => true), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document')).then((ok) => ok === true)} />
+            : isCanvaProjectDocument(document) ? <CanvaFileRow key={document.id} file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName}
+            canDetach={!readOnly} iconOnlyDetach detachLabel={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onDetach={() => attempt(() => unlinkProjectDocumentFromTask(projectId, document.id, task.id).then(() => true), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document')).then((ok) => ok === true)} />
+            : <div className="task-document-row" key={document.id}><a href={`/p/${projectId}/documents/${document.id}`}><span>▤</span><span><strong>{document.title}</strong><small>{document.excerpt || pick(locale, 'เอกสาร Markdown', 'Markdown document')}</small></span><b>↗</b></a>{!readOnly && <button type="button" className="drive-detach icon-only" aria-label={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} title={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onClick={() => void attempt(() => unlinkProjectDocumentFromTask(projectId, document.id, task.id), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document'))}>×</button>}</div>)}</div>}
           {!documents.length && <p className="muted task-documents-empty">{pick(locale, 'ยังไม่มีเอกสารที่เชื่อมกับ Task นี้', 'No documents linked to this task')}</p>}
         </section>}
         <div className="form-actions span-2">{!readOnly && task && canDeleteItem(role, task.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={remove}>{t('delete')}</button>}<span />{!readOnly && <small className="muted kbd-hint">Ctrl + Enter</small>}<button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary" disabled={busy}>{t('save')}</button>}</div>

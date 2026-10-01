@@ -38,7 +38,8 @@ export function matchDocument(document: ProjectDocument, parsed: ParsedDocumentQ
     return matches !== term.negated;
   });
   if (!matchesTerms) return false;
-  const driveMetadata = document.kind === 'drive' ? [document.nickname || '', document.description || '', document.name] : [];
+  const driveMetadata = document.kind === 'drive' ? [document.nickname || '', document.description || '', document.name]
+    : document.kind === 'canva' ? [document.nickname || '', document.description || '', 'canva'] : [];
   const haystack = [document.title, 'excerpt' in document ? document.excerpt || '' : '', 'content' in document ? document.content || '' : '', ...driveMetadata, ...names, ...taskNames].join(' ').toLowerCase();
   return parsed.text.every((word) => haystack.includes(word));
 }

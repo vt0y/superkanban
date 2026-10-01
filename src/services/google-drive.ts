@@ -1,6 +1,6 @@
 import { GoogleAuthProvider, reauthenticateWithPopup, type User } from 'firebase/auth';
 import { googleCloudProjectNumber, googleDriveApiKey } from '@/config/features';
-import type { DriveShareMode, Membership, Project } from '@/types';
+import type { DriveRole, DriveShareMode, Membership, Project } from '@/types';
 
 export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 export const LOCAL_DRIVE_FILE_MAX_BYTES = 25 * 1024 * 1024;
@@ -20,6 +20,61 @@ export interface DriveFileCandidate {
 export interface DriveShareResult {
   sharedMemberIds: string[];
   managedPermissionIds: Record<string, string>;
+  role?: DriveRole;
+  linkPermissionId?: string;
+}
+
+export const GOOGLE_WORKSPACE_MIME_TYPES = {
+  document: 'application/vnd.google-apps.document',
+  spreadsheet: 'application/vnd.google-apps.spreadsheet',
+  presentation: 'application/vnd.google-apps.presentation',
+} as const;
+export type GoogleWorkspaceFileType = keyof typeof GOOGLE_WORKSPACE_MIME_TYPES;
+
+const DRIVE_ROLE_RANK: Record<DriveRole, number> = { reader: 0, commenter: 1, writer: 2 };
+
+export function isGoogleWorkspaceMimeType(mimeType: string): boolean {
+  return (Object.values(GOOGLE_WORKSPACE_MIME_TYPES) as string[]).includes(mimeType);
+}
+
+/** Roles the app may grant: non-Google files stay view-only, and "anyone with the link" never gets edit access. */
+export function allowedDriveRoles(mode: DriveShareMode, mimeType: string): DriveRole[] {
+  if (!isGoogleWorkspaceMimeType(mimeType)) return ['reader'];
+  return mode === 'link' ? ['reader', 'commenter'] : ['reader', 'commenter', 'writer'];
+}
+
+/** Clamps a requested role down to the highest role allowed for this file and sharing mode. */
+export function effectiveDriveRole(mode: DriveShareMode, mimeType: string, requested: DriveRole): DriveRole {
+  return allowedDriveRoles(mode, mimeType).filter((role) => DRIVE_ROLE_RANK[role] <= DRIVE_ROLE_RANK[requested]).pop() || 'reader';
+}
+
+export interface GoogleFileLink {
+  driveFileId: string;
+  mimeType?: string;
+}
+
+const LINK_TYPES: Record<string, string> = {
+  document: GOOGLE_WORKSPACE_MIME_TYPES.document,
+  spreadsheets: GOOGLE_WORKSPACE_MIME_TYPES.spreadsheet,
+  presentation: GOOGLE_WORKSPACE_MIME_TYPES.presentation,
+};
+const FILE_ID = /^[A-Za-z0-9_-]{10,200}$/;
+
+/** Extracts a Drive file ID from a Google Docs/Sheets/Slides or Drive file URL. Folders and other hosts are rejected. */
+export function parseGoogleFileLink(raw: string): GoogleFileLink | null {
+  let url: URL;
+  try { url = new URL(raw.trim()); } catch { return null; }
+  if (url.protocol !== 'https:') return null;
+  if (url.hostname === 'docs.google.com') {
+    const match = url.pathname.match(/^\/(document|spreadsheets|presentation)\/(?:u\/\d+\/)?d\/([^/]+)/);
+    return match && FILE_ID.test(match[2]) ? { driveFileId: match[2], mimeType: LINK_TYPES[match[1]] } : null;
+  }
+  if (url.hostname === 'drive.google.com') {
+    const match = url.pathname.match(/^\/(?:u\/\d+\/)?file\/d\/([^/]+)/);
+    const id = match?.[1] ?? (url.pathname === '/open' ? url.searchParams.get('id') : null);
+    return id && FILE_ID.test(id) ? { driveFileId: id } : null;
+  }
+  return null;
 }
 
 export interface DriveMemberSyncResult extends DriveShareResult {
@@ -184,6 +239,21 @@ function normalizeDriveFile(file: { id: string; name: string; mimeType: string; 
   return { driveFileId: file.id, name: file.name, mimeType: file.mimeType, ...(Number.isFinite(parsed) ? { sizeBytes: parsed } : {}) };
 }
 
+/** Creates a blank Google Doc/Sheet/Slides file in the project upload folder; app-created files stay accessible under drive.file. */
+export async function createGoogleWorkspaceFile(user: User, project: Pick<Project, 'id' | 'name'>, type: GoogleWorkspaceFileType, name: string): Promise<DriveFileCandidate> {
+  const folderId = await getOrCreateProjectDriveFolder(user, project);
+  const created = await driveJson<{ id: string; name: string; mimeType: string }>(user, `${DRIVE_API}/files?fields=id,name,mimeType`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: name.trim().slice(0, 240) || 'Untitled',
+      mimeType: GOOGLE_WORKSPACE_MIME_TYPES[type],
+      parents: [folderId],
+      appProperties: { projectSpaceProjectId: project.id },
+    }),
+  });
+  return normalizeDriveFile(created);
+}
+
 export async function getDriveFile(user: User, fileId: string): Promise<DriveFileCandidate> {
   const file = await driveJson<{ id: string; name: string; mimeType: string; size?: string }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size`);
   return normalizeDriveFile(file);
@@ -193,22 +263,25 @@ export async function removeDrivePermissions(user: User, fileId: string, permiss
   await Promise.allSettled(permissionIds.map((permissionId) => authorizedFetch(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permissionId)}`, { method: 'DELETE' }, false)));
 }
 
-export async function shareDriveFile(user: User, fileId: string, mode: DriveShareMode, members: Membership[]): Promise<DriveShareResult> {
+export async function shareDriveFile(user: User, fileId: string, mode: DriveShareMode, members: Membership[], role: DriveRole = 'reader'): Promise<DriveShareResult> {
+  if (mode === 'link' && role === 'writer') throw new Error('DRIVE_LINK_WRITER_FORBIDDEN');
   const existing = await driveJson<{ permissions?: Array<{ id: string; type: string; emailAddress?: string; role: string }> }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}/permissions?fields=permissions(id,type,emailAddress,role)`);
   const permissions = existing.permissions || [];
-  const grants = mode === 'link'
-    ? (permissions.some((permission) => permission.type === 'anyone' && permission.role !== 'none') ? [] : [{ body: { role: 'reader', type: 'anyone', allowFileDiscovery: false } }])
+  const grants: Array<{ userId?: string; body: Record<string, unknown> }> = mode === 'link'
+    ? (permissions.some((permission) => permission.type === 'anyone' && permission.role !== 'none') ? [] : [{ body: { role, type: 'anyone', allowFileDiscovery: false } }])
     : members.filter((member) => member.userId !== user.uid && !permissions.some((permission) => permission.type === 'user' && permission.emailAddress?.toLowerCase() === member.email.toLowerCase() && permission.role !== 'none'))
-      .map((member) => ({ userId: member.userId, body: { role: 'reader', type: 'user', emailAddress: member.email } }));
+      .map((member) => ({ userId: member.userId, body: { role, type: 'user', emailAddress: member.email } }));
   const createdPermissionIds: string[] = [];
   const managedPermissionIds: Record<string, string> = {};
+  let linkPermissionId: string | undefined;
   try {
     for (const grant of grants) {
       const permission = await driveJson<{ id: string }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}/permissions?sendNotificationEmail=false&fields=id`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(grant.body),
       });
       createdPermissionIds.push(permission.id);
-      if ('userId' in grant && grant.userId) managedPermissionIds[grant.userId] = permission.id;
+      if (grant.userId) managedPermissionIds[grant.userId] = permission.id;
+      else linkPermissionId = permission.id;
     }
   } catch (error) {
     await removeDrivePermissions(user, fileId, createdPermissionIds);
@@ -217,7 +290,23 @@ export async function shareDriveFile(user: User, fileId: string, mode: DriveShar
   return {
     sharedMemberIds: mode === 'members' ? members.map((member) => member.userId) : [],
     managedPermissionIds,
+    role,
+    ...(linkPermissionId ? { linkPermissionId } : {}),
   };
+}
+
+async function patchPermissionRole(user: User, fileId: string, permissionId: string, role: DriveRole): Promise<void> {
+  const response = await authorizedFetch(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permissionId)}?fields=id`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
+  });
+  if (!response.ok && response.status !== 404) throw new Error(`DRIVE_HTTP_${response.status}`);
+}
+
+/** Changes the role of permissions this app created. Only the file owner can do this; other permissions are never touched. */
+export async function updateManagedPermissionRoles(user: User, fileId: string, permissionIds: string[], role: DriveRole): Promise<void> {
+  const file = await driveJson<{ ownedByMe?: boolean; capabilities?: { canShare?: boolean } }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=ownedByMe,capabilities(canShare)`);
+  if (!file.ownedByMe || !file.capabilities?.canShare) throw new Error('DRIVE_NOT_OWNER');
+  for (const permissionId of permissionIds) await patchPermissionRole(user, fileId, permissionId, role);
 }
 
 export async function syncDriveFileMembers(
@@ -225,6 +314,7 @@ export async function syncDriveFileMembers(
   fileId: string,
   members: Membership[],
   previousManagedPermissionIds: Record<string, string> = {},
+  role: DriveRole = 'reader',
 ): Promise<DriveMemberSyncResult> {
   const file = await driveJson<{ ownedByMe?: boolean; capabilities?: { canShare?: boolean } }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=ownedByMe,capabilities(canShare)`);
   if (!file.ownedByMe || !file.capabilities?.canShare) {
@@ -252,6 +342,8 @@ export async function syncDriveFileMembers(
         delete managedPermissionIds[memberId];
       } else if (!permission) {
         delete managedPermissionIds[memberId];
+      } else if (permission.role !== role) {
+        await patchPermissionRole(user, fileId, permissionId, role);
       }
     }
 
@@ -260,7 +352,7 @@ export async function syncDriveFileMembers(
       if (existing && managedPermissionIds[member.userId]) continue;
       if (existing) continue;
       const permission = await driveJson<{ id: string }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}/permissions?sendNotificationEmail=false&fields=id`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'user', emailAddress: member.email }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, type: 'user', emailAddress: member.email }),
       });
       managedPermissionIds[member.userId] = permission.id;
       createdPermissionIds.push(permission.id);

@@ -2,13 +2,13 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type Point
 import { documentId, limit, orderBy, where, type QueryConstraint } from 'firebase/firestore';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
-import { CanvasControls, DriveAttachmentControl, DriveFileRow, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
+import { CanvaFileRow, CanvaLinkForm, CanvasControls, DriveAttachmentControl, DriveFileRow, driveRoleLabel, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
 import { useActiveTasks, useCanvasViewport, useItemDrag, useProjectItems, useProjectItemsState } from '@/hooks';
 import { NOTE_COLORS } from '@/config/constants';
 import { parseContentWithLinks } from '@/utils/linkify';
 import { canDeleteItem } from '@/utils/permissions';
-import { attachDriveProjectDocument, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, subscribeProjectDocument, subscribeProjectQuery, updateDriveProjectDocumentDetails, updateProjectDocument, updateProjectDocumentLabels, updateWorkItem, type CollectionCursor } from '@/services';
-import type { DriveProjectDocument, Label, LoadedProjectDocument, Membership, ProjectDocument, Role, StickyNote, Task } from '@/types';
+import { allowedDriveRoles, attachCanvaProjectDocument, attachDriveProjectDocument, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, isCanvaProjectDocument, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, subscribeProjectDocument, subscribeProjectQuery, updateCanvaProjectDocumentDetails, updateDriveProjectDocumentDetails, updateDriveProjectDocumentRole, updateProjectDocument, updateProjectDocumentLabels, updateWorkItem, type CollectionCursor } from '@/services';
+import type { CanvaProjectDocument, DriveProjectDocument, DriveRole, Label, LoadedProjectDocument, Membership, ProjectDocument, Role, StickyNote, Task } from '@/types';
 import { attempt, toast } from '@/components/toast';
 import { pick, relativeTime } from '@/utils/formatters';
 import { DOCUMENT_BODY_MAX_BYTES, DOCUMENT_TITLE_MAX_LENGTH, documentContentBytes } from '@/utils/documents';
@@ -46,7 +46,8 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   const { items: labels, loaded: labelsLoaded } = useProjectItemsState<Label>(project.id, 'labels');
   const [noteModal, setNoteModal] = useState<StickyNote | { x: number; y: number } | null>(null);
   const [docModal, setDocModal] = useState<LoadedProjectDocument | 'new' | null>(null);
-  const [driveModal, setDriveModal] = useState<DriveProjectDocument | null>(null);
+  const [driveModal, setDriveModal] = useState<DriveProjectDocument | CanvaProjectDocument | null>(null);
+  const [canvaOpen, setCanvaOpen] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
   const navigate = useNavigate();
   const { locale } = context;
@@ -126,7 +127,7 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
       description={mode === 'sticky' ? pick(locale, 'แปะไอเดียและโน้ตสั้นบนพื้นที่อิสระ', 'Capture ideas and quick notes on a freeform canvas') : pick(locale, 'ค้นหา จัดหมวดหมู่ และแชร์เอกสารสำคัญของโปรเจกต์', 'Find, organize and share key project documents')}
       action={mode === 'sticky'
         ? (!readOnly && <button className="primary" onClick={() => setNoteModal({ x: NaN, y: NaN })}>＋ {context.t('sticky')}</button>)
-        : <div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}>🏷 {pick(locale, 'จัดการ Labels', 'Manage labels')}</button>{!readOnly && <button className="primary" onClick={() => setDocModal('new')}>＋ {context.t('documents')}</button>}</div>} />
+        : <div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}>🏷 {pick(locale, 'จัดการ Labels', 'Manage labels')}</button>{!readOnly && <button className="secondary" onClick={() => setCanvaOpen(true)}>＋ Canva</button>}{!readOnly && <button className="primary" onClick={() => setDocModal('new')}>＋ {context.t('documents')}</button>}</div>} />
     {mode === 'sticky'
       ? <StickyCanvas notes={notes} tasks={tasks} context={context} projectId={project.id} role={role} readOnly={readOnly} onEdit={setNoteModal} />
       : <><div className="board-toolbar document-toolbar"><DocumentFilterBar value={query} onChange={setDocumentQuery} labels={labels} tasks={documentTasks} locale={locale} /></div>
@@ -138,6 +139,8 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
     {noteModal && <StickyModal item={'id' in noteModal ? noteModal : null} position={'id' in noteModal ? undefined : noteModal} projectId={project.id} tasks={tasks} context={context} role={role} readOnly={readOnly} onClose={() => setNoteModal(null)} />}
     {docModal && <DocumentModal item={docModal === 'new' ? null : docModal} labels={labels} tasks={documentTasks} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} onSaved={(id) => { setDocModal(null); navigate(`/p/${project.id}/documents/${id}`); }} />}
     {driveModal && <DriveDocumentDetailsModal item={driveModal} labels={labels} tasks={documentTasks} projectId={project.id} context={context} readOnly={readOnly} onClose={() => setDriveModal(null)} />}
+    {canvaOpen && <Modal title={pick(locale, 'แนบงานออกแบบ Canva', 'Attach a Canva design')} onClose={() => setCanvaOpen(false)}><CanvaLinkForm user={context.user} locale={locale} autoFocus onCancel={() => setCanvaOpen(false)} onAttach={(link, title, labelIds) => attachCanvaProjectDocument(project.id, link, title, context.user, [], labelIds)}
+      renderLabels={(value, onChange) => <div className="document-editor-labels"><span>Labels</span><LabelPicker labels={labels} value={value} onChange={onChange} projectId={project.id} context={context} readOnly={readOnly} /></div>} /></Modal>}
     {labelsOpen && <LabelManager labels={labels} tasks={tasks} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setLabelsOpen(false)} onFilter={(label) => { toggleLabelFilter(label); setLabelsOpen(false); }} />}
   </>;
 }
@@ -229,49 +232,74 @@ function DocumentLabelRow({ document, labels, projectId, context, readOnly, onFi
   return <div className="document-label-row">{selected.map((label) => <LabelChip key={label.id} label={label} onClick={() => onFilter(label)} />)}{!readOnly && <LabelPicker labels={labels} value={value} onChange={(labelIds) => void save(labelIds)} projectId={projectId} context={context} readOnly={readOnly} showSelected={false} />}</div>;
 }
 
-function DocumentList({ documents, labels, tasks, filtered, projectId, context, members, role, readOnly, userId, onFilter, onTaskFilter, onEditDrive }: { documents: ProjectDocument[]; labels: Label[]; tasks: Task[]; filtered: boolean; projectId: string; context: AppContextValue; members: Membership[]; role: Role | null; readOnly: boolean; userId: string; onFilter: (label: Label) => void; onTaskFilter: (task: Task) => void; onEditDrive: (item: DriveProjectDocument) => void }) {
+function DocumentList({ documents, labels, tasks, filtered, projectId, context, members, role, readOnly, userId, onFilter, onTaskFilter, onEditDrive }: { documents: ProjectDocument[]; labels: Label[]; tasks: Task[]; filtered: boolean; projectId: string; context: AppContextValue; members: Membership[]; role: Role | null; readOnly: boolean; userId: string; onFilter: (label: Label) => void; onTaskFilter: (task: Task) => void; onEditDrive: (item: DriveProjectDocument | CanvaProjectDocument) => void }) {
   const { locale } = context;
   return <div className="document-list">{documents.map((document) => isDriveProjectDocument(document)
     ? <div className="document-entry" key={document.id}><DriveFileRow file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName} canDetach={!readOnly && canDeleteItem(role, document.createdBy, userId)} onDetach={() => {
       if (!confirm(pick(locale, 'นำไฟล์แนบนี้ออกจาก SuperKanban หรือไม่? ไฟล์ต้นฉบับและสิทธิ์การแชร์ใน Google Drive จะไม่เปลี่ยนแปลง', 'Remove this attachment from SuperKanban? The original file and its Google Drive sharing permissions will stay unchanged.'))) return false;
       return attempt(() => detachDriveProjectDocument(projectId, document.id).then(() => true), pick(locale, 'นำไฟล์ออกไม่สำเร็จ', 'Could not detach file')).then((ok) => ok === true);
     }} /><DocumentMetadataRow document={document} labels={labels} tasks={tasks} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} onTaskFilter={onTaskFilter} onEdit={() => onEditDrive(document)} /></div>
-    : <div className="document-entry" key={document.id}><Link to={`/p/${projectId}/documents/${document.id}`}><span>▤</span><div><h3>{document.title}</h3><p>{document.excerpt || document.content?.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b>→</b></Link><DocumentMetadataRow document={document} labels={labels} tasks={tasks} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} onTaskFilter={onTaskFilter} /></div>)}{!documents.length && <Empty icon="▤" title={filtered ? pick(locale, 'ไม่พบเอกสารที่ตรงกับตัวกรอง', 'No documents match this filter') : pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={filtered ? pick(locale, 'ลองแก้คำค้นหาหรือล้างตัวกรอง', 'Try changing or clearing the filter') : pick(locale, 'สร้างเอกสาร Markdown หรือแนบไฟล์จาก Google Drive', 'Create a Markdown document or attach a Google Drive file')} />}</div>;
+    : isCanvaProjectDocument(document)
+    ? <div className="document-entry" key={document.id}><CanvaFileRow file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName} canDetach={!readOnly && canDeleteItem(role, document.createdBy, userId)} onDetach={() => {
+      if (!confirm(pick(locale, 'นำงานออกแบบนี้ออกจาก SuperKanban หรือไม่? งานและการแชร์ใน Canva จะไม่เปลี่ยนแปลง', 'Remove this design from SuperKanban? The design and its sharing in Canva will stay unchanged.'))) return false;
+      return attempt(() => detachDriveProjectDocument(projectId, document.id).then(() => true), pick(locale, 'นำงานออกแบบออกไม่สำเร็จ', 'Could not remove design')).then((ok) => ok === true);
+    }} /><DocumentMetadataRow document={document} labels={labels} tasks={tasks} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} onTaskFilter={onTaskFilter} onEdit={() => onEditDrive(document)} /></div>
+    : <div className="document-entry" key={document.id}><Link to={`/p/${projectId}/documents/${document.id}`}><span>▤</span><div><h3>{document.title}</h3><p>{document.excerpt || document.content?.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b>→</b></Link><DocumentMetadataRow document={document} labels={labels} tasks={tasks} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} onTaskFilter={onTaskFilter} /></div>)}{!documents.length && <Empty icon="▤" title={filtered ? pick(locale, 'ไม่พบเอกสารที่ตรงกับตัวกรอง', 'No documents match this filter') : pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={filtered ? pick(locale, 'ลองแก้คำค้นหาหรือล้างตัวกรอง', 'Try changing or clearing the filter') : pick(locale, 'สร้างเอกสาร Markdown หรือแนบไฟล์จาก Google Drive', 'Create a Markdown document or attach a Google Drive file or Canva design')} />}</div>;
 }
 
 function DocumentMetadataRow({ document, labels, tasks, projectId, context, readOnly, onFilter, onTaskFilter, onEdit }: { document: ProjectDocument; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; readOnly: boolean; onFilter: (label: Label) => void; onTaskFilter: (task: Task) => void; onEdit?: () => void }) {
   const linkedTasks = tasks.filter((task) => (document.taskIds || []).includes(task.id));
-  return <div className="document-metadata-row"><div className="document-metadata-tags"><DocumentLabelRow document={document} labels={labels} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} /><div className="document-task-chips">{linkedTasks.map((task) => <button type="button" key={task.id} onClick={() => onTaskFilter(task)}>▣ {task.title}</button>)}</div></div>{onEdit && !readOnly && <button type="button" className="document-details-button" onClick={onEdit}><span className="document-details-icon" aria-hidden="true">✎</span><span><strong>{pick(context.locale, 'แก้ไขข้อมูลเอกสาร', 'Edit document details')}</strong><small>{pick(context.locale, 'ชื่อที่แสดง · คำอธิบาย · Labels · Tasks', 'Display name · description · labels · tasks')}</small></span><b aria-hidden="true">›</b></button>}</div>;
+  return <div className="document-metadata-row"><div className="document-metadata-tags"><DocumentLabelRow document={document} labels={labels} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} /><div className="document-task-chips">{linkedTasks.map((task) => <button type="button" key={task.id} onClick={() => onTaskFilter(task)}>▣ {task.title}</button>)}</div></div>{onEdit && !readOnly && <button type="button" className="secondary document-details-button" onClick={onEdit}><span aria-hidden="true">✎</span>{pick(context.locale, 'แก้ไข', 'Edit')}</button>}</div>;
 }
 
-function DriveDocumentDetailsModal({ item, labels, tasks, projectId, context, readOnly, onClose }: { item: DriveProjectDocument; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; readOnly: boolean; onClose: () => void }) {
+function DriveDocumentDetailsModal({ item, labels, tasks, projectId, context, readOnly, onClose }: { item: DriveProjectDocument | CanvaProjectDocument; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; readOnly: boolean; onClose: () => void }) {
   const { locale } = context;
   const [nickname, setNickname] = useState(item.nickname || '');
   const [description, setDescription] = useState(item.description || '');
   const [labelIds, setLabelIds] = useState(item.labelIds || []);
   const [taskIds, setTaskIds] = useState(item.taskIds || []);
+  const drive = isDriveProjectDocument(item) ? item : null;
+  const currentRole = drive?.role || 'reader';
+  const [role, setRole] = useState<DriveRole>(currentRole);
   const [busy, setBusy] = useState(false);
   const formId = useId();
-  const displayName = nickname.trim() || item.name;
+  const roleOptions = !drive || drive.shareMode === 'unmanaged' ? [] : allowedDriveRoles(drive.shareMode, drive.mimeType);
+  const roleManaged = drive?.shareMode === 'members' || Boolean(drive?.linkPermissionId);
+  const canEditRole = !readOnly && roleOptions.length > 1 && roleManaged && item.createdBy === context.user.uid;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || readOnly) return;
     setBusy(true);
-    const ok = await attempt(() => updateDriveProjectDocumentDetails(projectId, item.id, { nickname, description, labelIds, taskIds }).then(() => true), pick(locale, 'บันทึกรายละเอียดไม่สำเร็จ', 'Could not save document details'));
+    if (drive && role !== currentRole) {
+      const roleOk = await attempt(() => updateDriveProjectDocumentRole(projectId, drive, role, context.user).then(() => true), pick(locale, 'เปลี่ยนสิทธิ์ใน Google Drive ไม่สำเร็จ (ต้องเป็นเจ้าของไฟล์)', 'Could not change Google Drive access (you must own the file)'));
+      if (!roleOk) { setBusy(false); return; }
+    }
+    const details = { nickname, description, labelIds, taskIds };
+    const ok = await attempt(() => (drive ? updateDriveProjectDocumentDetails(projectId, item.id, details) : updateCanvaProjectDocumentDetails(projectId, item.id, details)).then(() => true), pick(locale, 'บันทึกรายละเอียดไม่สำเร็จ', 'Could not save document details'));
     setBusy(false);
     if (ok) onClose();
   };
   const saveLabel = pick(locale, 'บันทึกรายละเอียด', 'Save details');
   return <Modal title={pick(locale, 'แก้ไขข้อมูลเอกสาร', 'Edit document details')} onClose={onClose} wide actions={!readOnly && <button form={formId} className="primary" disabled={busy}>{saveLabel}</button>}><form id={formId} className="stack-form drive-document-details" onSubmit={submit}>
-    <div className="drive-details-file"><span className="drive-details-cloud">☁</span><div><small>{pick(locale, 'ตัวอย่างชื่อที่จะแสดง', 'Display preview')}</small><strong>{displayName}</strong>{nickname.trim() && <em>{pick(locale, 'ไฟล์ต้นฉบับ', 'Original file')}: {item.name}</em>}</div><span className="drive-details-safe">✓ {pick(locale, 'ไม่แก้ไฟล์ใน Drive', 'Drive file unchanged')}</span></div>
     <section className="drive-details-section"><header><span>1</span><div><h3>{pick(locale, 'ชื่อและคำอธิบาย', 'Name and description')}</h3><p>{pick(locale, 'ช่วยให้ทีมเข้าใจเอกสารโดยไม่ต้องเปิดไฟล์', 'Help the team understand the document before opening it')}</p></div></header>
-      <label><span className="field-name">{pick(locale, 'ชื่อที่ใช้แสดง', 'Display name')} <i>{pick(locale, 'ไม่บังคับ', 'Optional')}</i></span><input autoFocus value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={200} placeholder={item.name} disabled={readOnly} /><small className="field-help"><span>{pick(locale, 'เว้นว่างเพื่อใช้ชื่อไฟล์จริง', 'Leave blank to use the original filename')}</span><b>{nickname.length}/200</b></small></label>
+      <label><span className="field-name">{pick(locale, 'ชื่อที่ใช้แสดง', 'Display name')} <i>{pick(locale, 'ไม่บังคับ', 'Optional')}</i></span><input autoFocus value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={200} placeholder={drive ? drive.name : item.title} disabled={readOnly} /><small className="field-help"><span>{drive ? pick(locale, 'เว้นว่างเพื่อใช้ชื่อไฟล์จริง', 'Leave blank to use the original filename') : pick(locale, 'เว้นว่างเพื่อใช้ชื่อที่ตั้งตอนแนบ', 'Leave blank to use the title set when attached')}</span><b>{nickname.length}/200</b></small></label>
       <label><span className="field-name">{pick(locale, 'คำอธิบายเอกสาร', 'Document description')} <i>{pick(locale, 'ไม่บังคับ', 'Optional')}</i></span><textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} maxLength={1000} placeholder={pick(locale, 'เช่น ใช้สำหรับรีวิว requirement รอบสุดท้าย…', 'For example: Final requirements review copy…')} disabled={readOnly} /><small className="field-help"><span>{pick(locale, 'แสดงใต้ชื่อเอกสารและค้นหาได้', 'Shown below the document name and included in search')}</span><b>{description.length}/1000</b></small></label>
     </section>
     <section className="drive-details-section"><header><span>2</span><div><h3>{pick(locale, 'จัดหมวดหมู่และเชื่อมงาน', 'Organize and link work')}</h3><p>{pick(locale, 'เพิ่ม Labels และเลือก Tasks ที่ใช้เอกสารนี้', 'Add labels and select tasks that use this document')}</p></div></header>
       <div className="document-editor-labels"><span>Labels</span><LabelPicker labels={labels} value={labelIds} onChange={setLabelIds} projectId={projectId} context={context} readOnly={readOnly} /></div>
       <fieldset disabled={readOnly}><legend>{pick(locale, `Tasks ที่เชื่อม (${taskIds.length})`, `Linked tasks (${taskIds.length})`)}</legend><div className="document-task-picker">{tasks.map((task) => <label key={task.id} className={taskIds.includes(task.id) ? 'selected' : ''}><input type="checkbox" checked={taskIds.includes(task.id)} onChange={(event) => setTaskIds((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} /><span>{task.title}</span><small>{task.status.replace('_', ' ')}</small></label>)}</div>{!tasks.length && <p className="muted drive-details-no-tasks">{pick(locale, 'ยังไม่มี Task ในโปรเจกต์นี้', 'No tasks in this project yet')}</p>}</fieldset>
     </section>
+    {!drive && <section className="drive-details-section"><header><span>3</span><div><h3>{pick(locale, 'สิทธิ์ใน Canva', 'Canva access')}</h3><p>{pick(locale, 'สิทธิ์แก้ไขจัดการใน Canva SuperKanban เก็บแค่ลิงก์แก้ไข', 'Edit access is managed in Canva; SuperKanban only stores the edit link.')}</p></div></header>
+    </section>}
+    {drive && <section className="drive-details-section"><header><span>3</span><div><h3>{pick(locale, 'สิทธิ์ใน Google Drive', 'Google Drive access')}</h3><p>{drive.shareMode === 'unmanaged'
+      ? pick(locale, 'แนบด้วยลิงก์ SuperKanban ไม่ได้ให้สิทธิ์ใดๆ ผู้ที่เปิดไม่ได้ต้องขอสิทธิ์จากเจ้าของไฟล์ใน Google Drive', 'Attached by link. SuperKanban granted no access; anyone who cannot open it must request access from the owner in Google Drive.')
+      : pick(locale, 'ใช้กับสิทธิ์ที่ SuperKanban สร้างเท่านั้น สิทธิ์ที่แชร์ไว้เองใน Drive จะไม่เปลี่ยน', 'Applies only to access SuperKanban granted. Permissions shared manually in Drive are never changed.')}</p></div></header>
+      {roleOptions.length > 0 && <label><span className="field-name">{drive.shareMode === 'link' ? pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with the link') : pick(locale, 'สมาชิกโปรเจกต์', 'Project members')}</span><select value={role} onChange={(event) => setRole(event.target.value as DriveRole)} disabled={!canEditRole}>{roleOptions.map((option) => <option key={option} value={option}>{driveRoleLabel(option, locale)}</option>)}</select><small className="field-help"><span>{roleOptions.length === 1
+        ? pick(locale, 'ไฟล์ที่ไม่ใช่ Google Docs, Sheets, Slides ให้สิทธิ์ดูเท่านั้น', 'Files other than Google Docs, Sheets and Slides are view-only')
+        : !roleManaged ? pick(locale, 'สิทธิ์ลิงก์นี้ไม่ได้สร้างโดย SuperKanban จึงเปลี่ยนจากที่นี่ไม่ได้', 'This link access was not created by SuperKanban, so it cannot be changed here')
+        : item.createdBy !== context.user.uid ? pick(locale, 'เฉพาะผู้แนบไฟล์ (เจ้าของใน Drive) เปลี่ยนสิทธิ์ได้', 'Only the person who attached the file (its Drive owner) can change access')
+        : pick(locale, 'สมาชิกที่เพิ่มภายหลังจะได้สิทธิ์นี้เมื่อซิงก์', 'Members added later receive this role when you sync access')}</span></small></label>}
+    </section>}
     <div className="form-actions drive-details-actions"><span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : context.t('cancel')}</button>{!readOnly && <button className="primary" disabled={busy}>{busy ? pick(locale, 'กำลังบันทึก…', 'Saving…') : saveLabel}</button>}</div>
   </form></Modal>;
 }

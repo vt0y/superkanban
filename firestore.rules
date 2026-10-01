@@ -117,6 +117,14 @@ service cloud.firestore {
         return validLabelIds()
           && (!('checklist' in request.resource.data) || (request.resource.data.checklist is list && request.resource.data.checklist.size() <= 100));
       }
+      // Elevated roles only for Google Docs/Sheets/Slides, and never edit access for anyone-with-the-link.
+      function validDriveRole() {
+        return !('role' in request.resource.data)
+          || request.resource.data.role == 'reader'
+          || (request.resource.data.role in ['commenter', 'writer']
+            && request.resource.data.mimeType in ['application/vnd.google-apps.document', 'application/vnd.google-apps.spreadsheet', 'application/vnd.google-apps.presentation']
+            && !(request.resource.data.shareMode == 'link' && request.resource.data.role == 'writer'));
+      }
       function validDriveMetadata() {
         return request.resource.data.driveFileId is string
           && request.resource.data.driveFileId.size() > 0 && request.resource.data.driveFileId.size() <= 200
@@ -124,12 +132,18 @@ service cloud.firestore {
           && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 240
           && request.resource.data.mimeType is string && request.resource.data.mimeType.size() <= 160
           && (!('sizeBytes' in request.resource.data) || (request.resource.data.sizeBytes is int && request.resource.data.sizeBytes >= 0))
-          && request.resource.data.shareMode in ['members', 'link']
+          && request.resource.data.shareMode in ['members', 'link', 'unmanaged']
           && request.resource.data.sharedMemberIds is list && request.resource.data.sharedMemberIds.size() <= 200
           && (!('managedPermissionIds' in request.resource.data)
             || (request.resource.data.managedPermissionIds is map && request.resource.data.managedPermissionIds.size() <= 200))
           && (!('permissionsSyncedAt' in request.resource.data) || request.resource.data.permissionsSyncedAt is timestamp)
-          && ((request.resource.data.shareMode == 'link' && request.resource.data.sharedMemberIds.size() == 0)
+          && validDriveRole()
+          && (!('linkPermissionId' in request.resource.data)
+            || (request.resource.data.shareMode == 'link' && request.resource.data.linkPermissionId is string
+              && request.resource.data.linkPermissionId.size() > 0 && request.resource.data.linkPermissionId.size() <= 200))
+          && ((request.resource.data.shareMode == 'unmanaged' && request.resource.data.sharedMemberIds.size() == 0
+              && !request.resource.data.keys().hasAny(['managedPermissionIds', 'permissionsSyncedAt', 'role']))
+            || (request.resource.data.shareMode == 'link' && request.resource.data.sharedMemberIds.size() == 0)
             || (request.resource.data.shareMode == 'members'
               && request.resource.data.sharedMemberIds.hasOnly(get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds)
               && get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds.hasOnly(request.resource.data.sharedMemberIds)));
@@ -202,7 +216,7 @@ service cloud.firestore {
         }
         function validDriveDocument() {
           return request.resource.data.keys().hasAll(['kind','title','driveFileId','name','mimeType','shareMode','sharedMemberIds','createdBy','createdAt','updatedAt'])
-            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','driveFileId','name','mimeType','sizeBytes','shareMode','sharedMemberIds','managedPermissionIds','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
+            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','driveFileId','name','mimeType','sizeBytes','shareMode','role','sharedMemberIds','managedPermissionIds','linkPermissionId','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
             && request.resource.data.kind == 'drive'
             && itemId == 'drive_' + request.resource.data.driveFileId
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
@@ -211,13 +225,31 @@ service cloud.firestore {
             && validLabelIds() && validDocumentLinks()
             && validDriveMetadata();
         }
+        // Link-only Canva designs: design ID and edit-link token only, so stored URLs can never point elsewhere.
+        function validCanvaDocument() {
+          return request.resource.data.keys().hasAll(['kind','title','canvaDesignId','createdBy','createdAt','updatedAt'])
+            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','canvaDesignId','canvaEditToken','createdBy','createdAt','updatedAt'])
+            && request.resource.data.kind == 'canva'
+            && request.resource.data.canvaDesignId is string && request.resource.data.canvaDesignId.matches('^[A-Za-z0-9_-]{8,64}$')
+            && itemId == 'canva_' + request.resource.data.canvaDesignId
+            && (!('canvaEditToken' in request.resource.data) || (request.resource.data.canvaEditToken is string && request.resource.data.canvaEditToken.matches('^[A-Za-z0-9_-]{4,128}$')))
+            && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
+            && (!('nickname' in request.resource.data) || (request.resource.data.nickname is string && request.resource.data.nickname.size() <= 200))
+            && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 1000))
+            && validLabelIds() && validDocumentLinks();
+        }
         allow read: if isMember(projectId);
         allow create: if validWorkCreate(projectId) && (validLegacyDocument() || validV2Document()
-          || (validDriveDocument() && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time));
+          || (validDriveDocument() && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time)
+          || (validCanvaDocument() && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time));
         allow update: if projectActive(projectId) && isMember(projectId) && request.resource.data.createdBy == resource.data.createdBy
           && (validLegacyDocument() || validV2Document()
-            || (resource.data.kind == 'drive' && request.resource.data.updatedAt == request.time
+            || (resource.data.kind == 'canva' && request.resource.data.updatedAt == request.time
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname','description','labelIds','taskIds','updatedAt'])
+              && validCanvaDocument())
+            || (resource.data.kind == 'drive' && request.resource.data.updatedAt == request.time
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname','description','labelIds','taskIds','role','updatedAt'])
+              && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']) || resource.data.createdBy == request.auth.uid)
               && validDriveDocument())
             || (resource.data.kind == 'drive'
               && resource.data.createdBy == request.auth.uid

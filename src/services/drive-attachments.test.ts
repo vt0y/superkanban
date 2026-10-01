@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   updateDoc: vi.fn(),
   syncDriveFileMembers: vi.fn(),
   removeDrivePermissions: vi.fn(),
+  updateManagedPermissionRoles: vi.fn(),
 }));
 
 vi.mock('firebase/firestore', () => ({
@@ -25,12 +26,14 @@ vi.mock('firebase/firestore', () => ({
 
 vi.mock('./helpers', () => ({ database: vi.fn(() => 'database'), activityData: vi.fn(), withId: vi.fn(), BATCH_CHUNK: 450 }));
 vi.mock('./work-items', () => ({ bulkDeleteWorkItems: vi.fn() }));
-vi.mock('./google-drive', () => ({
+vi.mock('./google-drive', async (importOriginal) => ({
+  allowedDriveRoles: (await importOriginal<typeof import('./google-drive')>()).allowedDriveRoles,
   syncDriveFileMembers: mocks.syncDriveFileMembers,
   removeDrivePermissions: mocks.removeDrivePermissions,
+  updateManagedPermissionRoles: mocks.updateManagedPermissionRoles,
 }));
 
-import { syncProjectDrivePermissions } from './drive-attachments';
+import { syncProjectDrivePermissions, updateDriveProjectDocumentRole } from './drive-attachments';
 
 const snapshot = (id: string, data: Record<string, unknown>) => ({ id, ref: `ref:${id}`, data: () => data });
 
@@ -71,5 +74,45 @@ describe('project Drive permission sync', () => {
     expect(result.failed).toBe(1);
     expect(mocks.removeDrivePermissions).toHaveBeenCalledWith(expect.anything(), 'file-1', ['new-permission']);
     expect(consoleError).toHaveBeenCalled();
+  });
+
+  it('syncs each document with its stored role and skips unmanaged links', async () => {
+    mocks.getDocs.mockResolvedValueOnce({ docs: [
+      snapshot('doc-1', { kind: 'drive', driveFileId: 'file-1', shareMode: 'members', role: 'writer', managedPermissionIds: {} }),
+      snapshot('doc-2', { kind: 'drive', driveFileId: 'file-2', shareMode: 'unmanaged' }),
+    ] });
+    mocks.syncDriveFileMembers.mockResolvedValueOnce({ state: 'updated', sharedMemberIds: ['user-1'], managedPermissionIds: {}, createdPermissionIds: [] });
+
+    const result = await syncProjectDrivePermissions('project-1', { uid: 'user-1' } as never, [{ userId: 'user-1' }] as never);
+
+    expect(result).toEqual({ total: 2, updated: 1, skipped: 1, failed: 0 });
+    expect(mocks.syncDriveFileMembers).toHaveBeenCalledWith(expect.anything(), 'file-1', expect.anything(), {}, 'writer');
+  });
+
+  const driveItem = (patch: Record<string, unknown>) => ({
+    id: 'drive_file-1', kind: 'drive', title: 'Spec', driveFileId: 'file-1', name: 'Spec', mimeType: 'application/vnd.google-apps.document',
+    shareMode: 'members', sharedMemberIds: [], managedPermissionIds: { member: 'perm-1' }, createdBy: 'user-1', ...patch,
+  }) as never;
+
+  it('changes managed Drive roles before recording the new role', async () => {
+    mocks.updateManagedPermissionRoles.mockResolvedValue(undefined);
+    await updateDriveProjectDocumentRole('project-1', driveItem({}), 'commenter', { uid: 'user-1' } as never);
+    expect(mocks.updateManagedPermissionRoles).toHaveBeenCalledWith(expect.anything(), 'file-1', ['perm-1'], 'commenter');
+    expect(mocks.updateDoc).toHaveBeenCalledWith(expect.anything(), { role: 'commenter', updatedAt: 'server-time' });
+  });
+
+  it('reverts Drive roles when the Firestore write fails', async () => {
+    mocks.updateManagedPermissionRoles.mockResolvedValue(undefined);
+    mocks.updateDoc.mockRejectedValueOnce(new Error('firestore failed'));
+    await expect(updateDriveProjectDocumentRole('project-1', driveItem({ role: 'reader' }), 'writer', { uid: 'user-1' } as never)).rejects.toThrow('firestore failed');
+    expect(mocks.updateManagedPermissionRoles).toHaveBeenLastCalledWith(expect.anything(), 'file-1', ['perm-1'], 'reader');
+  });
+
+  it('rejects role changes that are unsafe or not app-managed', async () => {
+    await expect(updateDriveProjectDocumentRole('project-1', driveItem({ shareMode: 'link' }), 'writer', { uid: 'user-1' } as never)).rejects.toThrow('DRIVE_ROLE_NOT_ALLOWED');
+    await expect(updateDriveProjectDocumentRole('project-1', driveItem({ shareMode: 'link' }), 'commenter', { uid: 'user-1' } as never)).rejects.toThrow('DRIVE_ROLE_UNMANAGED_LINK');
+    await expect(updateDriveProjectDocumentRole('project-1', driveItem({ shareMode: 'unmanaged' }), 'reader', { uid: 'user-1' } as never)).rejects.toThrow('DRIVE_ROLE_UNMANAGED');
+    await expect(updateDriveProjectDocumentRole('project-1', driveItem({ mimeType: 'application/pdf' }), 'writer', { uid: 'user-1' } as never)).rejects.toThrow('DRIVE_ROLE_NOT_ALLOWED');
+    expect(mocks.updateManagedPermissionRoles).not.toHaveBeenCalled();
   });
 });

@@ -3,15 +3,20 @@ import { driveDocumentId } from './drive-attachments';
 import {
   DEFAULT_DRIVE_SHARE_MODE,
   DRIVE_ROOT_FOLDER_NAME,
+  allowedDriveRoles,
   clearDriveAccessToken,
+  createGoogleWorkspaceFile,
   driveFolderUrl,
   driveOpenUrl,
+  effectiveDriveRole,
   getOrCreateProjectDriveFolder,
   LOCAL_DRIVE_FILE_MAX_BYTES,
+  parseGoogleFileLink,
   pickDriveFiles,
   projectDriveFolderStorageKey,
   shareDriveFile,
   syncDriveFileMembers,
+  updateManagedPermissionRoles,
   uploadFileToDrive,
   validateLocalDriveFile,
 } from './google-drive';
@@ -164,7 +169,7 @@ describe('Google Drive attachment helpers', () => {
 
     const result = await shareDriveFile({ uid: 'owner' } as never, 'file-1', 'members', members);
 
-    expect(result).toEqual({ sharedMemberIds: ['owner', 'member-1', 'member-2'], managedPermissionIds: { 'member-2': 'managed-2' } });
+    expect(result).toEqual({ sharedMemberIds: ['owner', 'member-1', 'member-2'], managedPermissionIds: { 'member-2': 'managed-2' }, role: 'reader' });
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ role: 'reader', type: 'user', emailAddress: 'member2@example.com' });
   });
 
@@ -196,6 +201,88 @@ describe('Google Drive attachment helpers', () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ ownedByMe: false, capabilities: { canShare: true } }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(syncDriveFileMembers({ uid: 'owner' } as never, 'file-1', [] as never, { member: 'permission-1' })).resolves.toMatchObject({ state: 'skipped' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('grants the requested role and records the anyone-with-link permission it created', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ permissions: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'anyone-1' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await shareDriveFile({ uid: 'owner' } as never, 'file-1', 'link', [] as never, 'commenter');
+
+    expect(result).toEqual({ sharedMemberIds: [], managedPermissionIds: {}, role: 'commenter', linkPermissionId: 'anyone-1' });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ role: 'commenter', type: 'anyone', allowFileDiscovery: false });
+  });
+
+  it('never grants edit access to anyone with the link', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(shareDriveFile({ uid: 'owner' } as never, 'file-1', 'link', [] as never, 'writer')).rejects.toThrow('DRIVE_LINK_WRITER_FORBIDDEN');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('limits elevated roles to Google Docs, Sheets and Slides', () => {
+    const doc = 'application/vnd.google-apps.document';
+    expect(allowedDriveRoles('members', doc)).toEqual(['reader', 'commenter', 'writer']);
+    expect(allowedDriveRoles('link', doc)).toEqual(['reader', 'commenter']);
+    expect(allowedDriveRoles('members', 'application/pdf')).toEqual(['reader']);
+    expect(effectiveDriveRole('link', doc, 'writer')).toBe('commenter');
+    expect(effectiveDriveRole('members', 'application/pdf', 'writer')).toBe('reader');
+    expect(effectiveDriveRole('members', 'application/vnd.google-apps.presentation', 'writer')).toBe('writer');
+  });
+
+  it('parses Google file links and rejects folders and other hosts', () => {
+    expect(parseGoogleFileLink('https://docs.google.com/document/d/1AbCdEfGhIjK_lm-no/edit?usp=sharing')).toEqual({ driveFileId: '1AbCdEfGhIjK_lm-no', mimeType: 'application/vnd.google-apps.document' });
+    expect(parseGoogleFileLink('https://docs.google.com/spreadsheets/u/1/d/1AbCdEfGhIjK/edit#gid=0')).toEqual({ driveFileId: '1AbCdEfGhIjK', mimeType: 'application/vnd.google-apps.spreadsheet' });
+    expect(parseGoogleFileLink(' https://docs.google.com/presentation/d/1AbCdEfGhIjK/view ')).toEqual({ driveFileId: '1AbCdEfGhIjK', mimeType: 'application/vnd.google-apps.presentation' });
+    expect(parseGoogleFileLink('https://drive.google.com/file/d/1AbCdEfGhIjK/view')).toEqual({ driveFileId: '1AbCdEfGhIjK' });
+    expect(parseGoogleFileLink('https://drive.google.com/open?id=1AbCdEfGhIjK')).toEqual({ driveFileId: '1AbCdEfGhIjK' });
+    expect(parseGoogleFileLink('https://drive.google.com/drive/folders/1AbCdEfGhIjK')).toBeNull();
+    expect(parseGoogleFileLink('https://docs.google.com.evil.example/document/d/1AbCdEfGhIjK')).toBeNull();
+    expect(parseGoogleFileLink('http://docs.google.com/document/d/1AbCdEfGhIjK')).toBeNull();
+    expect(parseGoogleFileLink('not a url')).toBeNull();
+  });
+
+  it('creates Google files inside the project upload folder', async () => {
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ files: [{ id: 'root-1', name: 'SuperKanban' }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ files: [{ id: 'folder-1', name: 'Roadmap' }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'doc-1', name: 'Spec', mimeType: 'application/vnd.google-apps.document' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(createGoogleWorkspaceFile({ uid: 'user-1' } as never, { id: 'project-1', name: 'Roadmap' }, 'document', ' Spec ')).resolves.toEqual({ driveFileId: 'doc-1', name: 'Spec', mimeType: 'application/vnd.google-apps.document' });
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({ name: 'Spec', mimeType: 'application/vnd.google-apps.document', parents: ['folder-1'], appProperties: { projectSpaceProjectId: 'project-1' } });
+  });
+
+  it('aligns managed permission roles during sync without touching manual permissions', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ownedByMe: true, capabilities: { canShare: true } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ permissions: [
+        { id: 'managed-1', type: 'user', emailAddress: 'member@example.com', role: 'reader' },
+        { id: 'manual', type: 'user', emailAddress: 'manual@example.com', role: 'reader' },
+      ] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'managed-1' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const members = [
+      { userId: 'owner', email: 'owner@example.com' },
+      { userId: 'member', email: 'member@example.com' },
+      { userId: 'manual-member', email: 'manual@example.com' },
+    ] as never;
+
+    await syncDriveFileMembers({ uid: 'owner' } as never, 'file-1', members, { member: 'managed-1' }, 'writer');
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/permissions/managed-1');
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ method: 'PATCH', body: JSON.stringify({ role: 'writer' }) });
+  });
+
+  it('refuses role changes on files the user does not own', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ ownedByMe: false, capabilities: { canShare: true } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(updateManagedPermissionRoles({ uid: 'owner' } as never, 'file-1', ['managed-1'], 'commenter')).rejects.toThrow('DRIVE_NOT_OWNER');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

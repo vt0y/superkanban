@@ -1,4 +1,15 @@
 import { TAROT_DECK, TAROT_POSITIONS, tarotCardById, type TarotCategory } from '../../../src/tarot/deck';
+import { cachedCanvaDesignTitle, cachedResolveCanvaShortLink, canvaEditTarget, canvaShortLinkSlug, setCanvaTitleLogger, type CanvaTitleDiagnostic, type ShortLinkCache } from '../../../src/utils/canva-short-link';
+
+/**
+ * Runs a Canva lookup while collecting diagnostics: response shape only (status, content type, challenge header,
+ * redirect host/first segment, cache source) — never IDs, tokens or titles. Logged for `wrangler tail` / dashboard logs.
+ */
+async function withCanvaDiagnostics<T>(run: () => Promise<T>): Promise<{ value: T; diagnostics: CanvaTitleDiagnostic[] }> {
+  const diagnostics: CanvaTitleDiagnostic[] = [];
+  setCanvaTitleLogger((event) => { diagnostics.push(event); console.log('canva', JSON.stringify(event)); });
+  try { return { value: await run(), diagnostics }; } finally { setCanvaTitleLogger(null); }
+}
 
 interface RateLimitBinding { limit(input: { key: string }): Promise<{ success: boolean }> }
 interface D1Result<T = unknown> { results?: T[]; success: boolean; meta?: { changes?: number } }
@@ -14,6 +25,7 @@ export interface Env {
   DB: D1Database;
   SESSION_RATE_LIMITER: RateLimitBinding;
   REVEAL_RATE_LIMITER: RateLimitBinding;
+  LINK_RATE_LIMITER: RateLimitBinding;
   FIREBASE_PROJECT_ID: string;
   ALLOWED_EMAIL_DOMAINS: string;
   ALLOWED_ORIGINS: string;
@@ -74,6 +86,11 @@ export default {
         const rate = await env.REVEAL_RATE_LIMITER.limit({ key: user.sub });
         if (!rate.success) return jsonError(429, 'RATE_LIMITED', localMessage('Please wait before opening more cards.', 'กรุณารอสักครู่ก่อนเปิดไพ่เพิ่ม', request), true, cors);
         return await revealSession(request, env, user, revealMatch[1], cors);
+      }
+      if (request.method === 'POST' && (url.pathname === '/v1/links/canva/resolve' || url.pathname === '/v1/links/canva/title')) {
+        const rate = await env.LINK_RATE_LIMITER.limit({ key: user.sub });
+        if (!rate.success) return jsonError(429, 'RATE_LIMITED', localMessage('Please wait before expanding more links.', 'กรุณารอสักครู่ก่อนขยายลิงก์เพิ่ม', request), true, cors);
+        return url.pathname.endsWith('/title') ? await canvaDesignTitle(request, cors) : await resolveCanvaLink(request, cors);
       }
       return jsonError(404, 'NOT_FOUND', 'Not found.', false, cors);
     } catch (error) {
@@ -292,6 +309,28 @@ function validIndexes(value: unknown): value is [number, number, number] {
 
 function sameIndexes(a: number[], b: number[]): boolean { return a.length === b.length && a.every((value, index) => value === b[index]); }
 
+const edgeCache = () => (globalThis as unknown as { caches?: { default?: ShortLinkCache } }).caches?.default ?? null;
+
+/** Expands an exact https://canva.link/<slug> and reads the design title; URLs are rebuilt from validated parts and cached. */
+async function resolveCanvaLink(request: Request, cors: HeadersInit): Promise<Response> {
+  const body = await readJson(request);
+  const slug = typeof body.url === 'string' ? canvaShortLinkSlug(body.url) : null;
+  if (!slug) return jsonError(400, 'INVALID_LINK', 'Only https://canva.link/<code> links can be expanded.', false, cors);
+  const { value: result } = await withCanvaDiagnostics(() => cachedResolveCanvaShortLink(slug, edgeCache()));
+  if (result.ok) return json({ url: result.url, title: result.title }, 200, cors);
+  if (result.error === 'not_found') return jsonError(404, 'LINK_NOT_FOUND', 'This Canva link does not exist.', false, cors);
+  return jsonError(502, 'LINK_UNRESOLVED', 'Could not expand this Canva link.', true, cors);
+}
+
+/** Reads the title of a Canva edit link; any failure is an empty title, never an error. */
+async function canvaDesignTitle(request: Request, cors: HeadersInit): Promise<Response> {
+  const body = await readJson(request);
+  const target = typeof body.url === 'string' ? canvaEditTarget(body.url) : null;
+  if (!target) return jsonError(400, 'INVALID_LINK', 'Only https://www.canva.com/design/<id>/<token>/edit links are supported.', false, cors);
+  const { value: title } = await withCanvaDiagnostics(() => cachedCanvaDesignTitle(target, edgeCache()));
+  return json({ title }, 200, cors);
+}
+
 async function authenticate(request: Request, env: Env): Promise<FirebaseClaims> {
   const match = request.headers.get('Authorization')?.match(/^Bearer (.+)$/);
   if (!match) throw new Error('Sign in is required.');
@@ -348,7 +387,7 @@ function allowedOrigins(env: Env): string[] { return env.ALLOWED_ORIGINS.split('
 function corsHeaders(origin: string, env: Env): HeadersInit | null {
   if (!origin) return {};
   if (!allowedOrigins(env).includes(origin)) return null;
-  return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
+  return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Max-Age': '600' };
 }
 function preflight(origin: string, env: Env): Response {
   const headers = corsHeaders(origin, env);

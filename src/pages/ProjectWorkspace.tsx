@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lockBodyScroll } from '@/utils/scroll-lock';
 import { signOut } from 'firebase/auth';
 import { NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { AppContextValue } from '@/context/AppContext';
@@ -156,12 +157,11 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setMenuOpen(false);
     };
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const unlock = lockBodyScroll();
     addEventListener('keydown', close);
     return () => {
       removeEventListener('keydown', close);
-      document.body.style.overflow = previousOverflow;
+      unlock();
     };
   }, [menuOpen]);
 

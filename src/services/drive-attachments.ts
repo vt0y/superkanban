@@ -15,15 +15,18 @@ import {
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
-import type { DriveFileRef, DriveProjectDocument, DriveShareMode, Membership, ProjectDocument } from '@/types';
-import { removeDrivePermissions, syncDriveFileMembers, type DriveFileCandidate, type DriveShareResult } from './google-drive';
+import type { DriveAccessMode, DriveFileRef, DriveProjectDocument, DriveRole, Membership, ProjectDocument } from '@/types';
+import { allowedDriveRoles, removeDrivePermissions, syncDriveFileMembers, updateManagedPermissionRoles, type DriveFileCandidate, type DriveShareResult } from './google-drive';
 import { activityData, BATCH_CHUNK, database, withId } from './helpers';
 import { bulkDeleteWorkItems } from './work-items';
 
 export const isDriveProjectDocument = (item: ProjectDocument): item is DriveProjectDocument => item.kind === 'drive';
 export const driveDocumentId = (fileId: string) => `drive_${fileId}`;
 
-function fileData(file: DriveFileCandidate, shareMode: DriveShareMode, sharing: DriveShareResult, user: User) {
+/** Sharing result for a pasted link the app cannot read: no grants, no sync, access stays in Google Drive. */
+export const UNMANAGED_DRIVE_SHARING: DriveShareResult = { sharedMemberIds: [], managedPermissionIds: {} };
+
+function fileData(file: DriveFileCandidate, shareMode: DriveAccessMode, sharing: DriveShareResult, user: User) {
   return {
     driveFileId: file.driveFileId,
     name: file.name.slice(0, 240),
@@ -32,6 +35,8 @@ function fileData(file: DriveFileCandidate, shareMode: DriveShareMode, sharing: 
     shareMode,
     sharedMemberIds: sharing.sharedMemberIds,
     ...(shareMode === 'members' ? { managedPermissionIds: sharing.managedPermissionIds, permissionsSyncedAt: serverTimestamp() } : {}),
+    ...(shareMode !== 'unmanaged' && sharing.role ? { role: sharing.role } : {}),
+    ...(shareMode === 'link' && sharing.linkPermissionId ? { linkPermissionId: sharing.linkPermissionId } : {}),
     createdBy: user.uid,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -41,7 +46,7 @@ function fileData(file: DriveFileCandidate, shareMode: DriveShareMode, sharing: 
 export async function attachDriveProjectDocument(
   projectId: string,
   file: DriveFileCandidate,
-  shareMode: DriveShareMode,
+  shareMode: DriveAccessMode,
   sharing: DriveShareResult,
   user: User,
   taskIds: string[] = [],
@@ -73,6 +78,24 @@ export async function updateDriveProjectDocumentDetails(
     taskIds: [...new Set(input.taskIds)].slice(0, 100),
     updatedAt: serverTimestamp(),
   });
+}
+
+/** Changes the role of app-created grants in Drive, then records it. Reverts Drive if the Firestore write fails. */
+export async function updateDriveProjectDocumentRole(projectId: string, item: DriveProjectDocument, role: DriveRole, user: User): Promise<void> {
+  if (item.shareMode === 'unmanaged') throw new Error('DRIVE_ROLE_UNMANAGED');
+  if (!allowedDriveRoles(item.shareMode, item.mimeType).includes(role)) throw new Error('DRIVE_ROLE_NOT_ALLOWED');
+  const permissionIds = item.shareMode === 'link'
+    ? (item.linkPermissionId ? [item.linkPermissionId] : [])
+    : Object.values(item.managedPermissionIds || {});
+  if (item.shareMode === 'link' && !permissionIds.length) throw new Error('DRIVE_ROLE_UNMANAGED_LINK');
+  const previous = item.role || 'reader';
+  await updateManagedPermissionRoles(user, item.driveFileId, permissionIds, role);
+  try {
+    await updateDoc(doc(database(), 'projects', projectId, 'documents', item.id), { role, updatedAt: serverTimestamp() });
+  } catch (error) {
+    await updateManagedPermissionRoles(user, item.driveFileId, permissionIds, previous).catch(() => undefined);
+    throw error;
+  }
 }
 
 export function subscribeTaskDocuments(projectId: string, taskId: string, callback: (items: ProjectDocument[]) => void): Unsubscribe {
@@ -109,7 +132,7 @@ export async function syncProjectDrivePermissions(
       continue;
     }
     try {
-      const result = await syncDriveFileMembers(user, file.driveFileId, members, file.managedPermissionIds);
+      const result = await syncDriveFileMembers(user, file.driveFileId, members, file.managedPermissionIds, file.role || 'reader');
       if (result.state === 'skipped') {
         summary.skipped += 1;
         continue;

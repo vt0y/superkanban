@@ -67,3 +67,7 @@ Set `VITE_TAROT_CDN_BASE_URL=https://<card-hostname>` in the frontend environmen
 - The hourly cron deletes expired D1 rows, including their temporary question and result.
 - Firestore keeps only the user's latest 20 readings; the user can delete one or all readings.
 - Worker logs intentionally exclude tokens, questions, deck order, and generated readings.
+
+## Canva short-link expansion
+
+The same Worker also serves `POST /v1/links/canva/resolve` for Canva edit documents. It accepts only an exact `https://canva.link/<slug>`, makes one request to canva.link with redirects disabled, and returns the `Location` only when it is an `https://www.canva.com/design/...` path. For edit links it also reads the design name from Canva's oEmbed API (`api.canva.com/_spi/presentation/_oembed`, queried with the edit URL rebuilt from validated parts), falling back to the editor page's `<title>` (canva.com returns 429 to Worker traffic). Redirects are disabled and at most 64 KB is read; any failure is an empty title. `POST /v1/links/canva/title` does the same for full edit links. Both routes are rate limited per user by the `LINK_RATE_LIMITER` binding (namespace `1003`, 10 requests/minute) and caches results in-isolate and in the Cache API (links 7 days, unknown links 1 hour, titles 1 day; empty titles 10 minutes in memory only; 429/5xx never cached). Diagnostics (response status/shape only, no IDs, tokens or titles) are written with `console.log('canva', …)`. See `src/utils/canva-short-link.ts`.

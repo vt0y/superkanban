@@ -48,7 +48,7 @@ export function subscribeProjectDocument(
 
   const stopMetadata = onSnapshot(metadataRef(projectId, documentId), (snapshot) => {
     const value = snapshot.exists() ? withId<ProjectDocument>(snapshot) : null;
-    metadata = value?.kind === 'drive' ? null : value;
+    metadata = value?.kind === 'drive' || value?.kind === 'canva' ? null : value;
     emit();
   }, onError);
   const stopBody = onSnapshot(bodyRef(projectId, documentId), (snapshot) => {

@@ -150,7 +150,11 @@ export interface StickyNote {
   updatedAt?: Timestamp;
 }
 
+/** Sharing the app applies when it can manage the file's Drive permissions. */
 export type DriveShareMode = 'members' | 'link';
+/** `unmanaged` marks a pasted link the app cannot read under drive.file; access stays in Google Drive. */
+export type DriveAccessMode = DriveShareMode | 'unmanaged';
+export type DriveRole = 'reader' | 'commenter' | 'writer';
 
 export interface DriveFileRef {
   driveFileId: string;
@@ -161,10 +165,14 @@ export interface DriveFileRef {
   description?: string;
   mimeType: string;
   sizeBytes?: number;
-  shareMode: DriveShareMode;
+  shareMode: DriveAccessMode;
+  /** Role of app-created grants; missing means `reader`. Never set for unmanaged references. */
+  role?: DriveRole;
   sharedMemberIds: string[];
   /** Drive permission IDs created by this app, keyed by ProjectSpace user ID. */
   managedPermissionIds?: Record<string, string>;
+  /** The anyone-with-link permission ID, recorded only when this app created it. */
+  linkPermissionId?: string;
   permissionsSyncedAt?: Timestamp;
   createdBy: string;
   createdAt?: Timestamp;
@@ -195,7 +203,25 @@ export interface DriveProjectDocument extends DriveFileRef {
   taskIds?: string[];
 }
 
-export type ProjectDocument = MarkdownProjectDocument | DriveProjectDocument;
+/** A link-only Canva design. Stores IDs and share tokens; URLs are rebuilt, never trusted from storage. */
+export interface CanvaProjectDocument {
+  id: string;
+  kind: 'canva';
+  title: string;
+  /** Project-local display name; never renames the Canva design. */
+  nickname?: string;
+  description?: string;
+  labelIds?: string[];
+  taskIds?: string[];
+  canvaDesignId: string;
+  /** Collaboration-link token from `/design/<id>/<token>/edit`; absent when editing relies on Canva team access. */
+  canvaEditToken?: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export type ProjectDocument = MarkdownProjectDocument | DriveProjectDocument | CanvaProjectDocument;
 
 export interface ProjectDocumentBody {
   content: string;

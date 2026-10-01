@@ -1,36 +1,45 @@
-import { useEffect, useId, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useId, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import type { User } from 'firebase/auth';
-import type { DriveFileRef, DriveShareMode, Locale, Membership, Project } from '@/types';
+import type { DriveAccessMode, DriveFileRef, DriveRole, DriveShareMode, Locale, Membership, Project } from '@/types';
 import {
+  createGoogleWorkspaceFile,
   DEFAULT_DRIVE_SHARE_MODE,
   DRIVE_ROOT_FOLDER_NAME,
   driveFolderUrl,
   driveOpenUrl,
+  effectiveDriveRole,
   getCachedProjectDriveFolderId,
+  getDriveFile,
+  isGoogleWorkspaceMimeType,
   getOrCreateProjectDriveFolder,
   LOCAL_DRIVE_FILE_MAX_BYTES,
+  parseGoogleFileLink,
   pickDriveFiles,
   shareDriveFile,
   uploadFileToDrive,
   validateLocalDriveFile,
   type DriveFileCandidate,
   type DriveShareResult,
+  type GoogleWorkspaceFileType,
 } from '@/services/google-drive';
-import { syncProjectDrivePermissions, type DrivePermissionSyncSummary } from '@/services/drive-attachments';
+import { syncProjectDrivePermissions, UNMANAGED_DRIVE_SHARING, type DrivePermissionSyncSummary } from '@/services/drive-attachments';
 import { toast } from '@/components/toast';
 import { pick } from '@/utils/formatters';
 
 type QueueState = 'queued' | 'uploading' | 'sharing' | 'attached' | 'duplicate' | 'error';
-type QueueSource = 'local' | 'drive' | 'picker';
+type QueueSource = 'local' | 'drive' | 'picker' | 'create' | 'link';
 
 interface UploadQueueItem {
   key: string;
   name: string;
   source: QueueSource;
   state: QueueState;
-  mode: DriveShareMode;
+  mode: DriveAccessMode;
+  /** Requested role; clamped per file by effectiveDriveRole before sharing. */
+  role: DriveRole;
   progress: number;
   localFile?: File;
+  createType?: GoogleWorkspaceFileType;
   candidate?: DriveFileCandidate;
   sharing?: DriveShareResult;
   duplicateChecked?: boolean;
@@ -40,11 +49,24 @@ interface UploadQueueItem {
 
 export type UploadRetryAction = 'restart-upload' | 'resume-attach' | 'reopen-picker' | null;
 
-export function uploadRetryAction(item: Pick<UploadQueueItem, 'state' | 'source' | 'candidate' | 'localFile' | 'retryable'>): UploadRetryAction {
+export function uploadRetryAction(item: Pick<UploadQueueItem, 'state' | 'source' | 'candidate' | 'localFile' | 'retryable'> & { createType?: GoogleWorkspaceFileType }): UploadRetryAction {
   if (item.state !== 'error' || !item.retryable) return null;
   if (item.source === 'picker') return 'reopen-picker';
   if (item.candidate) return 'resume-attach';
-  return item.localFile ? 'restart-upload' : null;
+  return item.localFile || item.createType ? 'restart-upload' : null;
+}
+
+export function driveRoleLabel(role: DriveRole, locale: Locale): string {
+  if (role === 'writer') return pick(locale, 'แก้ไขได้', 'Editor');
+  if (role === 'commenter') return pick(locale, 'แสดงความคิดเห็นได้', 'Commenter');
+  return pick(locale, 'ดูได้', 'Viewer');
+}
+
+const DRIVE_ROLES: DriveRole[] = ['reader', 'commenter', 'writer'];
+const CREATE_TYPES: GoogleWorkspaceFileType[] = ['document', 'spreadsheet', 'presentation'];
+
+function createTypeLabel(type: GoogleWorkspaceFileType): string {
+  return type === 'document' ? 'Google Docs' : type === 'spreadsheet' ? 'Google Sheets' : 'Google Slides';
 }
 
 export function updateUploadQueueItem<T extends { key: string }>(items: T[], key: string, patch: Partial<T>): T[] {
@@ -78,7 +100,7 @@ function errorDetails(error: unknown, locale: Locale): { message: string; retrya
     return { message: pick(locale, 'ยกเลิกการเชื่อมต่อ Google Drive', 'Google Drive connection was cancelled'), retryable: true };
   }
   if (code.startsWith('DRIVE_PICKER_CALLBACK_') || code === 'DRIVE_PICKER_RESULT_MISSING') {
-    return { message: pick(locale, 'เบราว์เซอร์ไม่ได้ส่งไฟล์ที่เลือกกลับมา กรุณาลองเปิดตัวเลือก Drive อีกครั้ง', 'The browser did not return the selected file. Please reopen the Drive picker.'), retryable: true };
+    return { message: pick(locale, 'เบราว์เซอร์ไม่ได้ส่งไฟล์ที่เลือกกลับมา ลองเปิดตัวเลือกอีกครั้ง หรือใช้ “วางลิงก์” แทน', 'The browser did not return the selected file. Reopen the picker, or use “Paste link” instead.'), retryable: true };
   }
   if (code.startsWith('DRIVE_HTTP_403')) {
     return { message: pick(locale, 'Google Drive ไม่อนุญาตให้แชร์ไฟล์ตามรูปแบบที่เลือก', 'Google Drive could not apply the selected sharing mode'), retryable: true };
@@ -91,6 +113,7 @@ function errorDetails(error: unknown, locale: Locale): { message: string; retrya
 
 function queueStatus(item: UploadQueueItem, locale: Locale): string {
   if (item.state === 'queued') return pick(locale, 'รอดำเนินการ', 'Waiting');
+  if (item.state === 'uploading' && item.source === 'create') return pick(locale, 'กำลังสร้างไฟล์ใน Google Drive', 'Creating in Google Drive');
   if (item.state === 'uploading') return pick(locale, `กำลังอัปโหลด ${Math.round(item.progress * 100)}%`, `Uploading ${Math.round(item.progress * 100)}%`);
   if (item.state === 'sharing') return pick(locale, 'กำลังตั้งค่าสิทธิ์และแนบไฟล์', 'Applying access and attaching');
   if (item.state === 'attached') return pick(locale, 'แนบแล้ว', 'Attached');
@@ -104,9 +127,17 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
   user: User;
   locale: Locale;
   existingFileIds: Set<string>;
-  onAttach: (file: DriveFileCandidate, mode: DriveShareMode, sharing: DriveShareResult) => Promise<void>;
+  onAttach: (file: DriveFileCandidate, mode: DriveAccessMode, sharing: DriveShareResult) => Promise<void>;
 }) {
   const [mode, setMode] = useState<DriveShareMode>(DEFAULT_DRIVE_SHARE_MODE);
+  const [role, setRole] = useState<DriveRole>('reader');
+  const [panel, setPanel] = useState<'create' | 'link' | null>(null);
+  const [createType, setCreateType] = useState<GoogleWorkspaceFileType>('document');
+  const [createName, setCreateName] = useState('');
+  const [createRole, setCreateRole] = useState<DriveRole>('writer');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkName, setLinkName] = useState('');
+  const [linkError, setLinkError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -117,6 +148,7 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
   const inputRef = useRef<HTMLInputElement>(null);
   const busyRef = useRef(false);
   const sharingName = useId();
+  const roleName = useId();
   const detailsId = useId();
 
   useEffect(() => {
@@ -144,6 +176,12 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
 
   const processItem = async (item: UploadQueueItem, batchSeen: Set<string>) => {
     try {
+      if (!item.candidate && item.createType) {
+        publish(item, { state: 'uploading', progress: 0, message: undefined, retryable: undefined });
+        const created = await createGoogleWorkspaceFile(user, project, item.createType, item.name);
+        publish(item, { candidate: created, name: created.name, progress: 1 });
+        setFolderId(getCachedProjectDriveFolderId(user.uid, project.id));
+      }
       if (!item.candidate) {
         if (!item.localFile) throw new Error('DRIVE_UPLOAD_SOURCE_MISSING');
         validateLocalDriveFile(item.localFile);
@@ -165,7 +203,9 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
       }
 
       publish(item, { state: 'sharing', progress: 1, message: undefined, retryable: undefined });
-      const sharing = item.sharing || await shareDriveFile(user, candidate.driveFileId, item.mode, members);
+      const sharing = item.sharing || (item.mode === 'unmanaged'
+        ? UNMANAGED_DRIVE_SHARING
+        : await shareDriveFile(user, candidate.driveFileId, item.mode, members, effectiveDriveRole(item.mode, candidate.mimeType, item.role)));
       if (!item.sharing) publish(item, { sharing });
       await onAttach(candidate, item.mode, sharing);
       publish(item, { state: 'attached', progress: 1, retryable: false });
@@ -193,9 +233,49 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
     source: 'local' as const,
     state: 'queued' as const,
     mode,
+    role,
     progress: 0,
     localFile: file,
   })));
+
+  const createFile = (event: FormEvent) => {
+    event.preventDefault();
+    const name = createName.trim() || pick(locale, `${createTypeLabel(createType)} ใหม่`, `Untitled ${createTypeLabel(createType)}`);
+    void runItems([{ key: `create:${crypto.randomUUID()}`, name, source: 'create', state: 'queued', mode, role: createRole, progress: 0, createType }]);
+    setCreateName('');
+    setPanel(null);
+  };
+
+  const attachLink = async (event: FormEvent) => {
+    event.preventDefault();
+    const parsed = parseGoogleFileLink(linkUrl);
+    if (!parsed) {
+      setLinkError(pick(locale, 'ใช้ลิงก์ไฟล์จาก Google Docs, Sheets, Slides หรือ Drive (ไม่รองรับโฟลเดอร์)', 'Use a Google Docs, Sheets, Slides or Drive file link (folders are not supported)'));
+      return;
+    }
+    if (!startBusy()) return;
+    setLinkError('');
+    let item: UploadQueueItem;
+    try {
+      const candidate = await getDriveFile(user, parsed.driveFileId);
+      item = { key: `link:${crypto.randomUUID()}`, name: candidate.name, source: 'link', state: 'queued', mode, role, progress: 1, candidate };
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      if (code !== 'DRIVE_HTTP_403' && code !== 'DRIVE_HTTP_404') {
+        stopBusy();
+        setItems((current) => [...current, { key: `link:${crypto.randomUUID()}`, name: linkUrl, source: 'link', state: 'error', mode, role, progress: 0, ...errorDetails(error, locale) }]);
+        return;
+      }
+      // drive.file cannot read files that were never picked or created here, so keep a link-only reference.
+      const name = linkName.trim() || pick(locale, 'ไฟล์ Google Drive', 'Google Drive file');
+      item = { key: `link:${crypto.randomUUID()}`, name, source: 'link', state: 'queued', mode: 'unmanaged', role: 'reader', progress: 1, candidate: { driveFileId: parsed.driveFileId, name, mimeType: parsed.mimeType || 'application/octet-stream' } };
+    }
+    stopBusy();
+    setLinkUrl('');
+    setLinkName('');
+    setPanel(null);
+    await runItems([item]);
+  };
 
   const chooseDrive = async (replaceKey?: string) => {
     if (!startBusy()) return;
@@ -208,6 +288,7 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
         source: 'drive',
         state: 'queued',
         mode,
+        role,
         progress: 1,
         candidate,
       }));
@@ -222,6 +303,7 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
         source: 'picker',
         state: 'error',
         mode,
+        role,
         progress: 0,
         ...details,
       }]);
@@ -267,7 +349,7 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
           ? <a className="drive-folder-shortcut" href={driveFolderUrl(folderId)} target="_blank" rel="noreferrer" title={`${DRIVE_ROOT_FOLDER_NAME} / ${project.name}`}>{pick(locale, 'เปิดโฟลเดอร์', 'Open folder')} ↗</a>
           : <button type="button" className="drive-folder-shortcut" disabled={folderBusy || busy} onClick={() => void locateFolder()}>{folderBusy ? pick(locale, 'กำลังค้นหา…', 'Locating…') : pick(locale, 'ค้นหาโฟลเดอร์', 'Locate folder')}</button>}
         <button type="button" className={`drive-access-summary ${mode === 'link' ? 'external' : ''}`} aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen((open) => !open)}>
-          <span>{pick(locale, 'สิทธิ์', 'Access')}: <b>{mode === 'members' ? pick(locale, 'สมาชิกโปรเจกต์', 'Project members') : pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with link')}</b></span><i aria-hidden="true">⌄</i>
+          <span>{pick(locale, 'สิทธิ์', 'Access')}: <b>{mode === 'members' ? pick(locale, 'สมาชิกโปรเจกต์', 'Project members') : pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with link')}</b>{role !== 'reader' && <> · {driveRoleLabel(effectiveDriveRole(mode, 'application/vnd.google-apps.document', role), locale)}</>}</span><i aria-hidden="true">⌄</i>
         </button>
       </div>
     </div>
@@ -279,9 +361,32 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
         <input ref={inputRef} type="file" multiple hidden onChange={(event) => addLocal([...event.target.files || []])} />
         <button type="button" className="primary" disabled={busy} onClick={() => inputRef.current?.click()}><span aria-hidden="true">↑</span>{pick(locale, 'อัปโหลดจากเครื่อง', 'Upload from device')}</button>
         <button type="button" className="secondary" disabled={busy} onClick={() => void chooseDrive()}><span className="google-drive-mark" aria-hidden="true">△</span>{pick(locale, 'เลือกจาก Drive', 'Choose from Drive')}</button>
+        <button type="button" className={`secondary ${panel === 'create' ? 'active' : ''}`} disabled={busy} aria-expanded={panel === 'create'} onClick={() => setPanel((current) => current === 'create' ? null : 'create')}><span aria-hidden="true">＋</span>{pick(locale, 'สร้างไฟล์ Google', 'New Google file')}</button>
+        <button type="button" className={`secondary ${panel === 'link' ? 'active' : ''}`} disabled={busy} aria-expanded={panel === 'link'} onClick={() => setPanel((current) => current === 'link' ? null : 'link')}><span aria-hidden="true">🔗</span>{pick(locale, 'วางลิงก์', 'Paste link')}</button>
       </div>
       {dragging && <div className="drive-drop-overlay" aria-hidden="true"><span>↓</span><strong>{pick(locale, 'วางไฟล์ที่นี่', 'Drop files here')}</strong></div>}
     </div>
+    <small className="drive-picker-hint">{pick(locale, 'ตัวเลือก Drive ค้างที่ “Sign in” หรือเลือกแล้วไม่กลับมา? (พบในเบราว์เซอร์ที่ปิดกั้นคุกกี้ข้ามไซต์)', 'Drive picker stuck on “Sign in” or not returning your selection? (common in privacy-hardened browsers)')} <button type="button" disabled={busy} onClick={() => setPanel('link')}>{pick(locale, 'วางลิงก์ไฟล์แทน', 'Paste the file link instead')}</button></small>
+
+    {panel === 'create' && <form className="drive-attach-details drive-inline-form" onSubmit={createFile}>
+      <div className="drive-sharing-panel">
+        <div><strong>{pick(locale, 'สร้างไฟล์ Google ใหม่', 'Create a new Google file')}</strong><small>{pick(locale, 'สร้างในโฟลเดอร์โปรเจกต์ของคุณ และแชร์ตามสิทธิ์ที่เลือก', 'Created in your project folder and shared using the access below')}</small></div>
+        <div className="drive-segmented" role="radiogroup" aria-label={pick(locale, 'ประเภทไฟล์', 'File type')}>{CREATE_TYPES.map((type) => <button type="button" key={type} role="radio" aria-checked={createType === type} className={createType === type ? 'selected' : ''} onClick={() => setCreateType(type)}>{createTypeLabel(type)}</button>)}</div>
+        <label className="drive-inline-field"><span>{pick(locale, 'ชื่อไฟล์', 'File name')}</span><input value={createName} onChange={(event) => setCreateName(event.target.value)} maxLength={240} placeholder={pick(locale, `${createTypeLabel(createType)} ใหม่`, `Untitled ${createTypeLabel(createType)}`)} autoFocus /></label>
+        <label className="drive-inline-field"><span>{mode === 'members' ? pick(locale, 'สมาชิกโปรเจกต์', 'Project members') : pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with the link')}</span><select value={effectiveDriveRole(mode, 'application/vnd.google-apps.document', createRole)} onChange={(event) => setCreateRole(event.target.value as DriveRole)}>{DRIVE_ROLES.filter((option) => effectiveDriveRole(mode, 'application/vnd.google-apps.document', option) === option).map((option) => <option key={option} value={option}>{driveRoleLabel(option, locale)}</option>)}</select></label>
+        <div className="drive-inline-actions"><button type="button" className="secondary small" onClick={() => setPanel(null)}>{pick(locale, 'ยกเลิก', 'Cancel')}</button><button className="primary small" disabled={busy}>{pick(locale, 'สร้างและแนบ', 'Create and attach')}</button></div>
+      </div>
+    </form>}
+
+    {panel === 'link' && <form className="drive-attach-details drive-inline-form" onSubmit={(event) => void attachLink(event)}>
+      <div className="drive-sharing-panel">
+        <div><strong>{pick(locale, 'แนบด้วยลิงก์ Google', 'Attach by Google link')}</strong><small>{pick(locale, 'ไม่ต้องใช้ตัวเลือก Drive ถ้า SuperKanban ยังไม่เคยเข้าถึงไฟล์นี้ ระบบจะเก็บเป็นลิงก์ และสิทธิ์จะจัดการใน Google Drive เท่านั้น', 'No picker needed. If SuperKanban has never accessed this file, it is saved as a link and access stays managed in Google Drive.')}</small></div>
+        <label className="drive-inline-field"><span>{pick(locale, 'ลิงก์ไฟล์', 'File link')}</span><input type="url" required value={linkUrl} onChange={(event) => { setLinkUrl(event.target.value); setLinkError(''); }} placeholder="https://docs.google.com/document/d/…" autoFocus /></label>
+        <label className="drive-inline-field"><span>{pick(locale, 'ชื่อที่ใช้แสดง', 'Display name')} <i>{pick(locale, 'ใช้เมื่ออ่านชื่อไฟล์จาก Drive ไม่ได้', 'Used when Drive cannot read the file name')}</i></span><input value={linkName} onChange={(event) => setLinkName(event.target.value)} maxLength={200} placeholder={pick(locale, 'เช่น Requirement v2', 'For example: Requirements v2')} /></label>
+        {linkError && <small className="drive-folder-error" role="alert">{linkError}</small>}
+        <div className="drive-inline-actions"><button type="button" className="secondary small" onClick={() => setPanel(null)}>{pick(locale, 'ยกเลิก', 'Cancel')}</button><button className="primary small" disabled={busy || !linkUrl.trim()}>{pick(locale, 'แนบลิงก์', 'Attach link')}</button></div>
+      </div>
+    </form>}
 
     {detailsOpen && <div className="drive-attach-details" id={detailsId}>
       <div className="drive-sharing-panel">
@@ -289,13 +394,20 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
         <div className="drive-sharing-options">
           <label className={mode === 'members' ? 'selected' : ''}>
             <input type="radio" name={sharingName} checked={mode === 'members'} onChange={() => setMode('members')} disabled={busy} />
-            <span><b>{pick(locale, 'สมาชิกโปรเจกต์', 'Project members')}</b><small>{pick(locale, 'แนะนำ · ให้สิทธิ์ดูแก่สมาชิกปัจจุบัน', 'Recommended · view access for current members')}</small></span>
+            <span><b>{pick(locale, 'สมาชิกโปรเจกต์', 'Project members')}</b><small>{pick(locale, 'แนะนำ · ให้สิทธิ์แก่สมาชิกปัจจุบัน', 'Recommended · access for current members')}</small></span>
           </label>
           <label className={`external ${mode === 'link' ? 'selected' : ''}`}>
-            <input type="radio" name={sharingName} checked={mode === 'link'} onChange={() => setMode('link')} disabled={busy} />
+            <input type="radio" name={sharingName} checked={mode === 'link'} onChange={() => { setMode('link'); setRole((current) => effectiveDriveRole('link', 'application/vnd.google-apps.document', current)); }} disabled={busy} />
             <span><b>{pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with the link')}</b><small>{pick(locale, 'เข้าถึงจากภายนอกได้ · ใช้เมื่อจำเป็น', 'External access · use only when needed')}</small></span>
           </label>
         </div>
+      </div>
+      <div className="drive-sharing-panel">
+        <div><strong>{pick(locale, 'สิทธิ์สำหรับ Google Docs, Sheets, Slides', 'Access for Google Docs, Sheets and Slides')}</strong><small>{pick(locale, 'ไฟล์ประเภทอื่นให้สิทธิ์ดูเท่านั้น · “ทุกคนที่มีลิงก์” แก้ไขไม่ได้', 'Other files are always view-only · “Anyone with the link” can never edit')}</small></div>
+        <div className="drive-segmented" role="radiogroup" aria-label={pick(locale, 'บทบาท', 'Role')}>{DRIVE_ROLES.map((option) => {
+          const allowed = effectiveDriveRole(mode, 'application/vnd.google-apps.document', option) === option;
+          return <label key={option} className={role === option ? 'selected' : ''}><input type="radio" name={roleName} checked={role === option} disabled={busy || !allowed} onChange={() => setRole(option)} />{driveRoleLabel(option, locale)}</label>;
+        })}</div>
       </div>
     </div>}
 
@@ -369,18 +481,26 @@ function fileKind(file: Pick<DriveFileRef, 'mimeType' | 'name'>): { label: strin
   if (mime.includes('pdf') || name.endsWith('.pdf')) return { label: 'PDF', className: 'pdf' };
   if (mime.startsWith('image/')) return { label: 'IMG', className: 'image' };
   if (mime.includes('spreadsheet') || /\.(xlsx?|csv)$/.test(name)) return { label: 'SHT', className: 'sheet' };
+  if (mime.includes('presentation') || /\.(pptx?|key)$/.test(name)) return { label: 'SLD', className: 'slides' };
   if (mime.includes('document') || /\.(docx?|txt|md)$/.test(name)) return { label: 'DOC', className: 'document' };
   if (mime.includes('zip') || mime.includes('compressed') || /\.(zip|rar|7z)$/.test(name)) return { label: 'ZIP', className: 'archive' };
   return { label: 'FILE', className: 'generic' };
 }
 
-export function DriveFileRow({ file, locale, uploader, canDetach, onDetach, detachLabel }: {
+function driveAccessLabel(file: Pick<DriveFileRef, 'shareMode' | 'role' | 'mimeType'>, locale: Locale): string {
+  if (file.shareMode === 'unmanaged') return pick(locale, 'จัดการสิทธิ์ใน Google Drive', 'Access managed in Google Drive');
+  const audience = file.shareMode === 'link' ? pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with link') : pick(locale, 'สมาชิกโปรเจกต์', 'Project members');
+  return isGoogleWorkspaceMimeType(file.mimeType) ? `${audience} · ${driveRoleLabel(file.role || 'reader', locale)}` : audience;
+}
+
+export function DriveFileRow({ file, locale, uploader, canDetach, onDetach, detachLabel, iconOnlyDetach = false }: {
   file: DriveFileRef & { id: string };
   locale: Locale;
   uploader?: string;
   canDetach: boolean;
   onDetach: DetachAction;
   detachLabel?: string;
+  iconOnlyDetach?: boolean;
 }) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
@@ -389,9 +509,9 @@ export function DriveFileRow({ file, locale, uploader, canDetach, onDetach, deta
   return <div className="drive-file-row">
     <a className="drive-file-main" href={driveOpenUrl(file.driveFileId)} target="_blank" rel="noreferrer" title={pick(locale, 'เปิดใน Google Drive', 'Open in Google Drive')}>
       <span className={`drive-file-icon ${kind.className}`} aria-hidden="true">{kind.label}</span>
-      <div className="drive-file-copy"><strong>{file.nickname?.trim() || file.name}</strong>{file.nickname?.trim() && <small className="drive-original-name">{file.name}</small>}{file.description?.trim() && <p className="drive-file-description">{file.description}</p>}<span className="drive-file-meta">{formatFileSize(file.sizeBytes) && <small>{formatFileSize(file.sizeBytes)}</small>}{uploader && <small>{uploader}</small>}<small className={`drive-access-badge ${file.shareMode === 'link' ? 'external' : ''}`}>{file.shareMode === 'link' ? pick(locale, 'ทุกคนที่มีลิงก์', 'Anyone with link') : pick(locale, 'สมาชิกโปรเจกต์', 'Project members')}</small></span></div>
+      <div className="drive-file-copy"><strong>{file.nickname?.trim() || file.name}</strong>{file.nickname?.trim() && <small className="drive-original-name">{file.name}</small>}{file.description?.trim() && <p className="drive-file-description">{file.description}</p>}<span className="drive-file-meta">{formatFileSize(file.sizeBytes) && <small>{formatFileSize(file.sizeBytes)}</small>}{uploader && <small>{uploader}</small>}<small className={`drive-access-badge ${file.shareMode === 'link' ? 'external' : file.shareMode === 'unmanaged' ? 'unmanaged' : ''}`} title={file.shareMode === 'unmanaged' ? pick(locale, 'แนบด้วยลิงก์ SuperKanban ไม่ได้ให้สิทธิ์ใดๆ ขอสิทธิ์จากเจ้าของไฟล์ใน Google Drive', 'Attached by link. SuperKanban granted no access; ask the file owner in Google Drive.') : undefined}>{driveAccessLabel(file, locale)}</small></span></div>
       <span className="drive-open-mark" aria-hidden="true">↗</span>
     </a>
-    {canDetach && <button type="button" className="drive-detach" onClick={() => beginOptimisticDetach(onDetach, setHidden)} aria-label={detachLabel || pick(locale, `นำ ${file.name} ออกจาก SuperKanban`, `Remove ${file.name} from SuperKanban`)} title={detachLabel || pick(locale, 'นำออกจาก SuperKanban (ไฟล์และสิทธิ์ใน Drive จะไม่เปลี่ยน)', 'Remove from SuperKanban (Drive file and access stay unchanged)')}><span aria-hidden="true">×</span><b>{detachLabel || pick(locale, 'นำออก', 'Remove')}</b></button>}
+    {canDetach && <button type="button" className={`drive-detach${iconOnlyDetach ? ' icon-only' : ''}`} onClick={() => beginOptimisticDetach(onDetach, setHidden)} aria-label={detachLabel || pick(locale, `นำ ${file.name} ออกจาก SuperKanban`, `Remove ${file.name} from SuperKanban`)} title={detachLabel || pick(locale, 'นำออกจาก SuperKanban (ไฟล์และสิทธิ์ใน Drive จะไม่เปลี่ยน)', 'Remove from SuperKanban (Drive file and access stay unchanged)')}><span aria-hidden="true">×</span>{!iconOnlyDetach && <b>{detachLabel || pick(locale, 'นำออก', 'Remove')}</b>}</button>}
   </div>;
 }
