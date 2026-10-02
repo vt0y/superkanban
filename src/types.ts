@@ -123,6 +123,39 @@ export interface Milestone {
   updatedAt?: Timestamp;
 }
 
+export interface ProjectSummaryTask {
+  title: string;
+  status: Exclude<TaskStatus, 'done'>;
+  priority: Priority;
+  dueDate: string;
+  dueTime: string;
+  assigneeIds: string[];
+  milestoneId: string;
+}
+
+export interface ProjectSummaryMilestone {
+  title: string;
+  dueDate: string;
+  dueTime: string;
+  status: Milestone['status'];
+  dependsOn: string[];
+}
+
+/** Compact read model used by Home, Overview and Milestones. */
+export interface ProjectSummary {
+  version: 1;
+  openTasks: Record<string, ProjectSummaryTask>;
+  openCount: number;
+  openByStatus: Record<Exclude<TaskStatus, 'done'>, number>;
+  openByMilestone: Record<string, number>;
+  truncated: boolean;
+  milestones: Record<string, ProjectSummaryMilestone>;
+  doneTotal: number;
+  doneByMilestone: Record<string, number>;
+  rebuiltAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
 export interface ProjectUseCase {
   id: string;
   code: string;

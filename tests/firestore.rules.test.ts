@@ -117,6 +117,36 @@ describe('ProjectSpace Firestore rules', () => {
     await assertSucceeds(seed.commit());
   });
 
+  it('สมาชิกเขียน summary/main ร่วมกับ task ได้ และคนนอกหรือ payload ผิดถูกปฏิเสธ', async () => {
+    await seedProject();
+    const summary = {
+      version: 1,
+      openTasks: {},
+      openCount: 0,
+      openByStatus: { backlog: 0, todo: 0, in_progress: 0, review: 0 },
+      openByMilestone: {},
+      truncated: false,
+      milestones: {},
+      doneTotal: 0,
+      doneByMilestone: {},
+      rebuiltAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    const memberDb = context('member');
+    const batch = writeBatch(memberDb);
+    batch.set(doc(memberDb, 'projects', projectId, 'tasks', 'summary-task'), { title: 'Task', description: '', status: 'todo', priority: 'medium', assigneeIds: [], tags: [], dueDate: '', milestoneId: '', order: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    batch.set(doc(memberDb, 'projects', projectId, 'summary', 'main'), { ...summary, openCount: 1, openByStatus: { ...summary.openByStatus, todo: 1 } });
+    await assertSucceeds(batch.commit());
+    await assertSucceeds(updateDoc(doc(memberDb, 'projects', projectId, 'summary', 'main'), { openCount: 2, updatedAt: serverTimestamp() }));
+    await assertFails(getDoc(doc(context('outsider'), 'projects', projectId, 'summary', 'main')));
+    await assertFails(setDoc(doc(context('outsider'), 'projects', projectId, 'summary', 'main'), summary));
+    await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'summary', 'other'), summary));
+    await assertFails(updateDoc(doc(memberDb, 'projects', projectId, 'summary', 'main'), { extra: true, updatedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(memberDb, 'projects', projectId, 'summary', 'main')));
+    await updateDoc(doc(context('owner'), 'projects', projectId), { archived: true, updatedAt: serverTimestamp() });
+    await assertFails(updateDoc(doc(memberDb, 'projects', projectId, 'summary', 'main'), { updatedAt: serverTimestamp() }));
+  });
+
   it('แยกข้อมูลแต่ละโปรเจกต์จากคนนอก', async () => {
     await seedProject();
     await assertSucceeds(getDoc(doc(context('member'), 'projects', projectId)));

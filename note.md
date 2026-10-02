@@ -114,3 +114,16 @@ The desktop sidebar follows daily-use workflow order:
 4. Manage: Settings
 
 Mobile keeps Dashboard, Board, Notes, Documents, and More as its primary navigation. The More sheet inherits the remaining desktop order. Existing document deep links redirect to the new Documents route.
+
+# Project summary: offline-write alternative
+
+The current project summary is maintained with Firestore transactions. This keeps counters exact when multiple people edit concurrently, but transactions need a live connection and add a read of the previous work item plus the summary document.
+
+If offline task editing or transaction latency becomes more important, switch to **batch + previous values from the caller**:
+
+- Every task/milestone caller passes the last value it rendered (`before`) to the service.
+- The service computes the same summary transition and keeps using `writeBatch`, so writes queue offline and require no transaction read.
+- All write paths must participate (Task editor, drag/drop, bulk actions, Calendar, Gacha, delete/unlink and milestone editing). There are roughly ten call sites.
+- A stale client can calculate the wrong delta, so counters may drift until the version/7-day rebuild repairs them.
+
+Prefer this alternative only when offline editing is a product requirement or measured transaction latency is unacceptable. Keep the current transaction strategy for stronger concurrent correctness.

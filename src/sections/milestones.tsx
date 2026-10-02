@@ -8,7 +8,8 @@ import { createWorkItem, deleteWorkItem, updateWorkItem } from '@/services';
 import type { Milestone, Role, Task } from '@/types';
 import { attempt } from '@/components/toast';
 import { formatDue, pick } from '@/utils/formatters';
-import { useActiveTasks, useMilestoneTaskCounts, useProjectItems } from '@/hooks';
+import { useProjectItemsState, useProjectSummary } from '@/hooks';
+import { summaryMilestoneCounts, summaryTasks } from '@/utils/project-summary';
 import { CommentThread } from '@/components/comments/CommentThread';
 import { useTaskModal } from '@/components/board/TaskModalHost';
 import { TASK_COLUMNS } from '@/config/constants';
@@ -17,9 +18,10 @@ import { Icon } from '@/components/common/Icon';
 const STATUS_COLOR = new Map(TASK_COLUMNS.map((column) => [column.id, column.color]));
 
 export function Milestones({ context, project, role, readOnly }: SectionProps) {
-  const items = useProjectItems<Milestone>(project.id, 'milestones');
-  const tasks = useActiveTasks(project.id);
-  const counts = useMilestoneTaskCounts(project.id, items.map((item) => item.id), tasks.map((task) => `${task.id}:${task.status}`).sort().join(','));
+  const { items, loaded: milestonesLoaded } = useProjectItemsState<Milestone>(project.id, 'milestones');
+  const { summary, loaded: summaryLoaded, failed: summaryFailed } = useProjectSummary(project);
+  const tasks = summary ? summaryTasks(summary) : [];
+  const counts = Object.fromEntries(items.map((item) => [item.id, summary ? summaryMilestoneCounts(summary, item.id) : { total: 0, done: 0 }]));
   const [editing, setEditing] = useState<Milestone | 'new' | null>(null);
   const navigate = useNavigate();
   const { openTask } = useTaskModal();
@@ -33,8 +35,11 @@ export function Milestones({ context, project, role, readOnly }: SectionProps) {
     );
   };
 
+  if (!milestonesLoaded || !summaryLoaded) return <div className="section-loader"><span className="loader" /></div>;
+
   return <>
     <PageTitle eyebrow="PROJECT TIMELINE" title={context.t('milestones')} description={pick(locale, 'กำหนดเป้าหมาย ลำดับการพึ่งพา และเปิดบอร์ดงานของแต่ละเป้าหมาย', 'Set goals, their dependencies, and open each goal’s task board')} action={!readOnly && <button className="primary" onClick={() => setEditing('new')}><Icon name="add" /> {context.t('addMilestone')}</button>} />
+    {summaryFailed && !summary && <p className="inline-warning"><Icon name="alert" /> {pick(locale, 'โหลดความคืบหน้าของ milestone ไม่สำเร็จ ตัวเลขด้านล่างอาจไม่ครบ', 'Couldn’t load milestone progress; the numbers below may be incomplete')}</p>}
     <div className="milestone-list">{topoOrder(items).map((item) => {
       const related = tasks.filter((task) => task.milestoneId === item.id);
       const count = counts[item.id] ?? { total: related.length, done: 0 };
@@ -58,7 +63,7 @@ export function Milestones({ context, project, role, readOnly }: SectionProps) {
           <div className="milestone-progress"><span><b>{pct}%</b><small>{complete}/{count.total} tasks</small></span><div><i style={{ width: `${pct}%` }} /></div></div>
           {related.length > 0 && <details className="milestone-tasks">
             <summary><Icon name="chevronRight" /> {pick(locale, `งานที่ยังไม่เสร็จ (${related.length})`, `Open tasks (${related.length})`)}</summary>
-            <div className="task-mini-list">{related.map((task) => <button key={task.id} type="button" onClick={() => openTask(task)}><i style={{ background: STATUS_COLOR.get(task.status) }} /><strong>{task.title}</strong>{task.dueDate && <small>{formatDue(task.dueDate, task.dueTime, locale)}</small>}</button>)}</div>
+            <div className="task-mini-list">{related.map((task) => <button key={task.id} type="button" onClick={() => openTask(task.id)}><i style={{ background: STATUS_COLOR.get(task.status) }} /><strong>{task.title}</strong>{task.dueDate && <small>{formatDue(task.dueDate, task.dueTime, locale)}</small>}</button>)}</div>
           </details>}
           <footer><span className={item.dueDate ? '' : 'muted'}><Icon name="calendarSingle" /> {item.dueDate ? formatDue(item.dueDate, item.dueTime, locale) : pick(locale, 'ไม่มีกำหนด', 'No due date')}</span><div className="milestone-actions"><button className="link-button" onClick={() => navigate(`/p/${project.id}/tasks?m=${item.id}`)}>{pick(locale, 'เปิดบอร์ดงาน →', 'Open board →')}</button>{!readOnly && (item.status === 'completed'
             ? <button className="secondary compact" onClick={() => void setStatus(item, 'active', completion.taskCount)}>{pick(locale, 'เปิดอีกครั้ง', 'Reopen')}</button>

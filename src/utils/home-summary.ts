@@ -8,6 +8,8 @@ export interface ProjectWork {
   tasks: Task[];
   milestones: Milestone[];
   counts: { total: number; done: number } | null;
+  /** Exact active count from the summary even when its detail list is capped. */
+  openCount?: number;
   loaded: boolean;
   failed?: boolean;
 }
@@ -61,7 +63,8 @@ export interface HomeTotals { active: number; overdue: number; dueWeek: number; 
 /** Numbers for the Home summary tiles, across every project in `work`. */
 export function summarize(work: ProjectWork[], uid: string, now: Date): HomeTotals {
   const totals: HomeTotals = { active: 0, overdue: 0, dueWeek: 0, mine: 0, milestonesSoon: 0 };
-  work.forEach(({ tasks, milestones }) => {
+  work.forEach(({ tasks, milestones, openCount }) => {
+    if (openCount !== undefined) totals.active += openCount - tasks.filter(isOpen).length;
     tasks.filter(isOpen).forEach((task) => {
       totals.active += 1;
       if (isMine(task, uid)) totals.mine += 1;
@@ -83,7 +86,7 @@ export function projectStats({ tasks, milestones, counts }: ProjectWork, now: Da
     .filter((m) => m.status === 'active' && m.dueDate)
     .sort((a, b) => compareDueDate(a.dueDate, b.dueDate, a.dueTime, b.dueTime))[0] ?? null;
   return {
-    active: open.length,
+    active: counts ? counts.total - counts.done : open.length,
     overdue: open.filter((task) => task.dueDate && isOverdue(task.dueDate, task.dueTime || '', now)).length,
     progress: counts && counts.total ? Math.round((counts.done / counts.total) * 100) : null,
     nextMilestone,

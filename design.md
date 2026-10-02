@@ -81,7 +81,7 @@ Home is a summary across every active project:
 5. **Project cards:** active tasks, an overdue badge, a progress bar and the next milestone.
 6. Archived projects (collapsed).
 
-The data comes from `useHomeSummary`, which makes one listener per active project. It reuses the same cached queries the board and Overview use. The calculations are pure functions in `src/utils/home-summary.ts`, with unit tests.
+The data comes from `useHomeSummary`, which reads one compact `projects/{id}/summary/main` document per active project. Task and milestone transactions maintain that read model; it stores exact counters plus at most the 500 nearest open-task details. The same shared summary listener powers Overview and milestone counters. Calculations remain pure functions in `src/utils/home-summary.ts` and `src/utils/project-summary.ts`, with unit tests.
 
 ### Project pages (`/p/:id/<page>`)
 

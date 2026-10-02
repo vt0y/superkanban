@@ -86,6 +86,8 @@ Firebase Hosting ให้พื้นที่เก็บไฟล์ฟรี
 
 #### 4.4 Realtime tasks fan-out ตามจำนวนคนที่เปิดหน้าเดียวกัน
 
+**สถานะ: ทำแล้วสำหรับ Home และ Overview** — ทั้งสองหน้าอ่าน `projects/{id}/summary/main` หนึ่ง document ต่อ project แทน active-task listener ทั้งชุด ส่วน Board/Calendar ยังอ่าน task จริงเพราะเป็นหน้าสำหรับแก้ไข
+
 ผู้ใช้ Board หนึ่งคนอ่าน active tasks ทั้งหมดและ done สูงสุด 50 รายการ ทุกการแก้ task ที่ยังอยู่ในผลลัพธ์คิดเพิ่มอย่างน้อยหนึ่ง read ต่อ listener และการย้าย task ระหว่าง active/done อาจกระทบทั้งสอง query ตัวอย่างขั้นต่ำ: 100 คนเปิด Board และทีมแก้ task 160 ครั้ง/วัน จะใช้ประมาณ **16,000 reads** เฉพาะ update fan-out ยังไม่รวม initial load
 
 แนวทาง:
@@ -96,6 +98,8 @@ Firebase Hosting ให้พื้นที่เก็บไฟล์ฟรี
 - พิจารณาโหมด “Refresh” หรือ refresh ทุก 30–60 วินาทีสำหรับผู้ชม read-only จำนวนมาก
 
 #### 4.5 Milestones ยิง aggregation 2 query ต่อ milestone
+
+**สถานะ: ทำแล้ว** — summary เก็บ `openByMilestone` และ `doneByMilestone` แบบ transaction หน้า Milestones จึงเหลือ listener milestones หนึ่งชุด + summary หนึ่ง document และไม่ยิง aggregation ต่อ milestone
 
 หน้า Milestones เรียก `getTaskCounts()` สองครั้งต่อ milestone และทำใหม่เมื่อชุด task/status เปลี่ยน ถ้ามี 20 milestones จะมี 40 aggregation queries ต่อผู้ใช้ต่อรอบ แม้ aggregation ประหยัดกว่าดึง document ทั้งหมด แต่จำนวน request และ index reads ยังโตตามจำนวน milestone
 
@@ -222,7 +226,7 @@ Spark เหมาะกับ prototype หรือทีมขนาดเล
 ### Phase 2 — ลด fan-out และ collection growth (3–5 วัน)
 
 - ทำ member summary + Team pagination
-- ทำ milestone task counters แบบ atomic
+- [x] ทำ milestone task counters แบบ atomic ใน project summary
 - แยก document metadata ออกจาก content
 - เพิ่ม limit/archive ให้ sticky notes, use cases และ diagrams
 - เพิ่ม retention workflow สำหรับ activities, chat และ gacha history
@@ -231,7 +235,7 @@ Spark เหมาะกับ prototype หรือทีมขนาดเล
 
 ### Phase 3 — รองรับ 100+ (ก่อน production scale)
 
-- ทำ dashboard summary document เช่น counts ต่อ status, overdue, active milestones และ last activity summaries
+- [x] ทำ project summary document สำหรับ Home, Overview และ milestone counts (activities ยังอ่านล่าสุด 8 รายการแยก)
 - จำกัด realtime เฉพาะ editor; viewer ใช้ refresh/on-demand
 - ทำ synthetic load test 150 concurrent clients
 - เปิด App Check แบบ observe ก่อน แล้วจึง enforce หลัง valid traffic เสถียรอย่างน้อย 7 วัน

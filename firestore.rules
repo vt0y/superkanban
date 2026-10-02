@@ -412,6 +412,24 @@ service cloud.firestore {
           && request.resource.data.winCounts is map && request.resource.data.updatedAt == request.time;
         allow delete: if false;
       }
+      match /summary/{docId} {
+        allow read: if isMember(projectId);
+        allow create, update: if docId == 'main' && projectActive(projectId) && isMember(projectId)
+          && request.resource.data.keys().hasAll(['version','openTasks','openCount','openByStatus','openByMilestone','truncated','milestones','doneTotal','doneByMilestone','rebuiltAt','updatedAt'])
+          && request.resource.data.keys().hasOnly(['version','openTasks','openCount','openByStatus','openByMilestone','truncated','milestones','doneTotal','doneByMilestone','rebuiltAt','updatedAt'])
+          && request.resource.data.version == 1
+          && request.resource.data.openTasks is map && request.resource.data.openTasks.size() <= 500
+          && request.resource.data.openCount is int && request.resource.data.openCount >= 0
+          && request.resource.data.openByStatus is map
+          && request.resource.data.openByMilestone is map
+          && request.resource.data.truncated is bool
+          && request.resource.data.milestones is map
+          && request.resource.data.doneTotal is int && request.resource.data.doneTotal >= 0
+          && request.resource.data.doneByMilestone is map
+          && request.resource.data.rebuiltAt is timestamp
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if false;
+      }
     }
 
     // Feedback about ProjectSpace itself. Users read only their own; trusted site staff triage all.

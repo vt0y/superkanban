@@ -8,3 +8,4 @@ export * from './useSiteFeedback';
 export * from './useMediaQuery';
 export * from './useAnchoredPanel';
 export * from './useHomeSummary';
+export * from './useProjectSummary';

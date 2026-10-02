@@ -14,6 +14,7 @@ import {
 import type { Locale, Project } from '@/types';
 import { templateById, type ProjectTemplateId } from '@/config/project-templates';
 import { activityData, database, withId } from './helpers';
+import { emptyProjectSummary, summaryMilestone } from '@/utils/project-summary';
 
 export function subscribeProjects(
   uid: string,
@@ -72,12 +73,18 @@ export async function createProject(
       name: label.name, color: label.color, description: '', createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
   });
-  template.milestones.forEach((milestone) => {
-    seedBatch.set(doc(collection(store, 'projects', projectRef.id, 'milestones')), {
-      title: input.locale === 'en' ? milestone.en : milestone.th, description: '', dueDate: '', dueTime: '', status: 'active', dependsOn: [],
+  const seededMilestones = template.milestones.map((milestone) => {
+    const ref = doc(collection(store, 'projects', projectRef.id, 'milestones'));
+    const values = {
+      title: input.locale === 'en' ? milestone.en : milestone.th, description: '', dueDate: '', dueTime: '', status: 'active' as const, dependsOn: [] as string[],
       createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-    });
+    };
+    seedBatch.set(ref, values);
+    return [ref.id, values] as const;
   });
+  const initialSummary = emptyProjectSummary();
+  initialSummary.milestones = Object.fromEntries(seededMilestones.map(([id, item]) => [id, summaryMilestone(item)]));
+  seedBatch.set(doc(store, 'projects', projectRef.id, 'summary', 'main'), { ...initialSummary, rebuiltAt: serverTimestamp(), updatedAt: serverTimestamp() });
   await seedBatch.commit();
   return projectRef.id;
 }

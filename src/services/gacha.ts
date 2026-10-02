@@ -13,6 +13,8 @@ import {
 import type { GachaBag, GachaDraw, GachaMemberSnapshot, Membership, Project, ProjectUseCase, Task } from '@/types';
 import { candidatePoolKey, drawFromBag, type GachaTargetInput } from '@/utils/gacha';
 import { activityData, database, withId } from './helpers';
+import { applyTaskChanges } from '@/utils/project-summary';
+import { readSummaryForTransaction, withProjectSummaryRetry, writeSummaryInTransaction } from './project-summary';
 
 export const MAX_GACHA_TARGETS = 20;
 export const MAX_GACHA_CARDS = 50;
@@ -39,14 +41,15 @@ export async function runGachaDraw(input: RunGachaInput): Promise<string> {
   const drawRef = doc(collection(store, 'projects', input.projectId, 'gachaDraws'));
   const activityRef = doc(collection(store, 'projects', input.projectId, 'activities'));
 
-  await runTransaction(store, async (transaction) => {
+  await withProjectSummaryRetry(input.projectId, async () => runTransaction(store, async (transaction) => {
     const targetRefs = input.targets.map((target) => doc(store, 'projects', input.projectId, target.targetType === 'task' ? 'tasks' : 'useCases', target.targetId));
     const memberRefs = candidateIds.map((uid) => doc(store, 'memberships', `${input.projectId}_${uid}`));
-    const [projectSnapshot, bagSnapshot, targetSnapshots, memberSnapshots] = await Promise.all([
+    const [projectSnapshot, bagSnapshot, targetSnapshots, memberSnapshots, summary] = await Promise.all([
       transaction.get(projectRef),
       transaction.get(bagRef),
       Promise.all(targetRefs.map((ref) => transaction.get(ref))),
       Promise.all(memberRefs.map((ref) => transaction.get(ref))),
+      readSummaryForTransaction(transaction, store, input.projectId),
     ]);
     if (!projectSnapshot.exists() || (projectSnapshot.data() as Project).archived) throw new Error('GACHA_PROJECT_ARCHIVED');
     const project = projectSnapshot.data() as Project;
@@ -70,10 +73,14 @@ export async function runGachaDraw(input: RunGachaInput): Promise<string> {
       const member = snapshot.data() as Membership;
       return { userId: member.userId, displayName: member.displayName, photoURL: member.photoURL || '' };
     });
+    const taskChanges: Array<{ before: Task; after: Task }> = [];
     results.forEach((result, index) => {
       const ref = targetRefs[index];
       if (result.targetType === 'task') {
-        transaction.update(ref, { assigneeIds: [...new Set([...result.previousAssigneeIds, ...result.winnerIds])], updatedAt: serverTimestamp() });
+        const before = { id: ref.id, ...targetSnapshots[index].data() } as Task;
+        const after = { ...before, assigneeIds: [...new Set([...result.previousAssigneeIds, ...result.winnerIds])] };
+        taskChanges.push({ before, after });
+        transaction.update(ref, { assigneeIds: after.assigneeIds, updatedAt: serverTimestamp() });
       } else {
         transaction.update(ref, { assigneeId: result.winnerIds[0], status: 'assigned', updatedAt: serverTimestamp() });
       }
@@ -99,7 +106,8 @@ export async function runGachaDraw(input: RunGachaInput): Promise<string> {
       `drew assignees for ${results.length} item(s) (${cardCount} winner(s))`,
       drawRef.id,
     ));
-  });
+    if (taskChanges.length) writeSummaryInTransaction(transaction, store, input.projectId, applyTaskChanges(summary, taskChanges));
+  }));
   return drawRef.id;
 }
 

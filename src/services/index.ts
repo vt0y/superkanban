@@ -17,4 +17,5 @@ export * from './github';
 export * from './documents';
 export * from './google-drive';
 export * from './drive-attachments';
+export * from './project-summary';
 export * from './canva';
