@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { SectionProps } from '@/context/AppContext';
-import { Avatar, BulkBar, PageTitle, Segmented } from '@/components/common';
+import { Avatar, BulkBar, PageTitle } from '@/components/common';
 import { FilterBar } from '@/components/board/FilterBar';
 import { LabelChip } from '@/components/board/LabelChip';
 import { LabelManager } from '@/components/board/LabelManager';
 import { TaskCard } from '@/components/board/TaskCard';
-import { OPEN_WHILE_BLOCKED, PRIORITIES, TaskModal, type TaskDefaults } from '@/components/board/TaskModal';
+import { OPEN_WHILE_BLOCKED, PRIORITIES, type TaskDefaults } from '@/components/board/TaskModal';
+import { useTaskModal } from '@/components/board/TaskModalHost';
 import { TaskTable, type TaskGroup } from '@/components/board/TaskTable';
 import { TASK_COLUMNS } from '@/config/constants';
 import { blockingMilestones } from '@/utils/milestone-deps';
@@ -44,7 +45,7 @@ export function Board({ context, project, members, role, readOnly }: SectionProp
   const query = params.get('q') || '';
   const view: View = params.get('view') === 'table' ? 'table' : 'board';
   const groupBy: GroupBy = GROUPS.includes(params.get('group') as GroupBy) ? params.get('group') as GroupBy : 'none';
-  const [modal, setModal] = useState<{ task: Task | null; defaults?: TaskDefaults } | null>(null);
+  const { openTask, newTask, isOpen: modalOpen } = useTaskModal();
   const [labelsOpen, setLabelsOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [mobileStatus, setMobileStatus] = useState<TaskStatus>('todo');
@@ -140,11 +141,11 @@ export function Board({ context, project, members, role, readOnly }: SectionProp
   };
 
   const onCardClick = useCallback((event: MouseEvent, task: Task) => {
-    if (readOnly) { setModal({ task }); return; }
+    if (readOnly) { openTask(task); return; }
     if (event.shiftKey) { event.preventDefault(); selection.range(task.id, ordered.map((item) => item.id)); return; }
     if (selectMode || event.ctrlKey || event.metaKey) { selection.toggle(task.id); return; }
-    setModal({ task });
-  }, [readOnly, selection, ordered, selectMode]);
+    openTask(task);
+  }, [readOnly, selection, ordered, selectMode, openTask]);
   const filterLabel = useCallback((label: Label) => setParam('q', toggleQueryTerm(query, `label:${queryValue(label.name)}`)), [query, setParam]);
 
   // Drag & drop: the drop position comes from the pointer against the card midpoints.
@@ -199,13 +200,13 @@ export function Board({ context, project, members, role, readOnly }: SectionProp
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target) || modal || labelsOpen) return;
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target) || modalOpen || labelsOpen) return;
       if (event.key === '/') { event.preventDefault(); filterRef.current?.focus(); }
-      else if ((event.key === 'n' || event.key === 'N') && !readOnly) { event.preventDefault(); setModal({ task: null, defaults: { milestoneId: activeMilestone?.id || '' } }); }
+      else if ((event.key === 'n' || event.key === 'N') && !readOnly) { event.preventDefault(); newTask({ milestoneId: activeMilestone?.id || '' }); }
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
-  }, [modal, labelsOpen, readOnly, activeMilestone?.id]);
+  }, [modalOpen, labelsOpen, readOnly, activeMilestone?.id, newTask]);
 
   const scopeOptions: { id: string; label: ReactNode }[] = [{ id: '', label: pick(locale, 'ทั้งหมด', 'All tasks') }, ...milestones.map((m) => ({ id: m.id, label: <><Icon name={blockedMilestoneIds.has(m.id) ? 'lock' : m.status === 'completed' ? 'check' : 'milestone'} />{m.title}</> })), { id: 'none', label: pick(locale, 'ไม่มี milestone', 'No milestone') }];
   const groupLabels: Record<GroupBy, string> = { none: pick(locale, 'ไม่แบ่งกลุ่ม', 'No grouping'), assignee: pick(locale, 'ผู้รับผิดชอบ', 'Assignee'), milestone: 'Milestone', priority: pick(locale, 'ความสำคัญ', 'Priority'), label: 'Label' };
@@ -234,7 +235,7 @@ export function Board({ context, project, members, role, readOnly }: SectionProp
           ? <div className="quick-add"><textarea autoFocus rows={2} value={draft} maxLength={160} placeholder={pick(locale, 'ชื่องาน แล้วกด Enter', 'Task title, press Enter')} onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void quickAdd(lane, column.id); } if (e.key === 'Escape') { e.stopPropagation(); setAdding(null); } }} onBlur={() => { if (!draft.trim()) setAdding(null); }} />
               <div><button type="button" className="primary" onMouseDown={(e) => e.preventDefault()} onClick={() => void quickAdd(lane, column.id)}>{pick(locale, 'เพิ่ม', 'Add')}</button>
-                <button type="button" className="link-button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setModal({ task: null, defaults: { status: column.id, milestoneId: activeMilestone?.id || '', ...laneDefaults(lane) } }); setAdding(null); }}>{pick(locale, 'กรอกรายละเอียด…', 'More fields…')}</button>
+                <button type="button" className="link-button" onMouseDown={(e) => e.preventDefault()} onClick={() => { newTask({ status: column.id, milestoneId: activeMilestone?.id || '', ...laneDefaults(lane) }); setAdding(null); }}>{pick(locale, 'กรอกรายละเอียด…', 'More fields…')}</button>
                 <button type="button" className="secondary" onClick={() => setAdding(null)}><Icon name="close" /></button></div></div>
           : <button type="button" className="add-inline" onClick={() => { setAdding({ lane: lane.key, status: column.id }); setDraft(''); }}><Icon name="add" /> {context.t('addTask')}</button>)}
       </div>
@@ -242,21 +243,20 @@ export function Board({ context, project, members, role, readOnly }: SectionProp
   })}</div>;
 
   return <>
-    <PageTitle eyebrow={activeMilestone ? `MILESTONE BOARD${activeMilestone.dueDate ? ` · ${formatDue(activeMilestone.dueDate, activeMilestone.dueTime, locale).toUpperCase()}` : ''}` : 'KANBAN BOARD'} title={activeMilestone ? activeMilestone.title : context.t('board')}
+    <PageTitle eyebrow={activeMilestone ? `MILESTONE BOARD${activeMilestone.dueDate ? ` · ${formatDue(activeMilestone.dueDate, activeMilestone.dueTime, locale).toUpperCase()}` : ''}` : view === 'table' ? 'TASK TABLE' : 'KANBAN BOARD'} title={activeMilestone ? activeMilestone.title : context.t('navTasks')}
       description={activeMilestone ? (activeMilestone.description || pick(locale, 'บอร์ดงานของ milestone นี้', 'Tasks for this milestone')) : pick(locale, 'วางแผน มอบหมาย และติดตามงานของทีม', 'Plan, assign and track your team’s work')}
-      action={<div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}><Icon name="label" /> Labels</button>{!readOnly && <><button className={`secondary ${selectMode ? 'on' : ''}`} onClick={() => { setSelectMode(!selectMode); if (selectMode) selection.clear(); }}><Icon name="checklist" /> {pick(locale, 'เลือกหลายรายการ', 'Select')}</button><button className="primary" onClick={() => setModal({ task: null, defaults: { milestoneId: activeMilestone?.id || '' } })} title="N"><Icon name="add" /> {context.t('addTask')}</button></>}</div>} />
+      action={<div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}><Icon name="label" /> Labels</button>{!readOnly && <><button className={`secondary ${selectMode ? 'on' : ''}`} onClick={() => { setSelectMode(!selectMode); if (selectMode) selection.clear(); }}><Icon name="checklist" /> {pick(locale, 'เลือกหลายรายการ', 'Select')}</button><button className="primary" onClick={() => newTask({ milestoneId: activeMilestone?.id || '' })} title="N"><Icon name="add" /> {context.t('addTask')}</button></>}</div>} />
     <div className="milestone-scope" role="tablist" aria-label="Milestone">{scopeOptions.map((option) => <button key={option.id || 'all'} role="tab" aria-selected={scope === option.id} className={scope === option.id ? 'active' : ''} onClick={() => { selection.clear(); setParam('m', option.id); }}>{option.label}</button>)}</div>
     {blockers.length > 0 && <div className="blocked-banner"><span><Icon name="lock" /></span><div><strong>{pick(locale, 'Milestone นี้ถูกล็อก', 'This milestone is blocked')}</strong><small>{pick(locale, 'รอให้เสร็จก่อน: ', 'Waiting on: ')}{blockers.map((item) => <button key={item.id} onClick={() => setParam('m', item.id)}>{item.title}</button>)} — {pick(locale, 'งานเริ่มได้เมื่อ milestone ก่อนหน้าเสร็จ', 'tasks can’t start until these are completed')}</small></div></div>}
     <div className="board-toolbar">
       <FilterBar ref={filterRef} value={query} onChange={(value) => setParam('q', value)} labels={labels} members={members} milestones={milestones} locale={locale} />
       <div className="view-controls">
-        <Segmented<View> value={view} onChange={(value) => setParam('view', value === 'board' ? '' : value)} options={[{ id: 'board', label: <><Icon name="board" /> {pick(locale, 'บอร์ด', 'Board')}</> }, { id: 'table', label: <><Icon name="table" /> {pick(locale, 'ตาราง', 'Table')}</> }]} />
         <label className="group-select"><span>{pick(locale, 'จัดกลุ่ม', 'Group')}</span><select value={groupBy} onChange={(e) => setParam('group', e.target.value === 'none' ? '' : e.target.value)}>{GROUPS.map((group) => <option key={group} value={group}>{groupLabels[group]}</option>)}</select></label>
       </div>
     </div>
     {query && <p className="filter-summary">{pick(locale, `พบ ${filtered.length} จาก ${tasks.length} งาน`, `${filtered.length} of ${tasks.length} tasks`)} · <button type="button" className="link-button" onClick={() => setParam('q', '')}>{pick(locale, 'ล้างตัวกรอง', 'Clear filter')}</button></p>}
     {view === 'table'
-      ? <TaskTable groups={lanes} members={members} labels={labels} milestones={milestones} locale={locale} selection={selection} readOnly={readOnly} onOpen={(task) => setModal({ task })} onRowClick={onCardClick}
+      ? <TaskTable groups={lanes} members={members} labels={labels} milestones={milestones} locale={locale} selection={selection} readOnly={readOnly} onOpen={(task) => openTask(task)} onRowClick={onCardClick}
           onStatus={moveOne} onPriority={(task, priority: Priority) => void attempt(() => bulkUpdateWorkItems(project.id, 'tasks', [task.id], { priority }), pick(locale, 'อัปเดตไม่สำเร็จ', 'Update failed'))} onLabelClick={filterLabel} />
       : <>
         <div className="mobile-status-tabs" role="tablist" aria-label={pick(locale, 'สถานะงาน', 'Task status')}>{TASK_COLUMNS.map((column) => {
@@ -281,6 +281,5 @@ export function Board({ context, project, members, role, readOnly }: SectionProp
       <button type="button" className="danger ghost" onClick={() => void bulkDelete()}>{context.t('delete')}</button>
     </BulkBar>}
     {labelsOpen && <LabelManager labels={labels} tasks={tasks} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setLabelsOpen(false)} onFilter={filterLabel} />}
-    {modal && <TaskModal task={modal.task} defaults={modal.defaults} projectId={project.id} projectName={project.name} members={members} milestones={milestones} labels={labels} context={context} role={role} readOnly={readOnly} onClose={() => setModal(null)} />}
   </>;
 }

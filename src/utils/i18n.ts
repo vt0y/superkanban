@@ -2,6 +2,7 @@ import type { Locale } from '@/types';
 
 const messages = {
   th: {
+    navOverview: 'ภาพรวม', navTasks: 'งาน', navPlan: 'แผนงาน', navDocs: 'เอกสาร', myWork: 'งานของฉัน', upcomingDeadlines: 'กำหนดส่งที่ใกล้เข้ามา', gettingStarted: 'เริ่มต้นใช้งาน',
     overview: 'โปรเจกต์', dashboard: 'ภาพรวม', board: 'บอร์ดงาน', calendar: 'ปฏิทิน', milestones: 'เป้าหมาย', gacha: 'สุ่มงาน', usecases: 'Use Cases', design: 'Software Design', votes: 'โหวต', feedback: 'ฟีดแบ็ก',
     notes: 'โน้ต', team: 'ทีม', settings: 'ตั้งค่า', newProject: 'สร้างโปรเจกต์', signOut: 'ออกจากระบบ',
     myProjects: 'โปรเจกต์ของฉัน', greeting: 'จัดการทุกงานให้เดินหน้าในที่เดียว', activeProjects: 'โปรเจกต์ที่กำลังทำ',
@@ -149,6 +150,7 @@ const messages = {
     ghUserMismatch: 'กรุณาเลือกบัญชี GitHub เดียวกับที่เชื่อมไว้ในโปรไฟล์ หรือยกเลิกการเชื่อมในโปรไฟล์ก่อน',
   },
   en: {
+    navOverview: 'Overview', navTasks: 'Tasks', navPlan: 'Plan', navDocs: 'Docs', myWork: 'My work', upcomingDeadlines: 'Upcoming deadlines', gettingStarted: 'Getting started',
     overview: 'Projects', dashboard: 'Dashboard', board: 'Task board', calendar: 'Calendar', milestones: 'Milestones', gacha: 'Gacha', usecases: 'Use Cases', design: 'Software Design', votes: 'Votes', feedback: 'Feedback',
     notes: 'Notes', team: 'Team', settings: 'Settings', newProject: 'New project', signOut: 'Sign out',
     myProjects: 'My projects', greeting: 'Move every project forward in one place', activeProjects: 'Active projects',
@@ -299,6 +301,8 @@ const messages = {
 
 export type MessageKey = keyof typeof messages.th;
 export function translate(locale: Locale, key: MessageKey): string { return messages[locale][key]; }
+/** Sorted keys of one locale's catalogue (for the parity test). */
+export const messageKeys = (locale: Locale) => Object.keys(messages[locale]).sort();
 
 /** Fill `{name}`-style placeholders in a translated message. */
 export function fillMessage(message: string, values: Record<string, string>): string {

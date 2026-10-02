@@ -91,3 +91,12 @@
 .dep-picker .icon { width: 13px; height: 13px; color: var(--muted); }
 .dep-picker label.disabled { opacity: .5; cursor: not-allowed; }
 .dep-picker label small { margin-left: auto; color: var(--danger-fg); }
+
+/* open tasks under a milestone */
+.milestone-tasks { margin-top: var(--sp-3); }
+.milestone-tasks > summary { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-sm); font-weight: 500; cursor: pointer; list-style: none; }
+.milestone-tasks > summary::-webkit-details-marker { display: none; }
+.milestone-tasks > summary:hover { color: var(--text); }
+.milestone-tasks > summary .icon { width: 14px; height: 14px; transition: transform var(--dur); }
+.milestone-tasks[open] > summary .icon { transform: rotate(90deg); }
+.milestone-tasks .task-mini-list { margin-top: var(--sp-2); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }

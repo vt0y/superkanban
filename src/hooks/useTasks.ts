@@ -13,6 +13,13 @@ import {
   type TaskScope,
 } from '@/services/tasks';
 
+/** Like `useActiveTasks`, plus whether the first snapshot has arrived (to avoid rendering zeros meanwhile). */
+export function useActiveTasksState(projectId: string): { items: Task[]; loaded: boolean } {
+  const [state, setState] = useState<{ projectId: string; items: Task[] } | null>(null);
+  useEffect(() => subscribeActiveTasks(projectId, (items) => setState({ projectId, items })), [projectId]);
+  return state?.projectId === projectId ? { items: state.items, loaded: true } : { items: [], loaded: false };
+}
+
 export function useActiveTasks(projectId: string, scope?: TaskScope): Task[] {
   const [items, setItems] = useState<Task[]>([]);
   const milestoneId = scope?.milestoneId;

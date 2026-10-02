@@ -78,3 +78,8 @@
   background: var(--surface-3);
   font-size: var(--fs-2xs);
 }
+
+/* page-level view switch (Tasks: board/table/calendar, Plan, Docs) */
+.view-tabs { margin: calc(var(--sp-2) * -1) 0 var(--sp-5); }
+.view-tabs button .icon { width: 15px; height: 15px; }
+.view-tabs button.active .icon { color: var(--primary); }

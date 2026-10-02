@@ -586,3 +586,28 @@
 .checklist-item button .icon { width: 14px; height: 14px; }
 .checklist-item button:hover { color: var(--danger-fg); background: var(--surface-3); }
 .stack-form .checklist-add { min-height: 32px; padding: 4px var(--sp-2); border-style: dashed; background: transparent; font-size: var(--fs-sm); }
+
+/* assignee picker (task editor) — reuses the label popover shell */
+.assignee-picker { min-width: 0; }
+.assignee-chip {
+  min-height: var(--h-control-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: var(--surface);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.assignee-chip .avatar.sm { width: 22px; height: 22px; border-width: 0; }
+.assignee-chip > button { width: 20px; height: 20px; display: grid; place-items: center; padding: 0; color: var(--dim); border: 0; border-radius: 50%; background: transparent; }
+.assignee-chip > button:hover { color: var(--text); background: var(--surface-2); }
+.assignee-chip > button .icon { width: 12px; height: 12px; }
+.assign-me { font-size: var(--fs-xs); }
+.assignee-popover .label-options label { grid-template-columns: 16px 24px minmax(0, 1fr) 18px; }
+.assignee-popover .label-options .avatar.sm { border-width: 0; }
+.assignee-popover .label-options label > span small { color: var(--dim); }
+/* toggles apply at once, so "Done" only earns its place in the phone sheet */
+@media (min-width: 640px) { .label-popover > footer { display: none; } }

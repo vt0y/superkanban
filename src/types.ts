@@ -299,6 +299,8 @@ export interface Invite {
   role: Exclude<Role, 'owner'>;
   status: 'active' | 'revoked';
   createdBy: string;
+  /** Inviter's display name; missing on invites created before it was recorded. */
+  createdByName?: string;
   createdAt?: Timestamp;
   expiresAt: Timestamp;
 }

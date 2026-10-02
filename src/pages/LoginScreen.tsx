@@ -1,5 +1,24 @@
 import { useState } from 'react';
 import { getAllowedDomainsLabel, getDomainErrorMessage } from '@/config/auth-domains';
+import { Segmented } from '@/components/common/Segmented';
+import type { Locale } from '@/types';
+import { pick } from '@/utils/formatters';
+
+const LOCALE_KEY = 'ps.loginLocale';
+/** No profile exists before sign-in, so use the last choice made here, else the browser language. */
+function initialLocale(): Locale {
+  try {
+    const saved = localStorage.getItem(LOCALE_KEY);
+    if (saved === 'th' || saved === 'en') return saved;
+  } catch { /* storage blocked */ }
+  return navigator.language.toLowerCase().startsWith('th') ? 'th' : 'en';
+}
+
+function domainError(locale: Locale): string {
+  const label = getAllowedDomainsLabel();
+  if (locale === 'th') return getDomainErrorMessage();
+  return label ? `Only ${label} accounts can sign in.` : 'This email address isn’t allowed.';
+}
 
 export function LoginScreen({
   onLogin,
@@ -10,8 +29,14 @@ export function LoginScreen({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const displayError = error || errorMessage;
+  const [locale, setLocale] = useState<Locale>(initialLocale);
+  const code = error || errorMessage;
+  const displayError = code === 'DOMAIN_NOT_ALLOWED' ? domainError(locale) : code === 'LOGIN_FAILED' ? pick(locale, 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่', 'Sign-in failed. Please try again.') : code;
   const domainsLabel = getAllowedDomainsLabel();
+  const changeLocale = (next: Locale) => {
+    setLocale(next);
+    try { localStorage.setItem(LOCALE_KEY, next); } catch { /* storage blocked */ }
+  };
 
   const login = async () => {
     setBusy(true);
@@ -20,11 +45,7 @@ export function LoginScreen({
       await onLogin();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
-      if (msg === 'DOMAIN_NOT_ALLOWED') {
-        setError(getDomainErrorMessage());
-      } else {
-        setError('เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่');
-      }
+      setError(msg === 'DOMAIN_NOT_ALLOWED' ? msg : 'LOGIN_FAILED');
       setBusy(false);
     }
   };
@@ -35,11 +56,11 @@ export function LoginScreen({
         <div className="visual-copy">
           <span className="product-pill">PROJECTSPACE</span>
           <h1>
-            ทุกโปรเจกต์
+            {pick(locale, 'ทุกโปรเจกต์', 'Every project,')}
             <br />
-            <em>เดินหน้าไปด้วยกัน</em>
+            <em>{pick(locale, 'เดินหน้าไปด้วยกัน', 'moving forward together')}</em>
           </h1>
-          <p>งาน ทีม โน้ต และเป้าหมาย อยู่ใน workspace เดียว</p>
+          <p>{pick(locale, 'งาน ทีม โน้ต และเป้าหมาย อยู่ใน workspace เดียว', 'Tasks, team, notes and goals in one workspace')}</p>
         </div>
         <div className="floating-board">
           {['Backlog', 'In progress', 'Done'].map((column, index) => (
@@ -56,17 +77,20 @@ export function LoginScreen({
             <span className="brand-mark">P</span>
             <strong>ProjectSpace</strong>
           </div>
-          <h2>ยินดีต้อนรับ</h2>
-          <p>เข้าสู่ระบบเพื่อดูโปรเจกต์ของคุณ</p>
+          <h2>{pick(locale, 'ยินดีต้อนรับ', 'Welcome')}</h2>
+          <p>{pick(locale, 'เข้าสู่ระบบเพื่อดูโปรเจกต์ของคุณ', 'Sign in to see your projects')}</p>
           <button className="google-button" onClick={login} disabled={busy}>
             <GoogleMark />
-            {busy ? 'กำลังเข้าสู่ระบบ...' : 'ดำเนินการต่อด้วย Google'}
+            {busy ? pick(locale, 'กำลังเข้าสู่ระบบ…', 'Signing in…') : pick(locale, 'ดำเนินการต่อด้วย Google', 'Continue with Google')}
           </button>
           {displayError && <p className="form-error">{displayError}</p>}
           <small>
-            การเข้าสู่ระบบถือว่าคุณยอมรับการทำงานร่วมกันภายในทีม
-            {domainsLabel ? ` (เฉพาะบัญชี ${domainsLabel})` : ''}
+            {pick(locale, 'การเข้าสู่ระบบถือว่าคุณยอมรับการทำงานร่วมกันภายในทีม', 'By signing in you agree to collaborate within your team')}
+            {domainsLabel ? pick(locale, ` (เฉพาะบัญชี ${domainsLabel})`, ` (${domainsLabel} accounts only)`) : ''}
           </small>
+          <div className="login-locale">
+            <Segmented<Locale> value={locale} onChange={changeLocale} options={[{ id: 'th', label: 'ไทย' }, { id: 'en', label: 'English' }]} />
+          </div>
         </div>
       </div>
     </div>

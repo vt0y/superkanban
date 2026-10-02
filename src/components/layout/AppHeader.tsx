@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type { AppContextValue } from '@/context/AppContext';
 import { useSiteFeedback } from '@/hooks/useSiteFeedback';
 import { Avatar } from '@/components/common/Avatar';
@@ -28,10 +28,10 @@ export function AppHeader({ context, leading }: { context: AppContextValue; lead
     <header className="topbar">
       <div className="topbar-leading">
         {leading ?? (
-          <a className="brand" href="/">
+          <Link className="brand" to="/">
             <span className="brand-mark">P</span>
             <strong>ProjectSpace</strong>
-          </a>
+          </Link>
         )}
       </div>
       <div className="topbar-actions">

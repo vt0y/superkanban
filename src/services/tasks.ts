@@ -1,5 +1,6 @@
 import {
   collection,
+  doc,
   documentId,
   getCountFromServer,
   getDocs,
@@ -51,9 +52,20 @@ export function subscribeActiveTasks(
   projectId: string,
   callback: (tasks: Task[]) => void,
   scope?: TaskScope,
+  onError?: (error: Error) => void,
 ): Unsubscribe {
   const constraints = [...scopeConstraints(scope), where('status', 'in', ACTIVE_TASK_STATUSES)];
-  return subscribeProjectQuery(projectId, 'tasks', `active:${scope?.milestoneId || '*'}`, constraints, callback);
+  return subscribeProjectQuery(projectId, 'tasks', `active:${scope?.milestoneId || '*'}`, constraints, callback, onError);
+}
+
+/** One task, live; `null` once it is known not to exist (deleted, or a bad `?task=` link). */
+export function subscribeTask(
+  projectId: string,
+  taskId: string,
+  callback: (task: Task | null) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(doc(database(), 'projects', projectId, 'tasks', taskId), (snap) => callback(snap.exists() ? withId<Task>(snap) : null), onError);
 }
 
 export function subscribeRecentCompletedTasks(

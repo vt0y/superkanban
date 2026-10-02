@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { lockBodyScroll } from '@/utils/scroll-lock';
-import { Link, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, NavLink, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { AppContextValue } from '@/context/AppContext';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { Icon, type IconName } from '@/components/common/Icon';
@@ -13,45 +13,41 @@ import { subscribeGachaDraws } from '@/services/gacha';
 import { membershipGitHubDrift, syncOwnMembershipGitHub } from '@/services/github';
 import { isGitHubEnabled } from '@/config/features';
 import type { GachaDraw, Membership, Project } from '@/types';
-import { Board } from '@/sections/board';
 import { Dashboard } from '@/sections/dashboard';
+import { loadCalendar, Tasks } from '@/sections/tasks';
+import { loadDesign, loadMilestones, Plan } from '@/sections/plan';
+import { Docs, loadNotes, NotesSection } from '@/sections/docs';
 import { ProjectChat } from '@/components/chat/ProjectChat';
+import { TaskModalProvider } from '@/components/board/TaskModalHost';
 import { pick } from '@/utils/formatters';
+import { legacySectionRedirect, type WorkspaceSection } from '@/utils/workspace-routes';
+import { ProjectUnavailable } from './ProjectUnavailable';
 
-const loadCalendar = () => import('@/sections/calendar');
-const loadDesign = () => import('@/sections/design');
-const loadMilestones = () => import('@/sections/milestones');
-const loadNotes = () => import('@/sections/notes');
 const loadSettings = () => import('@/sections/settings');
 const loadTeam = () => import('@/sections/team');
 const loadVotes = () => import('@/sections/votes');
 const loadGacha = () => import('@/sections/gacha');
 const SECTION_LOADERS = [loadCalendar, loadDesign, loadMilestones, loadNotes, loadSettings, loadTeam, loadVotes, loadGacha];
 
-const Calendar = lazy(() => loadCalendar().then((m) => ({ default: m.Calendar })));
-const SoftwareDesign = lazy(() => loadDesign().then((m) => ({ default: m.SoftwareDesign })));
-const Milestones = lazy(() => loadMilestones().then((m) => ({ default: m.Milestones })));
-const Notes = lazy(() => loadNotes().then((m) => ({ default: m.Notes })));
-const Documents = lazy(() => loadNotes().then((m) => ({ default: m.Documents })));
 const Settings = lazy(() => loadSettings().then((m) => ({ default: m.Settings })));
 const Team = lazy(() => loadTeam().then((m) => ({ default: m.Team })));
 const Votes = lazy(() => loadVotes().then((m) => ({ default: m.Votes })));
 const Gacha = lazy(() => loadGacha().then((m) => ({ default: m.Gacha })));
 const GachaReveal = lazy(() => import('@/components/gacha/GachaReveal').then((m) => ({ default: m.GachaReveal })));
 
-const NAV_GROUPS: { th: string; en: string; items: [path: string, icon: IconName, label: MessageKey][] }[] = [
+type NavItem = [path: WorkspaceSection, icon: IconName, label: MessageKey];
+const NAV_GROUPS: { th: string; en: string; items: NavItem[] }[] = [
   {
     th: 'งานหลัก',
     en: 'Work',
     items: [
-      ['dashboard', 'dashboard', 'dashboard'],
-      ['board', 'board', 'board'],
-      ['calendar', 'calendar', 'calendar'],
+      ['overview', 'dashboard', 'navOverview'],
+      ['tasks', 'board', 'navTasks'],
+      ['plan', 'plan', 'navPlan'],
       ['notes', 'note', 'notes'],
-      ['documents', 'document', 'documents'],
+      ['docs', 'document', 'navDocs'],
     ],
   },
-  { th: 'วางแผนและออกแบบ', en: 'Plan & Design', items: [['milestones', 'milestone', 'milestones'], ['design', 'design', 'design']] },
   {
     th: 'ร่วมมือ',
     en: 'Collaborate',
@@ -69,13 +65,12 @@ const NAV_GROUPS: { th: string; en: string; items: [path: string, icon: IconName
     ],
   },
 ];
-const SECTIONS = new Set(NAV_GROUPS.flatMap((group) => group.items.map(([path]) => path)));
-const MOBILE_PRIMARY: [path: string, icon: IconName, label: MessageKey][] = [
-  ['dashboard', 'dashboard', 'dashboard'],
-  ['board', 'board', 'board'],
-  ['notes', 'note', 'notes'],
-  ['documents', 'document', 'documents'],
-];
+const MOBILE_PRIMARY: NavItem[] = NAV_GROUPS[0].items.filter(([path]) => path !== 'plan');
+/** Breadcrumb label for a page's current `?view=`, when it has view tabs. */
+const VIEW_LABELS: Partial<Record<WorkspaceSection, Record<string, [th: string, en: string]>>> = {
+  tasks: { board: ['บอร์ด', 'Board'], table: ['ตาราง', 'Table'], calendar: ['ปฏิทิน', 'Calendar'] },
+  plan: { milestones: ['เป้าหมาย', 'Milestones'], usecases: ['Use cases', 'Use cases'], diagrams: ['ไดอะแกรม', 'Diagrams'] },
+};
 const MOBILE_MORE = NAV_GROUPS.flatMap((group) => group.items).filter(
   ([path]) => !MOBILE_PRIMARY.some(([primary]) => primary === path),
 );
@@ -83,9 +78,9 @@ const MOBILE_MORE = NAV_GROUPS.flatMap((group) => group.items).filter(
 export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   const params = useParams();
   const projectId = params.projectId || '';
-  // A document detail route belongs to the standalone Documents section.
-  const section = params.documentId ? 'documents' : (params.section || 'dashboard');
   const documentId = params.documentId;
+  const section = (params.section || 'overview') as WorkspaceSection;
+  const [search] = useSearchParams();
   const contextProject = context.projects.find((item) => item.id === projectId);
   const [fallbackProject, setFallbackProject] = useState<{ projectId: string; project: Project | null } | null>(null);
   const [membershipState, setMembershipState] = useState<{ projectId: string; members: Membership[] } | null>(null);
@@ -102,7 +97,8 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   const projectPending = !context.projectsLoaded || (!contextProject && !fallbackMatches);
   const canAccessProject = Boolean(project?.memberIds.includes(context.user.uid));
   const showGachaHistory = section === 'gacha';
-  const members = membershipState?.projectId === projectId ? membershipState.members : [];
+  const membersLoaded = membershipState?.projectId === projectId;
+  const members = membersLoaded ? membershipState.members : [];
   const gachaDraws = gachaState?.projectId === projectId ? gachaState.draws : [];
 
   useEffect(() => {
@@ -177,11 +173,10 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
         <span className="loader" />
       </div>
     );
-  if (!project || !project.memberIds.includes(context.user.uid)) return <Navigate to="/" replace />;
-  // The old "Use Cases" page is now part of Software Design.
-  if (section === 'use-cases') return <Navigate to={`/p/${project.id}/design?view=list`} replace />;
-  // Preserve bookmarks to the former Documents tab after splitting it from Notes.
-  if (section === 'notes' && new URLSearchParams(location.search).get('tab') === 'documents') return <Navigate to={`/p/${project.id}/documents`} replace />;
+  // Old bookmarks (/board, /calendar, /documents/:id, …) and unknown sections land on their new home.
+  const redirect = legacySectionRedirect(params.section, location.search, documentId);
+  if (redirect) return <Navigate to={`/p/${projectId}/${redirect}`} replace />;
+  if (!project || !project.memberIds.includes(context.user.uid)) return <ProjectUnavailable context={context} />;
   const role = roleFor(members, context.user.uid);
   const readOnly = project.archived;
   const common = { context, project, members, role, readOnly };
@@ -197,24 +192,38 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
     });
   };
   const sectionLabel = NAV_GROUPS.flatMap((group) => group.items).find(([path]) => path === section)?.[2];
+  const views = VIEW_LABELS[section];
+  const viewLabel = views && !documentId ? views[search.get('view') || ''] ?? Object.values(views)[0] : undefined;
   const projectInitials = project.name.slice(0, 2).toUpperCase();
-  const roleLabel = (role || 'member').replace(/^./, (letter) => letter.toUpperCase());
+  const roleLabel = membersLoaded ? (role || 'member').replace(/^./, (letter) => letter.toUpperCase()) : '…';
   const breadcrumb = (
     <nav className="crumbs" aria-label={pick(locale, 'ตำแหน่ง', 'Breadcrumb')}>
-      <Link to={`/p/${project.id}/dashboard`}>
+      {/* Phones have no sidebar, so the app logo is the way back to Home. */}
+      <Link className="crumbs-home" to="/" aria-label={pick(locale, 'หน้าแรก', 'Home')} title={pick(locale, 'หน้าแรก', 'Home')}>
+        <span className="brand-mark">P</span>
+      </Link>
+      <Icon name="chevronRight" className="crumbs-home-sep" />
+      <Link to={`/p/${project.id}/overview`}>
         <span className="project-mark" style={{ background: project.color }}>{projectInitials}</span>
         <span>{project.name}</span>
       </Link>
       {sectionLabel && (
         <>
           <Icon name="chevronRight" />
-          <strong>{context.t(sectionLabel)}</strong>
+          {viewLabel ? <Link to={`/p/${project.id}/${section}`}>{context.t(sectionLabel)}</Link> : <strong>{context.t(sectionLabel)}</strong>}
+        </>
+      )}
+      {viewLabel && (
+        <>
+          <Icon name="chevronRight" />
+          <strong>{pick(locale, viewLabel[0], viewLabel[1])}</strong>
         </>
       )}
     </nav>
   );
 
   return (
+    <TaskModalProvider {...common}>
     <div className={`workspace section-${section} ${readOnly ? 'read-only' : ''} ${collapsed ? 'collapsed' : ''}`}>
       <aside className={`sidebar ${rail ? 'is-rail' : ''} ${!desktop && drawerOpen ? 'drawer-open' : ''}`}>
         <div className="sidebar-project">
@@ -289,18 +298,18 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
           </div>
         )}
         <Suspense fallback={<div className="section-loader"><span className="loader" /></div>}>
-          {section === 'dashboard' && <Dashboard {...common} />}
-          {section === 'board' && <Board {...common} />}
-          {section === 'calendar' && <Calendar {...common} />}
-          {section === 'milestones' && <Milestones {...common} />}
+          {/* Role decides what each page shows, so wait for memberships instead of rendering as "member" first. */}
+          {!membersLoaded ? <div className="section-loader"><span className="loader" /></div> : <>
+          {section === 'overview' && <Dashboard {...common} />}
+          {section === 'tasks' && <Tasks {...common} />}
+          {section === 'plan' && <Plan {...common} />}
+          {section === 'notes' && <NotesSection {...common} />}
+          {section === 'docs' && <Docs {...common} documentId={documentId} />}
           {section === 'gacha' && <Gacha {...common} draws={gachaDraws} />}
-          {section === 'design' && <SoftwareDesign {...common} />}
-          {section === 'notes' && <Notes {...common} />}
-          {section === 'documents' && <Documents {...common} documentId={documentId} />}
           {section === 'votes' && <Votes {...common} />}
           {section === 'team' && <Team {...common} />}
           {section === 'settings' && <Settings {...common} />}
-          {!SECTIONS.has(section) && <Navigate to={`/p/${project.id}/dashboard`} replace />}
+          </>}
         </Suspense>
       </main>
       <nav className="mobile-bottom-nav" aria-label={pick(locale, 'เมนูโปรเจกต์', 'Project navigation')}>
@@ -358,6 +367,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
         <GachaReveal projectId={project.id} locale={locale} latestDraw={gachaDraws[0] ?? null} />
       </Suspense>
     </div>
+    </TaskModalProvider>
   );
 }
 

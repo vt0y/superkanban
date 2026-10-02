@@ -28,6 +28,7 @@ export async function createInvite(
     role,
     status: 'active',
     createdBy: user.uid,
+    createdByName: user.displayName || '',
     createdAt: serverTimestamp(),
     expiresAt: Timestamp.fromDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
   });

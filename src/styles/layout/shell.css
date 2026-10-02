@@ -53,6 +53,9 @@
 .crumbs .icon { width: 14px; height: 14px; color: var(--dim); }
 .crumbs strong { color: var(--text); font-weight: 600; }
 @media (max-width: 639px) { .crumbs a > span:last-child { display: none; } }
+.crumbs a.crumbs-home { flex: 0 0 auto; }
+.crumbs a.crumbs-home > span.brand-mark { display: grid; width: 26px; height: 26px; }
+@media (min-width: 640px) { .crumbs a.crumbs-home, .crumbs .crumbs-home-sep { display: none; } }
 .project-mark {
   width: 22px;
   height: 22px;

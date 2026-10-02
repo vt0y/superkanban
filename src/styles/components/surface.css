@@ -137,3 +137,8 @@
 /* simple progress bar */
 .progress-bar { height: 6px; overflow: hidden; border-radius: var(--r-full); background: var(--surface-3); }
 .progress-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--primary-solid); transition: width .3s var(--ease); }
+
+/* loading placeholders: still shapes in the final layout, deliberately not animated (no flicker) */
+.list-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); }
+.list-skeleton i { height: 32px; border-radius: var(--r-md); background: var(--surface-2); }
+.skeleton-text { display: inline-block; width: 2.2em; height: .8em; border-radius: var(--r-xs); background: var(--surface-3); vertical-align: middle; }

@@ -8,3 +8,6 @@ export * from './notes';
 export * from './settings';
 export * from './team';
 export * from './votes';
+export * from './tasks';
+export * from './plan';
+export * from './docs';

@@ -6,3 +6,5 @@ export * from './useTasks';
 export * from './usePolls';
 export * from './useSiteFeedback';
 export * from './useMediaQuery';
+export * from './useAnchoredPanel';
+export * from './useHomeSummary';

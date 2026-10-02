@@ -25,6 +25,7 @@ interface SharedSubscription<T = unknown> {
   unsubscribeTimer: ReturnType<typeof setTimeout> | null;
   unsubscribeFirestore: Unsubscribe | null;
   listeners: Set<(items: T[]) => void>;
+  errorListeners: Set<(error: Error) => void>;
   latestData: T[] | null;
 }
 
@@ -59,8 +60,9 @@ export function subscribeProjectCollection<T>(
   projectId: string,
   name: string,
   callback: (items: T[]) => void,
+  onError?: (error: Error) => void,
 ): Unsubscribe {
-  return subscribeProjectQuery(projectId, name, 'all', [], callback);
+  return subscribeProjectQuery(projectId, name, 'all', [], callback, onError);
 }
 
 /**
@@ -74,6 +76,7 @@ export function subscribeProjectQuery<T>(
   scopeKey: string,
   constraints: QueryConstraint[],
   callback: (items: T[]) => void,
+  onError?: (error: Error) => void,
 ): Unsubscribe {
   const key = projectQueryCacheKey(projectId, name, scopeKey);
   let sub = subscriptionRegistry.get(key) as SharedSubscription<T> | undefined;
@@ -84,6 +87,7 @@ export function subscribeProjectQuery<T>(
       unsubscribeTimer: null,
       unsubscribeFirestore: null,
       listeners: new Set(),
+      errorListeners: new Set(),
       latestData: null,
     };
     subscriptionRegistry.set(key, sub as SharedSubscription);
@@ -96,6 +100,7 @@ export function subscribeProjectQuery<T>(
 
   sub.refCount += 1;
   sub.listeners.add(callback);
+  if (onError) sub.errorListeners.add(onError);
 
   if (sub.latestData !== null) {
     try {
@@ -121,12 +126,21 @@ export function subscribeProjectQuery<T>(
           });
         }
       },
+      (error) => {
+        // Firestore ends a listener after an error: forget it so the next subscriber retries.
+        if (sub) {
+          sub.unsubscribeFirestore = null;
+          sub.errorListeners.forEach((listener) => listener(error));
+        }
+        if (subscriptionRegistry.get(key) === sub) subscriptionRegistry.delete(key);
+      },
     );
   }
 
   return () => {
     if (!sub) return;
     sub.listeners.delete(callback);
+    if (onError) sub.errorListeners.delete(onError);
     sub.refCount = Math.max(0, sub.refCount - 1);
 
     if (sub.refCount === 0) {

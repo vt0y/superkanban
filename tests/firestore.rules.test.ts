@@ -105,6 +105,18 @@ describe('ProjectSpace Firestore rules', () => {
     await assertSucceeds(batch.commit());
   });
 
+  it('seed template (labels + milestones) ได้ทันทีหลังสร้าง project', async () => {
+    const db = context('creator');
+    const bootstrap = writeBatch(db);
+    bootstrap.set(doc(db, 'projects', 'new-project'), { name: 'New', description: '', color: '#fff', ownerId: 'creator', memberIds: ['creator'], archived: false, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    bootstrap.set(doc(db, 'memberships', 'new-project_creator'), { projectId: 'new-project', userId: 'creator', displayName: 'Creator', email: 'creator@example.com', photoURL: '', role: 'owner', joinedAt: serverTimestamp() });
+    await assertSucceeds(bootstrap.commit());
+    const seed = writeBatch(db);
+    seed.set(doc(collection(db, 'projects', 'new-project', 'labels')), { name: 'bug', color: '#d73a4a', description: '', createdBy: 'creator', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    seed.set(doc(collection(db, 'projects', 'new-project', 'milestones')), { title: 'Requirements', description: '', dueDate: '', dueTime: '', status: 'active', dependsOn: [], createdBy: 'creator', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await assertSucceeds(seed.commit());
+  });
+
   it('แยกข้อมูลแต่ละโปรเจกต์จากคนนอก', async () => {
     await seedProject();
     await assertSucceeds(getDoc(doc(context('member'), 'projects', projectId)));
@@ -366,6 +378,13 @@ describe('ProjectSpace Firestore rules', () => {
     batch.set(doc(db, 'memberships', `${projectId}_guest`), { projectId, userId: 'guest', displayName: 'Guest', email: 'guest@example.com', photoURL: '', role: 'member', inviteId: 'token' });
     batch.update(doc(db, 'projects', projectId), { memberIds: ['owner', 'member', 'admin', 'guest'], updatedAt: serverTimestamp() });
     await assertSucceeds(batch.commit());
+  });
+
+  it('admin สร้าง invite พร้อมชื่อผู้เชิญได้ แต่ member สร้างไม่ได้', async () => {
+    await seedProject();
+    const invite = { projectId, projectName: 'Alpha', role: 'member', status: 'active', createdBy: 'admin', createdByName: 'Admin', createdAt: serverTimestamp(), expiresAt: Timestamp.fromDate(new Date(Date.now() + 86400000)) };
+    await assertSucceeds(setDoc(doc(context('admin'), 'invites', 'named'), invite));
+    await assertFails(setDoc(doc(context('member'), 'invites', 'by-member'), { ...invite, createdBy: 'member' }));
   });
 
   it('admin archive project ไม่ได้ แต่ owner ทำได้', async () => {

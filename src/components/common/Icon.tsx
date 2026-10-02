@@ -6,6 +6,7 @@ import {
   MoreHorizontal, MoreVertical, MousePointer2, PanelLeftClose, PanelLeftOpen, Paperclip, Pencil, Pin, Plus, RefreshCw,
   Search, Send, Settings, Shapes, Share2, Sparkles, SquareDashed, SquareKanban, StickyNote, Sun, Table, Tag, ThumbsUp, Trash2, Trophy,
   Type, Unlink, Unlock, Upload, User, UserPlus, Users, Vote, Workflow, X, Zap,
+  CalendarClock, CircleCheck, House, ListTodo, Map as MapIcon, Rocket,
 } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import type { ComponentType } from 'react';
@@ -110,6 +111,12 @@ export const ICONS = {
   branch: GitBranch,
   mail: Mail,
   logout: LogOut,
+  dueSoon: CalendarClock,
+  circleCheck: CircleCheck,
+  home: House,
+  tasks: ListTodo,
+  plan: MapIcon,
+  rocket: Rocket,
 } satisfies Record<string, ComponentType<LucideProps>>;
 
 export type IconName = keyof typeof ICONS;

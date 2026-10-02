@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AppContextValue } from '@/context/AppContext';
 import { attempt } from '@/components/toast';
@@ -7,6 +7,7 @@ import type { Label } from '@/types';
 import { pick } from '@/utils/formatters';
 import { LabelChip } from './LabelChip';
 import { Icon } from '@/components/common/Icon';
+import { useAnchoredPanel } from '@/hooks/useAnchoredPanel';
 
 const POPOVER_WIDTH = 340;
 
@@ -15,10 +16,10 @@ export function LabelPicker({ labels, value, onChange, projectId, context, readO
 }) {
   const { locale, user } = context;
   const [open, setOpen] = useState(false);
-  const [place, setPlace] = useState<CSSProperties>({});
   const [search, setSearch] = useState('');
   const root = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const selected = labels.filter((label) => value.includes(label.id));
   const term = search.trim().toLowerCase();
   const matches = [...labels].sort((a, b) => a.name.localeCompare(b.name)).filter((label) => label.name.toLowerCase().includes(term));
@@ -34,25 +35,7 @@ export function LabelPicker({ labels, value, onChange, projectId, context, readO
     return () => removeEventListener('mousedown', close);
   }, [open]);
 
-  // The popover is portaled to <body> (a modal body scrolls and would clip it), so pin it to the trigger by hand
-  // and follow it when the modal scrolls or the window resizes. Phones get a bottom sheet from CSS instead.
-  useLayoutEffect(() => {
-    if (!open) return;
-    const update = () => {
-      const rect = root.current?.querySelector('.label-picker-trigger')?.getBoundingClientRect();
-      if (!rect || window.innerWidth < 640) { setPlace({}); return; }
-      const width = Math.min(POPOVER_WIDTH, window.innerWidth - 32);
-      const height = panel.current?.offsetHeight ?? 0;
-      const left = Math.max(16, Math.min(rect.left, window.innerWidth - width - 16));
-      const below = window.innerHeight - rect.bottom - 6;
-      const top = below >= height + 16 || rect.top < below ? rect.bottom + 6 : Math.max(16, rect.top - 6 - height);
-      setPlace({ top, left, width, maxHeight: window.innerHeight - top - 16 });
-    };
-    update();
-    addEventListener('resize', update);
-    addEventListener('scroll', update, true);
-    return () => { removeEventListener('resize', update); removeEventListener('scroll', update, true); };
-  }, [open, search, labels.length]);
+  const place = useAnchoredPanel(open, trigger, panel, POPOVER_WIDTH, [search, labels.length]);
 
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((item) => item !== id) : [...value, id]);
   const create = async () => {
@@ -67,7 +50,7 @@ export function LabelPicker({ labels, value, onChange, projectId, context, readO
     <div className="label-picker-value">
       {showSelected && selected.map((label) => <LabelChip key={label.id} label={label} />)}
       {showSelected && !selected.length && <span className="muted">{pick(locale, 'ไม่มี label', 'No labels')}</span>}
-      {!readOnly && <button type="button" className="label-picker-trigger" aria-expanded={open} onClick={() => open ? close() : setOpen(true)}><span aria-hidden><Icon name="label" /></span>{pick(locale, 'จัดการ Labels', 'Manage labels')}{selected.length > 0 && <b>{selected.length}</b>}<i aria-hidden><Icon name="chevronDown" /></i></button>}
+      {!readOnly && <button ref={trigger} type="button" className="label-picker-trigger" aria-expanded={open} onClick={() => open ? close() : setOpen(true)}><span aria-hidden><Icon name="label" /></span>{pick(locale, 'จัดการ Labels', 'Manage labels')}{selected.length > 0 && <b>{selected.length}</b>}<i aria-hidden><Icon name="chevronDown" /></i></button>}
     </div>
     {open && createPortal(<><button type="button" className="label-picker-scrim" onClick={close} aria-label={pick(locale, 'ปิดตัวเลือก Labels', 'Close label picker')} /><div ref={panel} className="label-popover" style={place} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } }}>
       <header><div><strong>{pick(locale, 'เลือก Labels', 'Choose labels')}</strong><small>{pick(locale, `เลือกแล้ว ${selected.length} รายการ`, `${selected.length} selected`)}</small></div><button type="button" onClick={close} aria-label={pick(locale, 'ปิด', 'Close')}><Icon name="close" /></button></header>

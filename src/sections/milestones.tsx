@@ -10,7 +10,11 @@ import { attempt } from '@/components/toast';
 import { formatDue, pick } from '@/utils/formatters';
 import { useActiveTasks, useMilestoneTaskCounts, useProjectItems } from '@/hooks';
 import { CommentThread } from '@/components/comments/CommentThread';
+import { useTaskModal } from '@/components/board/TaskModalHost';
+import { TASK_COLUMNS } from '@/config/constants';
 import { Icon } from '@/components/common/Icon';
+
+const STATUS_COLOR = new Map(TASK_COLUMNS.map((column) => [column.id, column.color]));
 
 export function Milestones({ context, project, role, readOnly }: SectionProps) {
   const items = useProjectItems<Milestone>(project.id, 'milestones');
@@ -18,6 +22,7 @@ export function Milestones({ context, project, role, readOnly }: SectionProps) {
   const counts = useMilestoneTaskCounts(project.id, items.map((item) => item.id), tasks.map((task) => `${task.id}:${task.status}`).sort().join(','));
   const [editing, setEditing] = useState<Milestone | 'new' | null>(null);
   const navigate = useNavigate();
+  const { openTask } = useTaskModal();
   const { locale } = context;
   const byId = new Map(items.map((item) => [item.id, item]));
   const setStatus = async (item: Milestone, status: Milestone['status'], taskCount: number) => {
@@ -51,7 +56,11 @@ export function Milestones({ context, project, role, readOnly }: SectionProps) {
           {item.description && <p>{item.description}</p>}
           {deps.length > 0 && <div className="dep-chips"><small>{pick(locale, 'ต้องเสร็จก่อน:', 'Depends on:')}</small>{deps.map((dep) => <span key={dep.id} className={dep.status === 'completed' ? 'done' : ''}><Icon name={dep.status === 'completed' ? 'check' : 'clock'} /> {dep.title}</span>)}</div>}
           <div className="milestone-progress"><span><b>{pct}%</b><small>{complete}/{count.total} tasks</small></span><div><i style={{ width: `${pct}%` }} /></div></div>
-          <footer><span className={item.dueDate ? '' : 'muted'}><Icon name="calendarSingle" /> {item.dueDate ? formatDue(item.dueDate, item.dueTime, locale) : pick(locale, 'ไม่มีกำหนด', 'No due date')}</span><div className="milestone-actions"><button className="link-button" onClick={() => navigate(`/p/${project.id}/board?m=${item.id}`)}>{pick(locale, 'เปิดบอร์ดงาน →', 'Open board →')}</button>{!readOnly && (item.status === 'completed'
+          {related.length > 0 && <details className="milestone-tasks">
+            <summary><Icon name="chevronRight" /> {pick(locale, `งานที่ยังไม่เสร็จ (${related.length})`, `Open tasks (${related.length})`)}</summary>
+            <div className="task-mini-list">{related.map((task) => <button key={task.id} type="button" onClick={() => openTask(task)}><i style={{ background: STATUS_COLOR.get(task.status) }} /><strong>{task.title}</strong>{task.dueDate && <small>{formatDue(task.dueDate, task.dueTime, locale)}</small>}</button>)}</div>
+          </details>}
+          <footer><span className={item.dueDate ? '' : 'muted'}><Icon name="calendarSingle" /> {item.dueDate ? formatDue(item.dueDate, item.dueTime, locale) : pick(locale, 'ไม่มีกำหนด', 'No due date')}</span><div className="milestone-actions"><button className="link-button" onClick={() => navigate(`/p/${project.id}/tasks?m=${item.id}`)}>{pick(locale, 'เปิดบอร์ดงาน →', 'Open board →')}</button>{!readOnly && (item.status === 'completed'
             ? <button className="secondary compact" onClick={() => void setStatus(item, 'active', completion.taskCount)}>{pick(locale, 'เปิดอีกครั้ง', 'Reopen')}</button>
             : <button className="primary compact" disabled={!completion.canComplete} title={completionHint} onClick={() => void setStatus(item, 'completed', completion.taskCount)}><Icon name="check" /> {pick(locale, 'ปิด Milestone', 'Complete')}</button>)}</div></footer>
         </div>

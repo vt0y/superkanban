@@ -11,7 +11,8 @@ import {
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
-import type { Project } from '@/types';
+import type { Locale, Project } from '@/types';
+import { templateById, type ProjectTemplateId } from '@/config/project-templates';
 import { activityData, database, withId } from './helpers';
 
 export function subscribeProjects(
@@ -30,7 +31,7 @@ export function subscribeProjects(
 
 export async function createProject(
   user: User,
-  input: { name: string; description: string; color: string },
+  input: { name: string; description: string; color: string; template?: ProjectTemplateId; locale?: Locale },
 ): Promise<string> {
   const store = database();
   const projectRef = doc(collection(store, 'projects'));
@@ -65,6 +66,18 @@ export async function createProject(
     activityRef,
     activityData(user, 'project_created', `สร้างโปรเจกต์ “${input.name}”`, `created project “${input.name}”`, projectRef.id),
   );
+  const template = templateById(input.template ?? 'blank');
+  template.labels.forEach((label) => {
+    seedBatch.set(doc(collection(store, 'projects', projectRef.id, 'labels')), {
+      name: label.name, color: label.color, description: '', createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+  });
+  template.milestones.forEach((milestone) => {
+    seedBatch.set(doc(collection(store, 'projects', projectRef.id, 'milestones')), {
+      title: input.locale === 'en' ? milestone.en : milestone.th, description: '', dueDate: '', dueTime: '', status: 'active', dependsOn: [],
+      createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+  });
   await seedBatch.commit();
   return projectRef.id;
 }

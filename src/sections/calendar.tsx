@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { SectionProps } from '@/context/AppContext';
 import { PageTitle } from '@/components/common';
 import { FilterBar } from '@/components/board/FilterBar';
-import { TaskModal, type TaskDefaults } from '@/components/board/TaskModal';
+import { useTaskModal } from '@/components/board/TaskModalHost';
 import { attempt } from '@/components/toast';
 import { TASK_COLUMNS } from '@/config/constants';
 import { useCalendarTasks, useProjectItems } from '@/hooks';
@@ -20,7 +20,7 @@ const STATUS_COLOR = new Map(TASK_COLUMNS.map((column) => [column.id, column.col
 type Item = { kind: 'task'; task: Task } | { kind: 'milestone'; milestone: Milestone };
 const itemKey = (item: Item) => (item.kind === 'task' ? `task:${item.task.id}` : `milestone:${item.milestone.id}`);
 
-export function Calendar({ context, project, members, role, readOnly }: SectionProps) {
+export function Calendar({ context, project, members, readOnly }: SectionProps) {
   const milestones = useProjectItems<Milestone>(project.id, 'milestones');
   const labels = useProjectItems<Label>(project.id, 'labels');
   const [params, setParams] = useSearchParams();
@@ -34,7 +34,7 @@ export function Calendar({ context, project, members, role, readOnly }: SectionP
   const [showDone, setShowDone] = useState(true);
   const [expanded, setExpanded] = useState('');
   const [overDay, setOverDay] = useState('');
-  const [modal, setModal] = useState<{ task: Task | null; defaults?: TaskDefaults } | null>(null);
+  const { openTask, newTask } = useTaskModal();
   const today = toISODate(new Date());
 
   const setParam = (key: string, value: string) => setParams((current) => {
@@ -92,14 +92,14 @@ export function Calendar({ context, project, members, role, readOnly }: SectionP
     const drag = readOnly ? {} : { draggable: true, onDragStart: (event: DragEvent) => { event.dataTransfer.setData('text/calendar-item', itemKey(item)); event.dataTransfer.effectAllowed = 'move'; event.stopPropagation(); } };
     if (item.kind === 'milestone') {
       const { milestone } = item;
-      return <button key={itemKey(item)} type="button" className={`cal-chip milestone ${milestone.status === 'completed' ? 'done' : ''}`} {...drag} onClick={(e) => { e.stopPropagation(); navigate(`/p/${project.id}/board?m=${milestone.id}`); }} title={milestone.title}><Icon name="milestone" />{milestone.dueTime && <small className="cal-time">{milestone.dueTime}</small>}{milestone.title}</button>;
+      return <button key={itemKey(item)} type="button" className={`cal-chip milestone ${milestone.status === 'completed' ? 'done' : ''}`} {...drag} onClick={(e) => { e.stopPropagation(); navigate(`/p/${project.id}/tasks?m=${milestone.id}`); }} title={milestone.title}><Icon name="milestone" />{milestone.dueTime && <small className="cal-time">{milestone.dueTime}</small>}{milestone.title}</button>;
     }
     const { task } = item;
     const state = task.status === 'done' ? 'done' : dueState(task.dueDate, undefined, undefined, task.dueTime);
     return <button key={itemKey(item)} type="button" className={`cal-chip task ${state} ${task.status === 'done' ? 'done' : ''}`} style={{ borderLeftColor: STATUS_COLOR.get(task.status) }} {...drag}
-      onClick={(e) => { e.stopPropagation(); setModal({ task }); }} title={`${task.title} · ${task.priority}`}><i className={`dot ${task.priority}`} />{task.dueTime && <small className="cal-time">{task.dueTime}</small>}{task.title}</button>;
+      onClick={(e) => { e.stopPropagation(); openTask(task); }} title={`${task.title} · ${task.priority}`}><i className={`dot ${task.priority}`} />{task.dueTime && <small className="cal-time">{task.dueTime}</small>}{task.title}</button>;
   };
-  const openNew = (day: string) => { if (!readOnly) setModal({ task: null, defaults: { dueDate: day } }); };
+  const openNew = (day: string) => { if (!readOnly) newTask({ dueDate: day }); };
 
   return <>
     <PageTitle eyebrow="PROJECT CALENDAR" title={context.t('calendar')} description={pick(locale, 'ดูกำหนดส่งของงานและ milestone ลากเพื่อเลื่อนวัน หรือคลิกวันเพื่อเพิ่มงาน', 'See task and milestone due dates. Drag to reschedule, click a day to add a task')}
@@ -147,6 +147,5 @@ export function Calendar({ context, project, members, role, readOnly }: SectionP
         <div className="cal-items">{unscheduled.map(chip)}{!unscheduled.length && <p className="muted">{pick(locale, 'ทุกอย่างมีกำหนดแล้ว 🎉', 'Everything is scheduled 🎉')}</p>}</div>
       </aside>
     </div>
-    {modal && <TaskModal task={modal.task} defaults={modal.defaults} projectId={project.id} projectName={project.name} members={members} milestones={milestones} labels={labels} context={context} role={role} readOnly={readOnly} onClose={() => setModal(null)} />}
   </>;
 }

@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
-import { Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { auth, googleProvider, missingFirebaseConfig } from '@/config/firebase';
-import { getDomainErrorMessage, isAllowedEmail } from '@/config/auth-domains';
+import { isAllowedEmail } from '@/config/auth-domains';
 import type { AppContextValue } from '@/context/AppContext';
 import { translate, type MessageKey } from '@/utils/i18n';
 import {
@@ -29,11 +29,6 @@ const TarotPage = lazy(() => import('@/pages/TarotPage').then((m) => ({ default:
 export type { AppContextValue } from '@/context/AppContext';
 export { AppHeader } from '@/components/layout/AppHeader';
 export { Avatar, Empty, Modal } from '@/components/common';
-
-function LegacyDocumentRedirect() {
-  const { projectId = '', documentId = '' } = useParams();
-  return <Navigate to={`/p/${projectId}/documents/${documentId}`} replace />;
-}
 
 export default function App() {
   if (!auth || missingFirebaseConfig.length) {
@@ -66,7 +61,7 @@ function AuthGate() {
             setProjects([]);
             setProjectsLoaded(false);
             setSiteRole(undefined);
-            setAuthError(getDomainErrorMessage());
+            setAuthError('DOMAIN_NOT_ALLOWED');
             return;
           }
           setUser(nextUser);
@@ -145,8 +140,8 @@ function AuthGate() {
           <Route path="/invite/:inviteId" element={<InviteAccept context={context} />} />
           <Route path="/feedback" element={<SiteFeedbackPage context={context} />} />
           <Route path="/tarot" element={<TarotPage context={context} />} />
-          <Route path="/p/:projectId/documents/:documentId" element={<ProjectWorkspace context={context} />} />
-          <Route path="/p/:projectId/notes/:documentId" element={<LegacyDocumentRedirect />} />
+          {/* `/p/:id/docs/:documentId` opens a document; the workspace redirects the old /documents/ and /notes/ forms. */}
+          <Route path="/p/:projectId/:section/:documentId" element={<ProjectWorkspace context={context} />} />
           <Route path="/p/:projectId/:section?" element={<ProjectWorkspace context={context} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

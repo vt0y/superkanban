@@ -5,20 +5,26 @@ import { PROJECT_COLORS } from '@/config/constants';
 import { createProject } from '@/services/projects';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { Icon } from '@/components/common/Icon';
+import { toast } from '@/components/toast';
+import { PROJECT_TEMPLATES, type ProjectTemplateId } from '@/config/project-templates';
+import { pick } from '@/utils/formatters';
 
 export function NewProject({ context }: { context: AppContextValue }) {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: '', description: '', color: PROJECT_COLORS[0] });
+  const [form, setForm] = useState({ name: '', description: '', color: PROJECT_COLORS[0], template: 'software' as ProjectTemplateId });
   const [busy, setBusy] = useState(false);
+  const { locale } = context;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!form.name.trim()) return;
     setBusy(true);
     try {
-      const id = await createProject(context.user, form);
-      navigate(`/p/${id}/dashboard`);
-    } finally {
+      const id = await createProject(context.user, { ...form, locale });
+      navigate(`/p/${id}/overview`);
+    } catch (error) {
+      console.error(error);
+      toast(pick(locale, 'สร้างโปรเจกต์ไม่สำเร็จ กรุณาลองใหม่', 'Couldn’t create the project. Please try again.'), 'error');
       setBusy(false);
     }
   };
@@ -33,30 +39,45 @@ export function NewProject({ context }: { context: AppContextValue }) {
         <div className="form-card">
           <span className="eyebrow">NEW WORKSPACE</span>
           <h1>{context.t('newProject')}</h1>
-          <p>กำหนดข้อมูลพื้นฐาน คุณสามารถแก้ไขภายหลังได้</p>
+          <p>{pick(locale, 'กำหนดข้อมูลพื้นฐาน คุณสามารถแก้ไขภายหลังได้', 'Set the basics. You can change all of this later.')}</p>
           <form onSubmit={submit} className="stack-form">
             <label>
-              ชื่อโปรเจกต์
+              {context.t('projectName')}
               <input
                 autoFocus
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 maxLength={80}
                 required
-                placeholder="เช่น Online Booking System"
+                placeholder={pick(locale, 'เช่น Online Booking System', 'e.g. Online Booking System')}
               />
             </label>
             <label>
-              คำอธิบาย
+              {context.t('projectDescription')}
               <textarea
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 maxLength={300}
-                placeholder="เป้าหมายสั้น ๆ ของโปรเจกต์"
+                placeholder={pick(locale, 'เป้าหมายสั้น ๆ ของโปรเจกต์', 'A one-line goal for the project')}
               />
             </label>
             <fieldset>
-              <legend>สีโปรเจกต์</legend>
+              <legend>{pick(locale, 'เริ่มต้นจาก', 'Start from')}</legend>
+              <div className="template-options">
+                {PROJECT_TEMPLATES.map((template) => (
+                  <label key={template.id} className={form.template === template.id ? 'selected' : ''}>
+                    <input type="radio" name="template" value={template.id} checked={form.template === template.id} onChange={() => setForm({ ...form, template: template.id })} />
+                    <span aria-hidden><Icon name={template.id === 'blank' ? 'file' : 'rocket'} /></span>
+                    <span>
+                      <strong>{template[locale].name}</strong>
+                      <small>{template[locale].description}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>{context.t('projectColor')}</legend>
               <div className="color-picker">
                 {PROJECT_COLORS.map((color) => (
                   <button
@@ -75,7 +96,7 @@ export function NewProject({ context }: { context: AppContextValue }) {
                 {context.t('cancel')}
               </button>
               <button className="primary" disabled={busy}>
-                {busy ? 'กำลังสร้าง...' : context.t('newProject')}
+                {busy ? pick(locale, 'กำลังสร้าง…', 'Creating…') : context.t('newProject')}
               </button>
             </div>
           </form>

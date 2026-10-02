@@ -2,7 +2,7 @@ import { useId, useMemo, useState, type FormEvent, type MouseEvent } from 'react
 import { where } from 'firebase/firestore';
 import { useSearchParams } from 'react-router-dom';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
-import { Avatar, BulkBar, Empty, Modal, PageTitle, Segmented } from '@/components/common';
+import { Avatar, BulkBar, Empty, Modal, PageTitle } from '@/components/common';
 import { canDeleteItem } from '@/utils/permissions';
 import { bulkDeleteWorkItems, bulkUpdateWorkItems, createWorkItem, deleteDiagramElements, deleteWorkItem, updateWorkItem } from '@/services';
 import type { Diagram, DiagramEdge, DiagramNode, ProjectUseCase, Role } from '@/types';
@@ -14,11 +14,11 @@ import { CommentThread } from '@/components/comments/CommentThread';
 import { DiagramEditor } from './diagram';
 import { Icon } from '@/components/common/Icon';
 
-export function SoftwareDesign({ context, project, members, role, readOnly }: SectionProps) {
+/** Use case diagrams (`view="diagram"`) or the use case list; the Plan page picks the view. */
+export function SoftwareDesign({ context, project, members, role, readOnly, view }: SectionProps & { view: 'diagram' | 'list' }) {
   const { items: diagrams, loaded } = useProjectItemsState<Diagram>(project.id, 'diagrams');
   const useCases = useProjectItems<ProjectUseCase>(project.id, 'useCases');
   const [params, setParams] = useSearchParams();
-  const view = params.get('view') === 'list' ? 'list' : 'diagram';
   const { locale, user } = context;
   const sortedDiagrams = [...diagrams].sort((a, b) => (a.createdAt?.toMillis() ?? Date.now()) - (b.createdAt?.toMillis() ?? Date.now()));
   const current = sortedDiagrams.find((item) => item.id === params.get('d')) || sortedDiagrams[0];
@@ -42,7 +42,7 @@ export function SoftwareDesign({ context, project, members, role, readOnly }: Se
     const title = prompt(pick(locale, 'ชื่อไดอะแกรม', 'Diagram name'), diagrams.length ? `Diagram ${diagrams.length + 1}` : 'Main use case diagram');
     if (!title?.trim()) return;
     const id = await attempt(() => createWorkItem(project.id, 'diagrams', { title: title.trim() }, user, { type: 'diagram_created', th: `สร้างไดอะแกรม “${title}”`, en: `created diagram “${title}”` }), pick(locale, 'สร้างไม่สำเร็จ', 'Could not create diagram'));
-    if (id) update({ view: 'diagram', d: id });
+    if (id) update({ view: 'diagrams', d: id });
   };
   const renameDiagram = () => {
     if (!current) return;
@@ -59,8 +59,8 @@ export function SoftwareDesign({ context, project, members, role, readOnly }: Se
   };
 
   return <>
-    <PageTitle eyebrow="SOFTWARE DESIGN" title={context.t('design')} description={pick(locale, 'ออกแบบ Use Case Diagram (Actor, Base/Common Use Case, include/extend) และมอบหมายผู้รับผิดชอบแต่ละ Use Case', 'Model use case diagrams (actors, base/common use cases, include/extend) and assign an owner to each use case')}
-      action={<Segmented value={view} onChange={(next) => update({ view: next })} options={[{ id: 'diagram', label: <><Icon name="design" /> {pick(locale, 'ไดอะแกรม', 'Diagram')}</> }, { id: 'list', label: <><Icon name="list" /> {pick(locale, 'รายการ Use Case', 'Use case list')} <b>{useCases.length}</b></> }]} />} />
+    <PageTitle eyebrow="SOFTWARE DESIGN" title={view === 'list' ? pick(locale, 'Use Cases', 'Use cases') : pick(locale, 'Use Case Diagram', 'Use case diagrams')}
+      description={view === 'list' ? pick(locale, 'รายการ Use Case ทั้งหมด มอบหมายผู้รับผิดชอบและติดตามสถานะ', 'Every use case, with an owner and a status') : pick(locale, 'ออกแบบ Use Case Diagram (Actor, Base/Common Use Case, include/extend)', 'Model use case diagrams: actors, base/common use cases, include/extend')} />
     {view === 'diagram' ? <>
       <div className="diagram-tabs">
         {sortedDiagrams.map((item) => <button key={item.id} className={current?.id === item.id ? 'active' : ''} onClick={() => update({ d: item.id })} onDoubleClick={readOnly ? undefined : renameDiagram}>{item.title}</button>)}

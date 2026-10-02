@@ -119,5 +119,7 @@
 .sticky-note p { margin: 0; font-size: var(--fs-sm); white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
 .sticky-link { color: var(--sticky-link); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; cursor: pointer; }
 .sticky-link:hover { text-decoration-thickness: 2px; }
-.sticky-note small { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding-top: var(--sp-2); border-top: 1px solid var(--sticky-rule); font-size: var(--fs-xs); }
-.sticky-note small .icon { width: 12px; height: 12px; }
+.sticky-note .sticky-task-link { width: 100%; padding-bottom: 0; color: inherit; border: 0; border-radius: 0; background: transparent; text-align: left; cursor: pointer; }
+.sticky-note .sticky-task-link:hover { text-decoration: underline; }
+.sticky-note :is(small, .sticky-task-link) { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding-top: var(--sp-2); border-top: 1px solid var(--sticky-rule); font-size: var(--fs-xs); }
+.sticky-note :is(small, .sticky-task-link) .icon { width: 12px; height: 12px; }

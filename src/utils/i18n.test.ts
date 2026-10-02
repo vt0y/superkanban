@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { fillMessage, translate } from './i18n';
+import { fillMessage, messageKeys, translate } from './i18n';
 
 describe('i18n', () => {
   it('translates messages for each supported locale', () => {
     expect(translate('th', 'dashboard')).toBe('ภาพรวม');
     expect(translate('en', 'dashboard')).toBe('Dashboard');
+  });
+});
+
+describe('message catalogue', () => {
+  it('has the same keys in every locale', () => {
+    expect(messageKeys('en')).toEqual(messageKeys('th'));
   });
 });
 
