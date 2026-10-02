@@ -7,6 +7,7 @@ import type { Label, Role, Task } from '@/types';
 import { canDeleteItem } from '@/utils/permissions';
 import { pick } from '@/utils/formatters';
 import { LabelChip } from './LabelChip';
+import { Icon } from '@/components/common/Icon';
 
 /** The color input fires on every drag step; only save once it settles. */
 let colorTimer = 0;
@@ -54,10 +55,10 @@ export function LabelManager({ labels, tasks, projectId, context, role, readOnly
 
   return <Modal title={pick(locale, 'จัดการ Labels', 'Manage labels')} onClose={onClose} className="label-manager-modal">
     <div className="label-manager-intro">
-      <span aria-hidden>🏷️</span>
+      <span aria-hidden><Icon name="label" /></span>
       <div><strong>{pick(locale, 'จัดหมวดหมู่งานและเอกสาร', 'Organize tasks and documents')}</strong><small>{pick(locale, 'ใช้ label เดียวกันได้ทั้งโปรเจกต์', 'Labels are shared across this project')}</small></div>
     </div>
-    {!readOnly && legacyTags > 0 && <div className="label-import"><span>🏷 {pick(locale, `มี tag เดิม ${legacyTags} แบบในงาน`, `${legacyTags} old free-text tags found on tasks`)}</span><button type="button" className="secondary" disabled={busy} onClick={() => void importTags()}>{pick(locale, 'แปลงเป็น label', 'Import as labels')}</button></div>}
+    {!readOnly && legacyTags > 0 && <div className="label-import"><span><Icon name="label" /> {pick(locale, `มี tag เดิม ${legacyTags} แบบในงาน`, `${legacyTags} old free-text tags found on tasks`)}</span><button type="button" className="secondary" disabled={busy} onClick={() => void importTags()}>{pick(locale, 'แปลงเป็น label', 'Import as labels')}</button></div>}
     {!readOnly && <form className="label-new" onSubmit={create}>
       <div className="label-new-heading"><strong>{pick(locale, 'สร้าง label ใหม่', 'Create a new label')}</strong><small>{pick(locale, 'เลือกสีและตั้งชื่อที่จำง่าย', 'Choose a color and a clear name')}</small></div>
       <label className="label-color-control"><input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label={pick(locale, 'สี label', 'Label color')} /><span style={{ background: color }} /></label>
@@ -72,7 +73,7 @@ export function LabelManager({ labels, tasks, projectId, context, role, readOnly
         <input defaultValue={label.name} maxLength={50} onBlur={(e) => e.target.value.trim() !== label.name && save(label, { name: e.target.value.trim() })} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} aria-label="Name" />
       </> : <span />}
       <small>{usage(label.id)} {pick(locale, 'รายการ', 'items')}</small>
-      {!readOnly && canDeleteItem(role, label.createdBy, user.uid) ? <button type="button" className="label-delete" onClick={() => void remove(label)} aria-label={pick(locale, `ลบ ${label.name}`, `Delete ${label.name}`)} title={pick(locale, 'ลบ label', 'Delete label')}>×</button> : <span />}
+      {!readOnly && canDeleteItem(role, label.createdBy, user.uid) ? <button type="button" className="label-delete" onClick={() => void remove(label)} aria-label={pick(locale, `ลบ ${label.name}`, `Delete ${label.name}`)} title={pick(locale, 'ลบ label', 'Delete label')}><Icon name="close" /></button> : <span />}
     </div>)}
     {!labels.length && <p className="muted">{pick(locale, 'ยังไม่มี label', 'No labels yet')}</p>}</div>
   </Modal>;

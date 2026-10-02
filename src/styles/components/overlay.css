@@ -1,0 +1,166 @@
+/* Popover + menu (anchored on desktop, bottom sheet on phones), toasts, bulk-selection bar. */
+
+.popover-anchor { position: relative; display: inline-flex; }
+.popover-scrim { display: none; }
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-popover);
+  width: 280px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: var(--sp-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  animation: pop-in .14s var(--ease);
+}
+.popover.align-start { left: 0; right: auto; }
+.popover:focus-visible { outline: none; }
+@media (max-width: 639px) {
+  .popover-scrim { position: fixed; inset: 0; z-index: var(--z-popover); display: block; width: 100%; padding: 0; border: 0; background: var(--scrim); animation: fade-in .18s var(--ease); }
+  .popover {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: calc(var(--z-popover) + 1);
+    width: 100%;
+    max-height: calc(88dvh - env(safe-area-inset-top));
+    padding: var(--sp-2) var(--sp-2) calc(var(--sp-3) + env(safe-area-inset-bottom));
+    border-bottom: 0;
+    border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+    box-shadow: var(--shadow-lg);
+    animation: sheet-in .2s var(--ease);
+  }
+  .popover::before { content: ''; display: block; width: 40px; height: 4px; margin: 2px auto var(--sp-2); border-radius: var(--r-full); background: var(--border-strong); }
+}
+
+/* menu rows */
+.menu-head { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3); }
+.menu-head > div { min-width: 0; display: flex; flex-direction: column; }
+.menu-head strong, .menu-head small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-head strong { font-size: var(--fs-base); font-weight: 600; }
+.menu-head small { color: var(--muted); }
+.menu-sep { height: 1px; margin: var(--sp-1) 0; background: var(--border); }
+.menu-item {
+  width: 100%;
+  min-height: var(--h-touch);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--sp-3);
+  color: var(--text);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  text-align: left;
+}
+.menu-item .icon { width: 16px; height: 16px; color: var(--muted); }
+.menu-item:hover { background: var(--surface-2); }
+.menu-item.danger-item, .menu-item.danger-item .icon { color: var(--danger-fg); }
+.menu-item > span { flex: 1; }
+.menu-item > b { color: var(--dim); font-size: var(--fs-xs); font-weight: 500; }
+.menu-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); min-height: var(--h-touch); padding: 0 var(--sp-3); font-size: var(--fs-sm); font-weight: 500; }
+.menu-row > span { display: inline-flex; align-items: center; gap: 10px; }
+.menu-row > span .icon { width: 16px; height: 16px; color: var(--muted); }
+.menu-row .segmented button { min-height: 26px; padding: 0 8px; }
+
+/* toasts */
+.toaster {
+  position: fixed;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: calc(var(--bottom-nav-h) + var(--sp-3) + env(safe-area-inset-bottom));
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  pointer-events: none;
+}
+.toast {
+  max-width: 420px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  color: var(--inverse-text);
+  border-radius: var(--r-md);
+  background: var(--inverse-bg);
+  box-shadow: var(--shadow-md);
+  font-size: var(--fs-sm);
+  pointer-events: auto;
+  animation: rise-in .22s var(--ease);
+}
+.toast .icon { width: 16px; height: 16px; margin-top: 2px; color: var(--inverse-muted); }
+.toast.error .icon { color: var(--danger); }
+.toast.success .icon { color: var(--success); }
+@media (min-width: 640px) {
+  .toaster { left: auto; right: var(--sp-5); bottom: var(--sp-5); align-items: flex-end; }
+}
+
+/* bulk selection bar (inverse surface) */
+.bulk-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--bottom-nav-h) + var(--sp-3) + env(safe-area-inset-bottom));
+  z-index: var(--z-bulk);
+  width: calc(100vw - 20px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  color: var(--inverse-text);
+  border: 1px solid var(--inverse-border);
+  border-radius: var(--r-lg);
+  background: var(--inverse-bg);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
+  animation: bulk-in .22s var(--ease);
+}
+@keyframes bulk-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+.bulk-count { flex: 1; font-size: var(--fs-sm); white-space: nowrap; }
+.bulk-count b { margin-right: 4px; padding: 1px 8px; color: var(--on-primary); border-radius: var(--r-full); background: var(--primary-solid); }
+.bulk-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; order: 3; }
+.bulk-actions select, .bulk-actions button {
+  min-width: 0;
+  width: 100%;
+  min-height: var(--h-control);
+  padding: 0 10px;
+  color: var(--inverse-text);
+  border: 1px solid var(--inverse-border);
+  border-radius: var(--r-sm);
+  background-color: var(--inverse-hover);
+  font-size: var(--fs-control-sm);
+}
+.bulk-actions select option { color: var(--text); background: var(--surface); }
+.bulk-actions .danger.ghost { color: var(--danger-border); border-color: color-mix(in srgb, var(--danger) 50%, transparent); background: transparent; }
+.bulk-clear {
+  width: var(--h-control);
+  height: var(--h-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--inverse-muted);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+}
+.bulk-clear .icon { width: 16px; height: 16px; }
+.bulk-clear:hover { color: var(--inverse-text); background: var(--inverse-hover); }
+@media (min-width: 640px) {
+  .bulk-bar {
+    bottom: var(--sp-6);
+    width: auto;
+    max-width: calc(100vw - var(--sidebar-current, 0px) - 40px);
+    flex-wrap: nowrap;
+    margin-left: calc(var(--sidebar-current, 0px) / 2);
+  }
+  .bulk-count { flex: 0 0 auto; }
+  .bulk-actions { width: auto; display: flex; flex-wrap: wrap; order: 0; }
+  .bulk-actions select, .bulk-actions button { width: auto; min-height: var(--h-control-sm); }
+}

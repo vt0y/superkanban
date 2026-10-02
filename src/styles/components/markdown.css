@@ -1,0 +1,56 @@
+/* Rendered markdown (documents, previews) + mermaid diagrams. */
+
+.markdown { line-height: 1.75; overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 {
+  margin: 1.6em 0 .5em;
+  line-height: var(--lh-tight);
+  letter-spacing: -.015em;
+  scroll-margin-top: calc(var(--topbar-h) + 64px);
+}
+.markdown h1 { padding-bottom: .3em; border-bottom: 1px solid var(--border); font-size: var(--fs-xl); }
+.markdown h2 { padding-bottom: .25em; border-bottom: 1px solid var(--border); font-size: var(--fs-lg); }
+.markdown h3 { font-size: var(--fs-md); }
+.markdown h4, .markdown h5, .markdown h6 { font-size: var(--fs-base); }
+@media (min-width: 640px) {
+  .markdown h1 { font-size: var(--fs-2xl); }
+  .markdown h2 { font-size: var(--fs-xl); }
+  .markdown h3 { font-size: var(--fs-lg); }
+}
+.markdown p, .markdown ul, .markdown ol, .markdown blockquote { margin: 0 0 1em; }
+.markdown li + li { margin-top: .3em; }
+.markdown a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.markdown blockquote { padding: .25em 1em; color: var(--muted); border-left: 3px solid var(--border-strong); }
+.markdown code { padding: .12em .35em; border-radius: var(--r-xs); background: var(--surface-3); font-family: var(--font-mono); font-size: .9em; }
+.markdown pre { padding: var(--sp-3) var(--sp-4); overflow: auto; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.markdown pre code { padding: 0; background: transparent; font-size: var(--fs-sm); }
+.markdown table { width: 100%; display: block; margin: 1.25em 0; overflow-x: auto; border-collapse: collapse; }
+.markdown th, .markdown td { min-width: 110px; padding: 8px 10px; border: 1px solid var(--border); text-align: left; }
+.markdown th { background: var(--surface-2); font-weight: 600; }
+.markdown img { max-width: 100%; height: auto; border-radius: var(--r-md); }
+.markdown hr { margin: 2em 0; border: 0; border-top: 1px solid var(--border); }
+.markdown input[type=checkbox] { margin-right: 6px; }
+
+.mermaid-diagram {
+  position: relative;
+  width: 100%;
+  height: min(460px, 65dvh);
+  min-height: 230px;
+  margin: 1.5em 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  text-align: center;
+}
+@media (min-width: 640px) { .mermaid-diagram { height: min(520px, 72vh); min-height: 260px; } }
+.mermaid-viewport { position: absolute; inset: 0; overflow: hidden; overscroll-behavior: contain; cursor: grab; touch-action: none; }
+.mermaid-viewport.panning, .mermaid-viewport.panning * { cursor: grabbing; user-select: none; }
+.mermaid-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.mermaid-canvas svg { display: block; width: 100%; max-width: none !important; /* beats mermaid inline style */ height: 100%; margin: 0; }
+.mermaid-controls { right: var(--sp-2); bottom: var(--sp-2); }
+.mermaid-diagram.mermaid-error { height: auto; min-height: 0; padding: var(--sp-4); border-color: var(--danger-border); text-align: left; }
+.mermaid-error > strong { display: block; margin-bottom: var(--sp-2); color: var(--danger-fg); font-size: var(--fs-sm); }
+.mermaid-error pre { margin: 0; }

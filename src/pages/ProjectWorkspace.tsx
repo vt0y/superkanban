@@ -1,10 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { lockBodyScroll } from '@/utils/scroll-lock';
-import { signOut } from 'firebase/auth';
-import { NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { AppContextValue } from '@/context/AppContext';
 import { AppHeader } from '@/components/layout/AppHeader';
-import { auth } from '@/config/firebase';
+import { Icon, type IconName } from '@/components/common/Icon';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import type { MessageKey } from '@/utils/i18n';
 import { roleFor } from '@/utils/permissions';
 import { subscribeMemberships } from '@/services/members';
@@ -39,43 +39,43 @@ const Votes = lazy(() => loadVotes().then((m) => ({ default: m.Votes })));
 const Gacha = lazy(() => loadGacha().then((m) => ({ default: m.Gacha })));
 const GachaReveal = lazy(() => import('@/components/gacha/GachaReveal').then((m) => ({ default: m.GachaReveal })));
 
-const NAV_GROUPS: { th: string; en: string; items: [path: string, icon: string, label: MessageKey][] }[] = [
+const NAV_GROUPS: { th: string; en: string; items: [path: string, icon: IconName, label: MessageKey][] }[] = [
   {
     th: 'งานหลัก',
     en: 'Work',
     items: [
-      ['dashboard', '⌂', 'dashboard'],
-      ['board', '▦', 'board'],
-      ['calendar', '▣', 'calendar'],
-      ['notes', '▱', 'notes'],
-      ['documents', '▤', 'documents'],
+      ['dashboard', 'dashboard', 'dashboard'],
+      ['board', 'board', 'board'],
+      ['calendar', 'calendar', 'calendar'],
+      ['notes', 'note', 'notes'],
+      ['documents', 'document', 'documents'],
     ],
   },
-  { th: 'วางแผนและออกแบบ', en: 'Plan & Design', items: [['milestones', '◇', 'milestones'], ['design', '◈', 'design']] },
+  { th: 'วางแผนและออกแบบ', en: 'Plan & Design', items: [['milestones', 'milestone', 'milestones'], ['design', 'design', 'design']] },
   {
     th: 'ร่วมมือ',
     en: 'Collaborate',
     items: [
-      ['team', '♙', 'team'],
-      ['votes', '☑', 'votes'],
-      ['gacha', '✦', 'gacha'],
+      ['team', 'team', 'team'],
+      ['votes', 'vote', 'votes'],
+      ['gacha', 'gacha', 'gacha'],
     ],
   },
   {
     th: 'จัดการ',
     en: 'Manage',
     items: [
-      ['settings', '⚙', 'settings'],
+      ['settings', 'settings', 'settings'],
     ],
   },
 ];
 const SECTIONS = new Set(NAV_GROUPS.flatMap((group) => group.items.map(([path]) => path)));
-const MOBILE_PRIMARY = [
-  ['dashboard', '⌂', 'dashboard'],
-  ['board', '▦', 'board'],
-  ['notes', '▱', 'notes'],
-  ['documents', '▤', 'documents'],
-] as const;
+const MOBILE_PRIMARY: [path: string, icon: IconName, label: MessageKey][] = [
+  ['dashboard', 'dashboard', 'dashboard'],
+  ['board', 'board', 'board'],
+  ['notes', 'note', 'notes'],
+  ['documents', 'document', 'documents'],
+];
 const MOBILE_MORE = NAV_GROUPS.flatMap((group) => group.items).filter(
   ([path]) => !MOBILE_PRIMARY.some(([primary]) => primary === path),
 );
@@ -91,6 +91,10 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   const [membershipState, setMembershipState] = useState<{ projectId: string; members: Membership[] } | null>(null);
   const [gachaState, setGachaState] = useState<{ projectId: string; draws: GachaDraw[] } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Desktop: persisted collapse to the icon rail. Tablet: always a rail, expandable as a drawer.
+  const [collapsed, setCollapsed] = useState(() => readCollapsed());
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const desktop = useMediaQuery('(min-width: 1024px)');
   const navigate = useNavigate();
   const location = useLocation();
   const fallbackMatches = fallbackProject?.projectId === projectId;
@@ -125,7 +129,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
     return subscribeGachaDraws(project.id, limitCount, (draws) => setGachaState({ projectId: project.id, draws }));
   }, [project?.id, canAccessProject, showGachaHistory]);
 
-  useEffect(() => setMenuOpen(false), [section]);
+  useEffect(() => { setMenuOpen(false); setDrawerOpen(false); }, [section]);
 
   // Warm the other sections' chunks once the page is idle, so switching tabs (slow on mobile
   // networks) renders instantly instead of flashing a full-screen loader.
@@ -153,9 +157,11 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   }, [mine?.id, mine?.githubUsername, mine?.githubId, context.profile.githubUsername, context.profile.githubId, project?.archived]);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !drawerOpen) return;
     const close = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key !== 'Escape') return;
+      setMenuOpen(false);
+      setDrawerOpen(false);
     };
     const unlock = lockBodyScroll();
     addEventListener('keydown', close);
@@ -163,7 +169,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
       removeEventListener('keydown', close);
       unlock();
     };
-  }, [menuOpen]);
+  }, [menuOpen, drawerOpen]);
 
   if (projectPending || project === undefined)
     return (
@@ -182,27 +188,48 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   const { locale } = context;
 
   const moreActive = MOBILE_MORE.some(([path]) => path === section);
+  const rail = desktop ? collapsed : !drawerOpen;
+  const toggleSidebar = () => {
+    if (!desktop) return setDrawerOpen((open) => !open);
+    setCollapsed((value) => {
+      writeCollapsed(!value);
+      return !value;
+    });
+  };
+  const sectionLabel = NAV_GROUPS.flatMap((group) => group.items).find(([path]) => path === section)?.[2];
+  const projectInitials = project.name.slice(0, 2).toUpperCase();
+  const roleLabel = (role || 'member').replace(/^./, (letter) => letter.toUpperCase());
+  const breadcrumb = (
+    <nav className="crumbs" aria-label={pick(locale, 'ตำแหน่ง', 'Breadcrumb')}>
+      <Link to={`/p/${project.id}/dashboard`}>
+        <span className="project-mark" style={{ background: project.color }}>{projectInitials}</span>
+        <span>{project.name}</span>
+      </Link>
+      {sectionLabel && (
+        <>
+          <Icon name="chevronRight" />
+          <strong>{context.t(sectionLabel)}</strong>
+        </>
+      )}
+    </nav>
+  );
 
   return (
-    <div className={`workspace section-${section} ${readOnly ? 'read-only' : ''}`}>
-      <AppHeader context={context} />
-      <aside className="sidebar">
+    <div className={`workspace section-${section} ${readOnly ? 'read-only' : ''} ${collapsed ? 'collapsed' : ''}`}>
+      <aside className={`sidebar ${rail ? 'is-rail' : ''} ${!desktop && drawerOpen ? 'drawer-open' : ''}`}>
         <div className="sidebar-project">
-          <button className="close-sidebar" onClick={() => setMenuOpen(false)}>
-            ×
-          </button>
-          <button className="project-switch" onClick={() => navigate('/')}>
-            <span style={{ background: project.color }}>{project.name.slice(0, 2).toUpperCase()}</span>
+          <button className="project-switch" onClick={() => navigate('/')} title={rail ? `${project.name} · ${pick(locale, 'สลับโปรเจกต์', 'switch project')}` : undefined}>
+            <span style={{ background: project.color }}>{projectInitials}</span>
             <div>
               <strong>{project.name}</strong>
               <small>
-                {role || 'member'} · {pick(locale, 'สลับโปรเจกต์', 'switch project')}
+                {roleLabel} · {pick(locale, 'สลับโปรเจกต์', 'Switch project')}
               </small>
             </div>
-            <b>⌄</b>
+            <Icon name="chevronsUpDown" />
           </button>
         </div>
-        <nav>
+        <nav className="sidebar-nav" aria-label={pick(locale, 'เมนูโปรเจกต์', 'Project navigation')}>
           {NAV_GROUPS.map((group) => (
             <div className="nav-group" key={group.en}>
               <small>{pick(locale, group.th, group.en)}</small>
@@ -210,37 +237,40 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
                 <NavLink
                   key={path}
                   to={`/p/${project.id}/${path}`}
-                  onClick={() => setMenuOpen(false)}
+                  title={rail ? context.t(label) : undefined}
                   className={({ isActive }) => (isActive ? 'active' : '')}
                 >
-                  <i>{icon}</i>
-                  {context.t(label)}
+                  <Icon name={icon} />
+                  <span>{context.t(label)}</span>
                 </NavLink>
               ))}
             </div>
           ))}
         </nav>
         <div className="sidebar-foot">
-          <div className="project-progress">
-            <span>
-              <b>{pick(locale, 'เชื่อมต่อเรียลไทม์', 'Realtime sync')}</b>
-              <small>● Live</small>
-            </span>
-            <div className="member-dots">
-              {members.slice(0, 6).map((member) => (
-                <i key={member.id} title={member.displayName}>
-                  {member.displayName.slice(0, 1).toUpperCase()}
-                </i>
-              ))}
-              {members.length > 6 && <i>+{members.length - 6}</i>}
-            </div>
+          <div className="member-dots" title={members.map((member) => member.displayName).join(', ')}>
+            {members.slice(0, 5).map((member) => (
+              <i key={member.id}>{member.displayName.slice(0, 1).toUpperCase()}</i>
+            ))}
+            {members.length > 5 && <i className="more">+{members.length - 5}</i>}
           </div>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={toggleSidebar}
+            aria-label={rail ? pick(locale, 'ขยายแถบด้านข้าง', 'Expand sidebar') : pick(locale, 'ย่อแถบด้านข้าง', 'Collapse sidebar')}
+            title={rail ? pick(locale, 'ขยายแถบด้านข้าง', 'Expand sidebar') : pick(locale, 'ย่อแถบด้านข้าง', 'Collapse sidebar')}
+          >
+            <Icon name={rail ? 'panelOpen' : 'panelClose'} />
+          </button>
         </div>
       </aside>
+      <button type="button" className="sidebar-scrim" tabIndex={-1} aria-label={pick(locale, 'ปิดเมนู', 'Close menu')} onClick={() => setDrawerOpen(false)} />
+      <AppHeader context={context} leading={breadcrumb} />
       <main className="workspace-content">
         {readOnly && (
           <div className="archived-banner">
-            <span>📦</span>
+            <span><Icon name="archive" /></span>
             <div>
               <strong>{context.t('readOnly')}</strong>
               <small>
@@ -276,7 +306,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
       <nav className="mobile-bottom-nav" aria-label={pick(locale, 'เมนูโปรเจกต์', 'Project navigation')}>
         {MOBILE_PRIMARY.map(([path, icon, label]) => (
           <NavLink key={path} to={`/p/${project.id}/${path}`} className={({ isActive }) => (isActive ? 'active' : '')}>
-            <i>{icon}</i>
+            <Icon name={icon} />
             <span>{context.t(label)}</span>
           </NavLink>
         ))}
@@ -287,7 +317,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
           aria-controls="mobile-more-menu"
           onClick={() => setMenuOpen((open) => !open)}
         >
-          <i>•••</i>
+          <Icon name="more" />
           <span>{pick(locale, 'เพิ่มเติม', 'More')}</span>
         </button>
       </nav>
@@ -298,14 +328,14 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
             <div className="mobile-sheet-handle" />
             <header>
               <button className="project-switch" onClick={() => navigate('/')}>
-                <span style={{ background: project.color }}>{project.name.slice(0, 2).toUpperCase()}</span>
+                <span style={{ background: project.color }}>{projectInitials}</span>
                 <div>
                   <strong>{project.name}</strong>
                   <small>
-                    {role || 'member'} · {pick(locale, 'สลับโปรเจกต์', 'switch project')}
+                    {roleLabel} · {pick(locale, 'สลับโปรเจกต์', 'Switch project')}
                   </small>
                 </div>
-                <b>→</b>
+                <Icon name="chevronsUpDown" />
               </button>
             </header>
             <div className="mobile-more-links">
@@ -315,31 +345,10 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
                   to={`/p/${project.id}/${path}`}
                   className={({ isActive }) => (isActive ? 'active' : '')}
                 >
-                  <i>{icon}</i>
+                  <Icon name={icon} />
                   <span>{context.t(label)}</span>
-                  <b>›</b>
                 </NavLink>
               ))}
-            </div>
-            <div className="mobile-preferences">
-              <button type="button" onClick={() => context.setLocale(locale === 'th' ? 'en' : 'th')}>
-                <span>🌐 {pick(locale, 'ภาษา', 'Language')}</span>
-                <b>{locale === 'th' ? 'English' : 'ไทย'}</b>
-              </button>
-              <label>
-                <span>◐ {pick(locale, 'ธีม', 'Theme')}</span>
-                <select
-                  value={context.profile.theme}
-                  onChange={(event) => context.setTheme(event.target.value as AppContextValue['profile']['theme'])}
-                >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
-              <button type="button" className="mobile-sign-out" onClick={() => signOut(auth!)}>
-                <span>↪ {context.t('signOut')}</span>
-              </button>
             </div>
           </section>
         </div>
@@ -350,4 +359,20 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
       </Suspense>
     </div>
   );
+}
+
+const COLLAPSE_KEY = 'ps.sidebarCollapsed';
+function readCollapsed() {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function writeCollapsed(value: boolean) {
+  try {
+    localStorage.setItem(COLLAPSE_KEY, value ? '1' : '0');
+  } catch {
+    // storage blocked: the collapse just won't persist
+  }
 }

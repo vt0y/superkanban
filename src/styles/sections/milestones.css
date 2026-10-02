@@ -1,0 +1,93 @@
+.milestone-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.milestone-list > article {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  transition: border-color var(--dur) var(--ease);
+}
+@media (min-width: 640px) { .milestone-list > article { gap: var(--sp-4); padding: var(--sp-5); } }
+.milestone-list > article:hover { border-color: var(--border-strong); }
+.milestone-list > article.completed { opacity: .7; }
+.milestone-list > article.blocked { border-style: dashed; }
+.milestone-symbol {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--primary);
+  border-radius: var(--r-md);
+  background: var(--primary-soft);
+}
+.milestone-symbol .icon { width: 18px; height: 18px; }
+.milestone-list > article.blocked .milestone-symbol { color: var(--danger-fg); background: var(--danger-bg); }
+.milestone-list > article.completed .milestone-symbol { color: var(--success-fg); background: var(--success-bg); }
+.milestone-body { min-width: 0; flex: 1; }
+.milestone-body header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-2); }
+.milestone-body header > div { min-width: 0; }
+.milestone-body header span.state { color: var(--primary); font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.milestone-body header span.state.blocked { color: var(--danger-fg); }
+.milestone-body header span.state.completed { color: var(--success-fg); }
+.milestone-body h3 { margin: 2px 0 0; font-size: var(--fs-md); font-weight: 600; overflow-wrap: anywhere; }
+.milestone-body header button { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; color: var(--dim); border: 0; border-radius: var(--r-sm); background: transparent; }
+.milestone-body header button:hover { color: var(--text); background: var(--surface-2); }
+.milestone-body header button .icon { width: 16px; height: 16px; }
+.milestone-body > p { margin: 4px 0 var(--sp-3); color: var(--muted); font-size: var(--fs-sm); }
+.milestone-progress { margin-top: var(--sp-3); }
+.milestone-progress span { display: flex; justify-content: space-between; font-size: var(--fs-xs); }
+.milestone-progress span b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.milestone-progress span small { color: var(--muted); }
+.milestone-progress > div { height: 6px; margin-top: 6px; overflow: hidden; border-radius: var(--r-full); background: var(--surface-3); }
+.milestone-progress > div i { display: block; height: 100%; border-radius: inherit; background: var(--primary-solid); }
+.milestone-body footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.milestone-body footer > span { display: inline-flex; align-items: center; gap: 6px; }
+.milestone-body footer > span .icon { width: 14px; height: 14px; }
+@media (min-width: 640px) { .milestone-body footer { flex-direction: row; align-items: center; justify-content: space-between; } }
+.milestone-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--sp-2); }
+
+.dep-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 var(--sp-2); }
+.dep-chips small { color: var(--muted); font-weight: 500; }
+.dep-chips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  color: var(--warning-fg);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-full);
+  background: var(--warning-bg);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.dep-chips span .icon { width: 12px; height: 12px; }
+.dep-chips span.done { color: var(--success-fg); border-color: var(--success-border); background: var(--success-bg); }
+
+/* dependency picker (milestone editor) */
+.dep-picker { max-height: 190px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.stack-form .dep-picker label {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 10px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-weight: 400;
+  cursor: pointer;
+}
+.stack-form .dep-picker label > span { display: inline-flex; align-items: center; gap: 6px; }
+.dep-picker .icon { width: 13px; height: 13px; color: var(--muted); }
+.dep-picker label.disabled { opacity: .5; cursor: not-allowed; }
+.dep-picker label small { margin-left: auto; color: var(--danger-fg); }

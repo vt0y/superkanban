@@ -11,6 +11,7 @@ import { canDeleteItem } from '@/utils/permissions';
 import { pick } from '@/utils/formatters';
 import { Checklist } from './Checklist';
 import { LabelPicker } from './LabelPicker';
+import { Icon } from '@/components/common/Icon';
 
 /** Statuses a task may still use while its milestone waits on unfinished prerequisites. */
 export const OPEN_WHILE_BLOCKED: TaskStatus[] = ['backlog', 'todo'];
@@ -65,7 +66,7 @@ export function TaskModal({ task, defaults = {}, projectId, projectName, members
   const remove = async () => { if (task && confirm(`${t('delete')} ${task.title}?`)) { await attempt(() => deleteTasksAndUnlinkDocuments(projectId, [task.id]), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } };
 
   const actions = <>
-    {task && <button type="button" className="comment-toggle" onClick={() => setCommentsOpen(true)} aria-label={pick(locale, 'ความคิดเห็น', 'Comments')}>💬 {commentCount}</button>}
+    {task && <button type="button" className="comment-toggle" onClick={() => setCommentsOpen(true)} aria-label={pick(locale, 'ความคิดเห็น', 'Comments')}><Icon name="comment" /> {commentCount}</button>}
     {!readOnly && <button form={formId} className="primary" disabled={busy}>{t('save')}</button>}
   </>;
 
@@ -81,21 +82,21 @@ export function TaskModal({ task, defaults = {}, projectId, projectName, members
         <label><span className="field-name">{pick(locale, 'วันครบกำหนด', 'Due date')}</span><span className="date-clear"><input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value, dueTime: e.target.value ? form.dueTime : '' })} /><TimeField label={pick(locale, 'เวลา (ไม่บังคับ)', 'Time (optional)')} value={form.dueTime} disabled={!form.dueDate} onChange={(dueTime) => setForm((current) => ({ ...current, dueTime }))} /></span></label>
         <label><span className="field-name">Milestone</span><select value={form.milestoneId} onChange={(e) => setForm({ ...form, milestoneId: e.target.value })}><option value="">—</option>{milestones.map((item) => <option key={item.id} value={item.id}>{blockingMilestones(item, milestones).length ? '🔒 ' : ''}{item.title}</option>)}</select></label>
         </div>
-        {locked && <p className="span-2 inline-warning">🔒 {pick(locale, 'Milestone นี้รอ milestone ก่อนหน้า งานจึงเริ่มได้เฉพาะสถานะ งานค้าง/ต้องทำ', 'This milestone waits on a prerequisite, so tasks stay in Backlog / To do')}</p>}
+        {locked && <p className="span-2 inline-warning"><Icon name="lock" /> {pick(locale, 'Milestone นี้รอ milestone ก่อนหน้า งานจึงเริ่มได้เฉพาะสถานะ งานค้าง/ต้องทำ', 'This milestone waits on a prerequisite, so tasks stay in Backlog / To do')}</p>}
         <fieldset className="span-2"><legend>{pick(locale, 'ผู้รับผิดชอบ', 'Assignees')}</legend><div className="member-checks">{members.map((member) => <label key={member.id}><input type="checkbox" checked={form.assigneeIds.includes(member.userId)} onChange={(e) => setForm({ ...form, assigneeIds: e.target.checked ? [...form.assigneeIds, member.userId] : form.assigneeIds.filter((id) => id !== member.userId) })} /><Avatar name={member.displayName} src={member.photoURL} size="sm" />{member.displayName}</label>)}</div></fieldset>
         <fieldset className="span-2"><legend>Labels</legend>
           <LabelPicker labels={labels} value={form.labelIds} onChange={(labelIds) => setForm((current) => ({ ...current, labelIds }))} projectId={projectId} context={context} readOnly={readOnly} />
-          {form.tags.length > 0 && <div className="legacy-tags"><small>{pick(locale, 'Tag เดิม:', 'Old tags:')}</small>{form.tags.map((tag) => <span key={tag}>{tag}{!readOnly && <button type="button" onClick={() => setForm({ ...form, tags: form.tags.filter((item) => item !== tag) })} aria-label="Remove">×</button>}</span>)}</div>}
+          {form.tags.length > 0 && <div className="legacy-tags"><small>{pick(locale, 'Tag เดิม:', 'Old tags:')}</small>{form.tags.map((tag) => <span key={tag}>{tag}{!readOnly && <button type="button" onClick={() => setForm({ ...form, tags: form.tags.filter((item) => item !== tag) })} aria-label="Remove"><Icon name="close" /></button>}</span>)}</div>}
         </fieldset>
         </fieldset>
         <div className="span-2"><Checklist items={form.checklist} onChange={setChecklist} locale={locale} readOnly={readOnly} /></div>
         {task && <section className="task-attachments span-2">
-          <div className="task-documents-head"><h3>▤ {pick(locale, 'เอกสาร', 'Documents')} <b>{documents.length}</b></h3>{!readOnly && <button type="button" className="secondary small" onClick={() => setDocumentPickerOpen(true)}>＋ {pick(locale, 'เพิ่มเอกสาร', 'Add documents')}</button>}</div>
+          <div className="task-documents-head"><h3><Icon name="document" /> {pick(locale, 'เอกสาร', 'Documents')} <b>{documents.length}</b></h3>{!readOnly && <button type="button" className="secondary small" onClick={() => setDocumentPickerOpen(true)}><Icon name="add" /> {pick(locale, 'เพิ่มเอกสาร', 'Add documents')}</button>}</div>
           {documents.length > 0 && <div className="drive-file-list">{documents.map((document) => isDriveProjectDocument(document) ? <DriveFileRow key={document.id} file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName}
             canDetach={!readOnly} iconOnlyDetach detachLabel={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onDetach={() => attempt(() => unlinkProjectDocumentFromTask(projectId, document.id, task.id).then(() => true), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document')).then((ok) => ok === true)} />
             : isCanvaProjectDocument(document) ? <CanvaFileRow key={document.id} file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName}
             canDetach={!readOnly} iconOnlyDetach detachLabel={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onDetach={() => attempt(() => unlinkProjectDocumentFromTask(projectId, document.id, task.id).then(() => true), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document')).then((ok) => ok === true)} />
-            : <div className="task-document-row" key={document.id}><a href={`/p/${projectId}/documents/${document.id}`}><span>▤</span><span><strong>{document.title}</strong><small>{document.excerpt || pick(locale, 'เอกสาร Markdown', 'Markdown document')}</small></span><b>↗</b></a>{!readOnly && <button type="button" className="drive-detach icon-only" aria-label={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} title={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onClick={() => void attempt(() => unlinkProjectDocumentFromTask(projectId, document.id, task.id), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document'))}>×</button>}</div>)}</div>}
+            : <div className="task-document-row" key={document.id}><a href={`/p/${projectId}/documents/${document.id}`}><span><Icon name="document" /></span><span><strong>{document.title}</strong><small>{document.excerpt || pick(locale, 'เอกสาร Markdown', 'Markdown document')}</small></span><b><Icon name="open" /></b></a>{!readOnly && <button type="button" className="drive-detach icon-only" aria-label={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} title={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onClick={() => void attempt(() => unlinkProjectDocumentFromTask(projectId, document.id, task.id), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document'))}><Icon name="close" /></button>}</div>)}</div>}
           {!documents.length && <p className="muted task-documents-empty">{pick(locale, 'ยังไม่มีเอกสารที่เชื่อมกับ Task นี้', 'No documents linked to this task')}</p>}
         </section>}
         <div className="form-actions span-2">{!readOnly && task && canDeleteItem(role, task.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={remove}>{t('delete')}</button>}<span />{!readOnly && <small className="muted kbd-hint">Ctrl + Enter</small>}<button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary" disabled={busy}>{t('save')}</button>}</div>

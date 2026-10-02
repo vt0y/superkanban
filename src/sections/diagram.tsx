@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { AppContextValue } from '@/context/AppContext';
 import { Avatar, CanvasControls } from '@/components/common';
 import { useCanvasViewport, useItemDrag } from '@/hooks';
@@ -11,20 +11,35 @@ import { attempt, toast } from '@/components/toast';
 import { pick } from '@/utils/formatters';
 import { NODE_DEFAULTS, classifyUseCase, clipToShape, nextUseCaseCode, validEdge, type UseCaseKind } from '@/utils/usecase-model';
 import { CommentThread } from '@/components/comments/CommentThread';
+import { Icon } from '@/components/common/Icon';
 
 type Tool = 'select' | DiagramNodeKind | DiagramEdgeKind;
-const NODE_TOOLS: { id: DiagramNodeKind; icon: string; th: string; en: string }[] = [
-  { id: 'actor', icon: '웃', th: 'Actor', en: 'Actor' },
-  { id: 'usecase', icon: '⬭', th: 'Use Case', en: 'Use case' },
-  { id: 'boundary', icon: '▭', th: 'ขอบเขตระบบ', en: 'System boundary' },
-  { id: 'note', icon: '🗒', th: 'โน้ต', en: 'Note' },
+const NODE_TOOLS: { id: DiagramNodeKind; th: string; en: string }[] = [
+  { id: 'actor', th: 'Actor', en: 'Actor' },
+  { id: 'usecase', th: 'Use Case', en: 'Use case' },
+  { id: 'boundary', th: 'ขอบเขตระบบ', en: 'System boundary' },
+  { id: 'note', th: 'โน้ต', en: 'Note' },
 ];
-const EDGE_TOOLS: { id: DiagramEdgeKind; icon: string; th: string; en: string }[] = [
-  { id: 'association', icon: '—', th: 'Association', en: 'Association' },
-  { id: 'include', icon: '⇢', th: '«include»', en: '«include»' },
-  { id: 'extend', icon: '⇠', th: '«extend»', en: '«extend»' },
-  { id: 'generalization', icon: '▷', th: 'Generalization', en: 'Generalization' },
+const EDGE_TOOLS: { id: DiagramEdgeKind; th: string; en: string }[] = [
+  { id: 'association', th: 'Association', en: 'Association' },
+  { id: 'include', th: '«include»', en: '«include»' },
+  { id: 'extend', th: '«extend»', en: '«extend»' },
+  { id: 'generalization', th: 'Generalization', en: 'Generalization' },
 ];
+/** UML notation for each tool, drawn like a lucide icon (24 grid, currentColor stroke). */
+const UML_GLYPHS: Record<DiagramNodeKind | DiagramEdgeKind, ReactNode> = {
+  actor: <><circle cx="12" cy="5" r="3" /><path d="M12 8v7M6 11h12M12 15l-5 6M12 15l5 6" /></>,
+  usecase: <ellipse cx="12" cy="12" rx="10" ry="6" />,
+  boundary: <rect x="3" y="4" width="18" height="16" rx="1" />,
+  note: <path d="M4 3h11l5 5v13H4zM15 3v5h5" />,
+  association: <path d="M3 12h18" />,
+  include: <path d="M3 12h15M14 7l5 5-5 5" strokeDasharray="3 2.5" />,
+  extend: <path d="M21 12H6M10 7l-5 5 5 5" strokeDasharray="3 2.5" />,
+  generalization: <><path d="M3 12h11" /><path d="M14 6l7 6-7 6z" /></>,
+};
+function UmlGlyph({ kind }: { kind: DiagramNodeKind | DiagramEdgeKind }) {
+  return <svg className="icon tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{UML_GLYPHS[kind]}</svg>;
+}
 const KIND_LABEL: Record<UseCaseKind, { th: string; en: string }> = {
   base: { th: 'Base', en: 'Base' }, common: { th: 'Common', en: 'Common' }, extension: { th: 'Extension', en: 'Extension' },
 };
@@ -356,11 +371,11 @@ export function DiagramEditor({ diagram, nodes: allNodes, edges: allEdges, useCa
 
   return <div className="diagram-shell">
     <div className="diagram-toolbar" role="toolbar">
-      {!readOnly && <><button className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')} title={`${pick(locale, 'เลือก/ย้าย', 'Select / move')} (V)`}>➤</button>
+      {!readOnly && <><button className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')} title={`${pick(locale, 'เลือก/ย้าย', 'Select / move')} (V)`} aria-label={pick(locale, 'เลือก/ย้าย', 'Select / move')}><Icon name="pointer" className="tool-icon" /></button>
       <span className="divider" />
-      {NODE_TOOLS.map((item) => <button key={item.id} className={tool === item.id ? 'active' : ''} onClick={() => setTool(item.id)} title={`${locale === 'th' ? item.th : item.en} (${{ actor: 'A', usecase: 'U', boundary: 'B', note: 'N' }[item.id]})`}><span className="tool-icon">{item.icon}</span><small>{locale === 'th' ? item.th : item.en}</small></button>)}
+      {NODE_TOOLS.map((item) => <button key={item.id} className={tool === item.id ? 'active' : ''} onClick={() => setTool(item.id)} title={`${locale === 'th' ? item.th : item.en} (${{ actor: 'A', usecase: 'U', boundary: 'B', note: 'N' }[item.id]})`}><UmlGlyph kind={item.id} /><small>{locale === 'th' ? item.th : item.en}</small></button>)}
       <span className="divider" />
-      {EDGE_TOOLS.map((item) => <button key={item.id} className={`edge-tool ${tool === item.id ? 'active' : ''}`} onClick={() => setTool(item.id)} title={`${locale === 'th' ? item.th : item.en} (${{ association: 'L', include: 'I', extend: 'E', generalization: 'G' }[item.id]})`}><span className="tool-icon">{item.icon}</span><small>{locale === 'th' ? item.th : item.en}</small></button>)}</>}
+      {EDGE_TOOLS.map((item) => <button key={item.id} className={`edge-tool ${tool === item.id ? 'active' : ''}`} onClick={() => setTool(item.id)} title={`${locale === 'th' ? item.th : item.en} (${{ association: 'L', include: 'I', extend: 'E', generalization: 'G' }[item.id]})`}><UmlGlyph kind={item.id} /><small>{locale === 'th' ? item.th : item.en}</small></button>)}</>}
       <span className="spacer" />
       {!readOnly && <label className="mini-toggle"><input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} /> {pick(locale, 'จัดตามกริด', 'Snap')}</label>}
       <label className="mini-toggle"><input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} /> {pick(locale, 'ของฉัน', 'Mine')}</label>
@@ -430,7 +445,7 @@ export function DiagramEditor({ diagram, nodes: allNodes, edges: allEdges, useCa
       </div>
       {inspectorOpen && <button type="button" className="diagram-inspector-scrim" onClick={() => setInspectorOpen(false)} aria-label={pick(locale, 'ปิด', 'Close')} />}
       <aside className={`diagram-inspector ${inspectorOpen ? 'open' : ''}`}>
-        <div className="mobile-inspector-head"><div className="mobile-sheet-handle" /><strong>{pick(locale, 'รายละเอียด', 'Inspector')}</strong><button type="button" onClick={() => setInspectorOpen(false)} aria-label={pick(locale, 'ปิด', 'Close')}>×</button></div>
+        <div className="mobile-inspector-head"><div className="mobile-sheet-handle" /><strong>{pick(locale, 'รายละเอียด', 'Inspector')}</strong><button type="button" onClick={() => setInspectorOpen(false)} aria-label={pick(locale, 'ปิด', 'Close')}><Icon name="close" /></button></div>
         {singleNode ? <NodeInspector node={singleNode} label={labelOf(singleNode)} useCase={useCaseById.get(singleNode.useCaseId)} kind={kinds.get(singleNode.id)} nodes={nodes} edges={edges} members={members} context={context} role={role} projectId={projectId} readOnly={readOnly} onRename={() => setEditingLabel({ id: singleNode.id, value: labelOf(singleNode) })} onDelete={deleteSelection} />
           : singleEdge ? <EdgeInspector edge={singleEdge} nodeById={nodeById} labelOf={labelOf} locale={locale} projectId={projectId} readOnly={readOnly} onDelete={deleteSelection} />
             : selected.nodes.size + selected.edges.size > 1 ? <div className="inspector-section"><h3>{selected.nodes.size + selected.edges.size} {pick(locale, 'รายการที่เลือก', 'items selected')}</h3>{!readOnly && <><p className="muted">{pick(locale, 'ลากเพื่อย้ายพร้อมกัน หรือกด Delete', 'Drag to move together, or press Delete')}</p><button className="danger ghost" onClick={deleteSelection}>{pick(locale, 'ลบที่เลือก', 'Delete selected')}</button></>}</div>
@@ -539,7 +554,7 @@ function NodeInspector({ node, label, useCase, kind, nodes, edges, members, cont
 
   return <div className="inspector-section">
     <div className="inspector-head"><span className="eyebrow">{kindName}</span>{kind && <span className={`kind-badge ${kind}`}>{KIND_LABEL[kind][locale === 'th' ? 'th' : 'en']}</span>}</div>
-    <h3 className="inspector-title">{useCase && <b>{useCase.code}</b>} {label} {!readOnly && <button className="icon-button" onClick={onRename} title={pick(locale, 'เปลี่ยนชื่อ', 'Rename')}>✎</button>}</h3>
+    <h3 className="inspector-title">{useCase && <b>{useCase.code}</b>} {label} {!readOnly && <button className="icon-button" onClick={onRename} title={pick(locale, 'เปลี่ยนชื่อ', 'Rename')}><Icon name="edit" /></button>}</h3>
     {useCase && <>
       <label className="inspector-field">{pick(locale, 'ผู้รับผิดชอบ', 'Assigned to')}
         <div className="assignee-picker">{assignee ? <Avatar name={assignee.displayName} src={assignee.photoURL} size="sm" /> : <span className="avatar fallback sm empty-avatar">?</span>}
@@ -570,9 +585,9 @@ function EdgeInspector({ edge, nodeById, labelOf, locale, projectId, readOnly, o
   return <div className="inspector-section">
     <span className="eyebrow">{pick(locale, 'ความสัมพันธ์', 'Relationship')}</span>
     <h3 className="inspector-title">{labelOf(from)} → {labelOf(to)}</h3>
-    <div className="edge-kinds">{EDGE_TOOLS.map((item) => <button key={item.id} className={edge.kind === item.id ? 'active' : ''} disabled={readOnly || !validEdge(from.kind, to.kind, item.id)} onClick={() => change(item.id)}>{item.icon} {item.en}</button>)}</div>
+    <div className="edge-kinds">{EDGE_TOOLS.map((item) => <button key={item.id} className={edge.kind === item.id ? 'active' : ''} disabled={readOnly || !validEdge(from.kind, to.kind, item.id)} onClick={() => change(item.id)}><UmlGlyph kind={item.id} /> {item.en}</button>)}</div>
     <p className="muted tiny">{edge.kind === 'include' ? pick(locale, '«include»: Base เรียกใช้ Use Case ปลายทางทุกครั้ง', '«include»: the base always runs the target use case') : edge.kind === 'extend' ? pick(locale, '«extend»: ต้นทางเพิ่มพฤติกรรมเสริมให้ Base ปลายทางตามเงื่อนไข', '«extend»: the source optionally extends the target base') : edge.kind === 'generalization' ? pick(locale, 'Generalization: ต้นทางเป็นชนิดย่อยของปลายทาง', 'Generalization: the source specialises the target') : pick(locale, 'Association: Actor มีส่วนร่วมกับ Use Case', 'Association: the actor takes part in the use case')}</p>
-    {!readOnly && <div className="action-row"><button className="secondary small" onClick={reverse}>⇄ {pick(locale, 'สลับทิศทาง', 'Reverse')}</button><button className="danger ghost small" onClick={onDelete}>{pick(locale, 'ลบ', 'Delete')}</button></div>}
+    {!readOnly && <div className="action-row"><button className="secondary small" onClick={reverse}><Icon name="refresh" /> {pick(locale, 'สลับทิศทาง', 'Reverse')}</button><button className="danger ghost small" onClick={onDelete}>{pick(locale, 'ลบ', 'Delete')}</button></div>}
   </div>;
 }
 

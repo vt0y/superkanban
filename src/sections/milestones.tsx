@@ -10,6 +10,7 @@ import { attempt } from '@/components/toast';
 import { formatDue, pick } from '@/utils/formatters';
 import { useActiveTasks, useMilestoneTaskCounts, useProjectItems } from '@/hooks';
 import { CommentThread } from '@/components/comments/CommentThread';
+import { Icon } from '@/components/common/Icon';
 
 export function Milestones({ context, project, role, readOnly }: SectionProps) {
   const items = useProjectItems<Milestone>(project.id, 'milestones');
@@ -28,7 +29,7 @@ export function Milestones({ context, project, role, readOnly }: SectionProps) {
   };
 
   return <>
-    <PageTitle eyebrow="PROJECT TIMELINE" title={context.t('milestones')} description={pick(locale, 'กำหนดเป้าหมาย ลำดับการพึ่งพา และเปิดบอร์ดงานของแต่ละเป้าหมาย', 'Set goals, their dependencies, and open each goal’s task board')} action={!readOnly && <button className="primary" onClick={() => setEditing('new')}>＋ {context.t('addMilestone')}</button>} />
+    <PageTitle eyebrow="PROJECT TIMELINE" title={context.t('milestones')} description={pick(locale, 'กำหนดเป้าหมาย ลำดับการพึ่งพา และเปิดบอร์ดงานของแต่ละเป้าหมาย', 'Set goals, their dependencies, and open each goal’s task board')} action={!readOnly && <button className="primary" onClick={() => setEditing('new')}><Icon name="add" /> {context.t('addMilestone')}</button>} />
     <div className="milestone-list">{topoOrder(items).map((item) => {
       const related = tasks.filter((task) => task.milestoneId === item.id);
       const count = counts[item.id] ?? { total: related.length, done: 0 };
@@ -44,19 +45,19 @@ export function Milestones({ context, project, role, readOnly }: SectionProps) {
           ? pick(locale, `ยังมี ${completion.incompleteTaskCount} Task ที่ไม่เสร็จ`, `${completion.incompleteTaskCount} task(s) remaining`)
           : '';
       return <article key={item.id} className={state}>
-        <div className="milestone-symbol">{state === 'completed' ? '✓' : state === 'blocked' ? '🔒' : '◇'}</div>
+        <div className="milestone-symbol"><Icon name={state === 'completed' ? 'check' : state === 'blocked' ? 'lock' : 'milestone'} /></div>
         <div className="milestone-body">
-          <header><div><span className={`state ${state}`}>{state === 'blocked' ? pick(locale, 'ถูกล็อก', 'blocked') : state === 'completed' ? pick(locale, 'เสร็จแล้ว', 'completed') : pick(locale, 'กำลังดำเนินการ', 'active')}</span><h3>{item.title}</h3></div><button onClick={() => setEditing(item)} title={context.t('edit')}>•••</button></header>
+          <header><div><span className={`state ${state}`}>{state === 'blocked' ? pick(locale, 'ถูกล็อก', 'blocked') : state === 'completed' ? pick(locale, 'เสร็จแล้ว', 'completed') : pick(locale, 'กำลังดำเนินการ', 'active')}</span><h3>{item.title}</h3></div><button onClick={() => setEditing(item)} title={context.t('edit')} aria-label={context.t('edit')}><Icon name="more" /></button></header>
           {item.description && <p>{item.description}</p>}
-          {deps.length > 0 && <div className="dep-chips"><small>{pick(locale, 'ต้องเสร็จก่อน:', 'Depends on:')}</small>{deps.map((dep) => <span key={dep.id} className={dep.status === 'completed' ? 'done' : ''}>{dep.status === 'completed' ? '✓' : '⧗'} {dep.title}</span>)}</div>}
+          {deps.length > 0 && <div className="dep-chips"><small>{pick(locale, 'ต้องเสร็จก่อน:', 'Depends on:')}</small>{deps.map((dep) => <span key={dep.id} className={dep.status === 'completed' ? 'done' : ''}><Icon name={dep.status === 'completed' ? 'check' : 'clock'} /> {dep.title}</span>)}</div>}
           <div className="milestone-progress"><span><b>{pct}%</b><small>{complete}/{count.total} tasks</small></span><div><i style={{ width: `${pct}%` }} /></div></div>
-          <footer><span className={item.dueDate ? '' : 'muted'}>◷ {item.dueDate ? formatDue(item.dueDate, item.dueTime, locale) : pick(locale, 'ไม่มีกำหนด', 'No due date')}</span><div className="milestone-actions"><button className="link-button" onClick={() => navigate(`/p/${project.id}/board?m=${item.id}`)}>{pick(locale, 'เปิดบอร์ดงาน →', 'Open board →')}</button>{!readOnly && (item.status === 'completed'
+          <footer><span className={item.dueDate ? '' : 'muted'}><Icon name="calendarSingle" /> {item.dueDate ? formatDue(item.dueDate, item.dueTime, locale) : pick(locale, 'ไม่มีกำหนด', 'No due date')}</span><div className="milestone-actions"><button className="link-button" onClick={() => navigate(`/p/${project.id}/board?m=${item.id}`)}>{pick(locale, 'เปิดบอร์ดงาน →', 'Open board →')}</button>{!readOnly && (item.status === 'completed'
             ? <button className="secondary compact" onClick={() => void setStatus(item, 'active', completion.taskCount)}>{pick(locale, 'เปิดอีกครั้ง', 'Reopen')}</button>
-            : <button className="primary compact" disabled={!completion.canComplete} title={completionHint} onClick={() => void setStatus(item, 'completed', completion.taskCount)}>✓ {pick(locale, 'ปิด Milestone', 'Complete')}</button>)}</div></footer>
+            : <button className="primary compact" disabled={!completion.canComplete} title={completionHint} onClick={() => void setStatus(item, 'completed', completion.taskCount)}><Icon name="check" /> {pick(locale, 'ปิด Milestone', 'Complete')}</button>)}</div></footer>
         </div>
       </article>;
     })}</div>
-    {!items.length && <Empty icon="◇" title={context.t('noData')} description={pick(locale, 'สร้าง milestone แรกของโปรเจกต์', 'Create the first milestone for this project')} />}
+    {!items.length && <Empty icon="milestone" title={context.t('noData')} description={pick(locale, 'สร้าง milestone แรกของโปรเจกต์', 'Create the first milestone for this project')} />}
     {editing && <MilestoneModal item={editing === 'new' ? null : editing} all={items} tasks={tasks} taskCount={editing === 'new' ? undefined : counts[editing.id]} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(null)} />}
   </>;
 }
@@ -85,7 +86,7 @@ function MilestoneModal({ item, all, tasks, taskCount, projectId, context, role,
     if (ok) onClose();
   };
   const actions = <>
-    {item && <button type="button" className="comment-toggle" onClick={() => setCommentsOpen(true)} aria-label={pick(locale, 'ความคิดเห็น', 'Comments')}>💬 {commentCount}</button>}
+    {item && <button type="button" className="comment-toggle" onClick={() => setCommentsOpen(true)} aria-label={pick(locale, 'ความคิดเห็น', 'Comments')}><Icon name="comment" /> {commentCount}</button>}
     {!readOnly && <button form={formId} className="primary">{t('save')}</button>}
   </>;
   return <Modal title={item ? t('edit') : t('addMilestone')} onClose={commentsOpen ? () => setCommentsOpen(false) : onClose} wide={!!item} actions={actions}>
@@ -104,11 +105,11 @@ function MilestoneModal({ item, all, tasks, taskCount, projectId, context, role,
             const cycle = !checked && wouldCreateCycle(selfId, [...form.dependsOn, other.id], all);
             return <label key={other.id} className={cycle ? 'disabled' : ''} title={cycle ? pick(locale, 'จะทำให้เกิดการพึ่งพาวน', 'Would create a circular dependency') : ''}>
               <input type="checkbox" checked={checked} disabled={cycle} onChange={(e) => setForm({ ...form, dependsOn: e.target.checked ? [...form.dependsOn, other.id] : form.dependsOn.filter((id) => id !== other.id) })} />
-              <span>{other.status === 'completed' ? '✓' : '◇'} {other.title}</span>{cycle && <small>↻</small>}
+              <span><Icon name={other.status === 'completed' ? 'check' : 'milestone'} /> {other.title}</span>{cycle && <small><Icon name="refresh" /></small>}
             </label>;
           })}{!others.length && <p className="muted">{pick(locale, 'ยังไม่มี milestone อื่น', 'No other milestones yet')}</p>}</div>
         </fieldset>
-        {completionBlocked && <p className="inline-warning">🔒 {completion.blockingMilestones.length
+        {completionBlocked && <p className="inline-warning"><Icon name="lock" /> {completion.blockingMilestones.length
           ? pick(locale, 'ยังปิด milestone นี้ไม่ได้จนกว่า milestone ที่ต้องรอจะเสร็จ', 'Can’t be completed until its prerequisites are completed')
           : pick(locale, `ยังมี ${completion.incompleteTaskCount} Task ที่ต้องทำให้เสร็จ`, `${completion.incompleteTaskCount} task(s) must be completed first`)}</p>}
         </fieldset>

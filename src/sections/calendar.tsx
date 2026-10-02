@@ -13,6 +13,7 @@ import { dueState, monthGrid, monthKey, parseMonthKey, toISODate } from '@/utils
 import { formatDate, pick } from '@/utils/formatters';
 import { blockingMilestones } from '@/utils/milestone-deps';
 import { matchTask, parseTaskQuery } from '@/utils/task-filter';
+import { Icon } from '@/components/common/Icon';
 
 const MAX_CHIPS = 3;
 const STATUS_COLOR = new Map(TASK_COLUMNS.map((column) => [column.id, column.color]));
@@ -91,7 +92,7 @@ export function Calendar({ context, project, members, role, readOnly }: SectionP
     const drag = readOnly ? {} : { draggable: true, onDragStart: (event: DragEvent) => { event.dataTransfer.setData('text/calendar-item', itemKey(item)); event.dataTransfer.effectAllowed = 'move'; event.stopPropagation(); } };
     if (item.kind === 'milestone') {
       const { milestone } = item;
-      return <button key={itemKey(item)} type="button" className={`cal-chip milestone ${milestone.status === 'completed' ? 'done' : ''}`} {...drag} onClick={(e) => { e.stopPropagation(); navigate(`/p/${project.id}/board?m=${milestone.id}`); }} title={milestone.title}>◇ {milestone.dueTime && <small className="cal-time">{milestone.dueTime}</small>}{milestone.title}</button>;
+      return <button key={itemKey(item)} type="button" className={`cal-chip milestone ${milestone.status === 'completed' ? 'done' : ''}`} {...drag} onClick={(e) => { e.stopPropagation(); navigate(`/p/${project.id}/board?m=${milestone.id}`); }} title={milestone.title}><Icon name="milestone" />{milestone.dueTime && <small className="cal-time">{milestone.dueTime}</small>}{milestone.title}</button>;
     }
     const { task } = item;
     const state = task.status === 'done' ? 'done' : dueState(task.dueDate, undefined, undefined, task.dueTime);
@@ -103,9 +104,9 @@ export function Calendar({ context, project, members, role, readOnly }: SectionP
   return <>
     <PageTitle eyebrow="PROJECT CALENDAR" title={context.t('calendar')} description={pick(locale, 'ดูกำหนดส่งของงานและ milestone ลากเพื่อเลื่อนวัน หรือคลิกวันเพื่อเพิ่มงาน', 'See task and milestone due dates. Drag to reschedule, click a day to add a task')}
       action={<div className="action-row cal-nav">
-        <button className="secondary" onClick={() => setParam('month', monthKey(year, month - 1))} aria-label={pick(locale, 'เดือนก่อน', 'Previous month')}>‹</button>
+        <button className="secondary" onClick={() => setParam('month', monthKey(year, month - 1))} aria-label={pick(locale, 'เดือนก่อน', 'Previous month')}><Icon name="back" /></button>
         <button className="secondary" onClick={() => setParam('month', '')}>{pick(locale, 'วันนี้', 'Today')}</button>
-        <button className="secondary" onClick={() => setParam('month', monthKey(year, month + 1))} aria-label={pick(locale, 'เดือนถัดไป', 'Next month')}>›</button>
+        <button className="secondary" onClick={() => setParam('month', monthKey(year, month + 1))} aria-label={pick(locale, 'เดือนถัดไป', 'Next month')}><Icon name="chevronRight" /></button>
       </div>} />
     <div className="board-toolbar">
       <FilterBar value={query} onChange={(value) => setParam('q', value)} labels={labels} members={members} milestones={milestones} locale={locale} />
@@ -113,7 +114,7 @@ export function Calendar({ context, project, members, role, readOnly }: SectionP
     </div>
     <div className="calendar-layout">
       <section className="calendar-main">
-        <header className="calendar-head"><h2>{title}</h2>{overdueCount > 0 && <span className="cal-overdue">! {overdueCount} {pick(locale, 'งานเกินกำหนด', 'overdue')}</span>}</header>
+        <header className="calendar-head"><h2>{title}</h2>{overdueCount > 0 && <span className="cal-overdue"><Icon name="alert" /> {overdueCount} {pick(locale, 'งานเกินกำหนด', 'overdue')}</span>}</header>
         <div className="calendar-grid" role="grid">
           {weekdays.map((name) => <div key={name} className="cal-weekday" role="columnheader">{name}</div>)}
           {grid.map((date) => {
@@ -135,7 +136,7 @@ export function Calendar({ context, project, members, role, readOnly }: SectionP
           const items = byDay.get(day) || [];
           if (!items.length && day !== today) return null;
           return <div key={day} className={`agenda-day ${day === today ? 'today' : ''}`}>
-            <header><b>{date.getDate()}</b><span>{date.toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-US', { weekday: 'long' })}</span>{!readOnly && <button type="button" onClick={() => openNew(day)} aria-label={context.t('addTask')}>＋</button>}</header>
+            <header><b>{date.getDate()}</b><span>{date.toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-US', { weekday: 'long' })}</span>{!readOnly && <button type="button" onClick={() => openNew(day)} aria-label={context.t('addTask')}><Icon name="add" /></button>}</header>
             <div className="cal-items">{items.map(chip)}{!items.length && <small className="muted">{pick(locale, 'ไม่มีกำหนดส่ง', 'Nothing due')}</small>}</div>
           </div>;
         })}{!monthDays.some((date) => byDay.has(toISODate(date))) && <p className="muted">{pick(locale, 'ไม่มีกำหนดส่งในเดือนนี้', 'Nothing due this month')}</p>}</div>

@@ -1,0 +1,125 @@
+/* Chips, badges, pills. Every tinted variant uses the status token triplets so dark mode is automatic. */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  color: var(--muted);
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.chip .icon { width: 12px; height: 12px; }
+.chip.green { color: var(--success-fg); background: var(--success-bg); }
+.chip.blue { color: var(--info-fg); background: var(--info-bg); }
+.chip.violet { color: var(--violet-fg); background: var(--violet-bg); }
+.chip.amber { color: var(--warning-fg); background: var(--warning-bg); }
+.chip.red { color: var(--danger-fg); background: var(--danger-bg); }
+/* data-driven colour: the element sets --chip inline */
+.chip.status { color: color-mix(in srgb, var(--chip) 72%, var(--text)); background: color-mix(in srgb, var(--chip) 16%, transparent); }
+
+.count-badge {
+  display: inline-grid;
+  min-width: 22px;
+  place-items: center;
+  padding: 1px 8px;
+  color: var(--muted);
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  display: block;
+  color: var(--dim);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+/* task priority */
+.priority { font-weight: 600; }
+.priority.low { color: var(--success-fg); background: var(--success-bg); }
+.priority.medium { color: var(--info-fg); background: var(--info-bg); }
+.priority.high { color: var(--warning-fg); background: var(--warning-bg); }
+.priority.urgent { color: var(--danger-fg); background: var(--danger-bg); }
+
+/* team roles */
+.role {
+  display: inline-flex;
+  padding: 1px 8px;
+  color: var(--muted);
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.role.owner { color: var(--violet-fg); background: var(--violet-bg); }
+.role.admin { color: var(--info-fg); background: var(--info-bg); }
+
+/* user-defined labels (colour comes inline) */
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-full);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+button.label-chip { cursor: pointer; }
+button.label-chip:hover { filter: brightness(.94); }
+button.label-chip.active { outline: 2px solid var(--primary); outline-offset: 2px; }
+.legacy-tag {
+  padding: 0 6px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+}
+
+/* use-case kind */
+.kind-badge {
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-2xs);
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.kind-badge.base { color: var(--teal-fg); background: var(--teal-bg); }
+.kind-badge.common { color: var(--info-fg); background: var(--info-bg); }
+.kind-badge.extension { color: var(--pink-fg); background: var(--pink-bg); }
+.kind-dot { display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--d-stroke); border-radius: 50%; }
+.kind-dot.base { background: var(--surface); }
+.kind-dot.common { background: var(--d-common); }
+.kind-dot.extension { background: var(--d-extension); }
+
+/* GitHub connection state */
+.gh-badge {
+  padding: 1px 8px;
+  color: var(--muted);
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gh-badge.ok { color: var(--success-fg); background: var(--success-bg); }
+.gh-badge.warn { color: var(--warning-fg); background: var(--warning-bg); cursor: help; }
+.gh-badge.bad { color: var(--danger-fg); background: var(--danger-bg); cursor: help; }

@@ -1,0 +1,123 @@
+/* Infinite canvas (sticky notes + diagram) and sticky notes. */
+
+.infinite-canvas {
+  position: relative;
+  height: calc(100dvh - 250px - env(safe-area-inset-bottom));
+  min-height: 380px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
+  background-image: radial-gradient(circle, var(--canvas-dot) 1.2px, transparent 1.3px);
+  overscroll-behavior: contain;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+@media (min-width: 640px) { .infinite-canvas { height: calc(100dvh - 280px); min-height: 480px; } }
+.infinite-canvas.panning, .infinite-canvas.panning * { cursor: grabbing; }
+.canvas-world { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
+
+.canvas-controls {
+  position: absolute;
+  right: var(--sp-2);
+  bottom: var(--sp-2);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  cursor: default;
+}
+@media (min-width: 640px) { .canvas-controls { right: var(--sp-3); bottom: var(--sp-3); } }
+.canvas-controls button {
+  min-width: var(--h-control-sm);
+  height: var(--h-control-sm);
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  color: var(--text);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.canvas-controls button .icon { width: 15px; height: 15px; }
+.canvas-controls button:hover { background: var(--surface-2); }
+.canvas-controls .zoom-value { min-width: 52px; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.canvas-controls span { width: 1px; height: 18px; margin: 0 3px; background: var(--border); }
+.canvas-hint {
+  position: absolute;
+  left: var(--sp-3);
+  bottom: var(--sp-3);
+  z-index: 10;
+  display: none;
+  max-width: calc(100% - 240px);
+  padding: 4px 10px;
+  overflow: hidden;
+  color: var(--muted);
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+@media (min-width: 640px) and (hover: hover) { .canvas-hint { display: block; } }
+.canvas-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: var(--sp-4); pointer-events: none; }
+.canvas-empty .empty { min-height: 0; padding: var(--sp-6) var(--sp-8); border-style: solid; border-color: var(--border); }
+
+/* sticky notes (background colour comes inline from the note) */
+.sticky-note {
+  position: absolute;
+  width: 210px;
+  min-height: 150px;
+  padding: var(--sp-3);
+  color: var(--sticky-text);
+  border-radius: var(--r-xs);
+  box-shadow: var(--sticky-shadow);
+  cursor: grab;
+  user-select: text;
+}
+.sticky-note.pinned { cursor: default; }
+.sticky-canvas .sticky-note {
+  top: 0;
+  left: 0;
+  rotate: -.5deg;
+  touch-action: none;
+  user-select: none;
+  will-change: transform;
+  transition: box-shadow .2s var(--ease), rotate .2s var(--ease), scale .2s var(--ease);
+}
+.sticky-canvas .sticky-note:nth-child(2n) { rotate: .6deg; }
+.sticky-canvas .sticky-note:hover { box-shadow: var(--sticky-shadow-hover); }
+.sticky-canvas .sticky-note.dragging { rotate: 1.5deg; scale: 1.03; box-shadow: var(--sticky-shadow-drag); cursor: grabbing; }
+.sticky-canvas .sticky-note p { user-select: text; }
+.sticky-note header { display: flex; align-items: center; justify-content: space-between; margin: -4px -4px var(--sp-2); }
+.sticky-header-actions { display: flex; align-items: center; gap: 2px; }
+.sticky-note .sticky-action-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: var(--sticky-muted);
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  transition: background-color var(--dur), color var(--dur);
+}
+.sticky-note .sticky-action-btn .icon { width: 14px; height: 14px; }
+.sticky-note .sticky-action-btn:hover { color: var(--sticky-text); background: var(--sticky-hover); }
+.sticky-note .sticky-action-btn.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+@media (pointer: coarse) { .sticky-note .sticky-action-btn { width: 34px; height: 34px; } }
+.sticky-note p { margin: 0; font-size: var(--fs-sm); white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
+.sticky-link { color: var(--sticky-link); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; cursor: pointer; }
+.sticky-link:hover { text-decoration-thickness: 2px; }
+.sticky-note small { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding-top: var(--sp-2); border-top: 1px solid var(--sticky-rule); font-size: var(--fs-xs); }
+.sticky-note small .icon { width: 12px; height: 12px; }

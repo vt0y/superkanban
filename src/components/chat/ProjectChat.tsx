@@ -7,6 +7,7 @@ import { sendChatMessage, subscribeChatMessages } from '@/services/chat';
 import type { Project, ProjectChatMessage } from '@/types';
 import { attempt } from '@/components/toast';
 import { pick, relativeTime } from '@/utils/formatters';
+import { Icon } from '@/components/common/Icon';
 
 const COMPOSER_MAX_HEIGHT = 120;
 const isTouch = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
@@ -119,7 +120,7 @@ export function ProjectChat({ context, project, readOnly }: { context: AppContex
               </span>
             </div>
             <button type="button" onClick={() => setOpen(false)} aria-label={pick(locale, 'ปิดแชท', 'Close chat')}>
-              ×
+              <Icon name="close" />
             </button>
           </header>
           <div className="chat-messages" ref={listRef}>
@@ -131,7 +132,7 @@ export function ProjectChat({ context, project, readOnly }: { context: AppContex
             )}
             {loaded && !messages.length && (
               <div className="chat-state">
-                <span>💬</span>
+                <span><Icon name="comment" /></span>
                 <strong>{context.t('noMessages')}</strong>
                 <small>{pick(locale, 'เริ่มคุยกับทีมของคุณได้เลย', 'Start the conversation with your team')}</small>
               </div>
@@ -156,7 +157,7 @@ export function ProjectChat({ context, project, readOnly }: { context: AppContex
           </div>
           {readOnly ? (
             <div className="chat-read-only">
-              <span>📦</span>
+              <span><Icon name="archive" /></span>
               <div>
                 <strong>{context.t('readOnly')}</strong>
                 <small>{pick(locale, 'นำโปรเจกต์กลับมาใช้เพื่อส่งข้อความ', 'Unarchive this project to send messages')}</small>
@@ -175,7 +176,7 @@ export function ProjectChat({ context, project, readOnly }: { context: AppContex
                 aria-label={pick(locale, 'ข้อความ', 'Message')}
               />
               <button className="primary" disabled={busy || !body.trim()} aria-label={context.t('send')}>
-                ↑
+                <Icon name="send" />
               </button>
             </form>
           )}
@@ -188,7 +189,7 @@ export function ProjectChat({ context, project, readOnly }: { context: AppContex
         aria-label={open ? pick(locale, 'ปิดแชท', 'Close chat') : context.t('chat')}
         onClick={() => setOpen((current) => !current)}
       >
-        <span>{open ? '×' : '💬'}</span>
+        <Icon name={open ? 'close' : 'comment'} />
         {!open && unread > 0 && <b>{unread > 99 ? '99+' : unread}</b>}
       </button>
     </div>

@@ -1,0 +1,175 @@
+/* Fields. The default look is applied with :where() (zero specificity) so any contextual rule wins. */
+
+:where(input:not([type=checkbox], [type=radio], [type=color], [type=range], [type=file], [type=hidden]), select, textarea) {
+  min-height: var(--h-control);
+  padding: 6px 10px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  font-size: var(--fs-input);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+:where(textarea) { line-height: 1.5; resize: vertical; }
+:where(select) {
+  padding-right: 30px;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+  background-position: right 8px center;
+  background-repeat: no-repeat;
+  background-size: 16px;
+  cursor: pointer;
+}
+:where(input, select, textarea):hover:not(:disabled, :focus) { border-color: var(--border-strong); }
+:where(input, select, textarea):focus {
+  border-color: var(--primary);
+  box-shadow: var(--focus-ring);
+}
+:where(input, select, textarea):disabled { color: var(--muted); background-color: var(--surface-2); cursor: not-allowed; }
+:where(input[readonly]) { color: var(--muted); }
+:where(input[type=checkbox], input[type=radio]) { accent-color: var(--primary-solid); }
+
+/* ── stacked forms ── */
+.stack-form { display: flex; flex-direction: column; gap: var(--sp-4); }
+.stack-form.two-col { display: grid; grid-template-columns: 1fr; }
+@media (min-width: 640px) { .stack-form.two-col { grid-template-columns: 1fr 1fr; } .span-2 { grid-column: span 2; } }
+.stack-form label, .stack-form fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  border: 0;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.stack-form legend { margin-bottom: var(--sp-2); padding: 0; font-weight: 500; }
+.stack-form input:not([type=checkbox], [type=radio], [type=color]),
+.stack-form textarea,
+.stack-form select { width: 100%; }
+.stack-form small { color: var(--muted); font-weight: 400; }
+.field-row { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); }
+@media (min-width: 640px) { .field-row { grid-template-columns: 1fr 1fr; } }
+.form-intro { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.form-error { margin: 0; color: var(--danger-fg); font-size: var(--fs-sm); }
+.field-help { display: flex; justify-content: space-between; gap: 10px; margin-top: 4px; color: var(--muted); font-size: var(--fs-xs); }
+.field-help b { flex: 0 0 auto; color: var(--dim); font-weight: 500; }
+
+.form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-1); }
+.form-actions > span { flex: 1; }
+.kbd-hint { align-self: center; color: var(--dim); font-size: var(--fs-xs); }
+
+/* checkbox rows */
+.check-row, .stack-form .check-row {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.check-row input { margin-top: 3px; }
+.check-row span { display: flex; flex-direction: column; gap: 2px; }
+.check-row small { color: var(--muted); font-weight: 400; }
+.simple-check, .stack-form .simple-check { flex-direction: row; align-items: center; gap: var(--sp-2); }
+
+/* member picker */
+.member-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.stack-form .member-checks label {
+  min-width: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  font-weight: 500;
+  cursor: pointer;
+}
+.stack-form .member-checks label:has(input:checked) { border-color: color-mix(in srgb, var(--primary) 50%, var(--border)); background: var(--primary-soft); }
+
+/* colour swatches */
+.color-picker { display: flex; flex-wrap: wrap; gap: 10px; }
+.color-picker button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.color-picker button.selected { box-shadow: 0 0 0 2px var(--text); }
+
+/* search box with leading icon */
+.search { position: relative; display: block; flex: 1; min-width: 0; height: var(--h-control); }
+.search > span, .search > .icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  z-index: 1;
+  display: grid;
+  color: var(--dim);
+  font-size: var(--fs-md);
+  line-height: 1;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.search .icon { width: 16px; height: 16px; }
+.search input { width: 100%; height: 100%; padding-left: 32px; }
+
+/* date + clear */
+.date-clear { display: flex; align-items: center; gap: var(--sp-2); }
+.date-clear input { flex: 1; min-width: 0; }
+
+/* segmented hh:mm time input */
+.time-field {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 8em;
+  min-height: var(--h-control);
+  padding: 0 var(--sp-3);
+  color: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  font-variant-numeric: tabular-nums;
+  cursor: text;
+}
+.time-field:focus-within { border-color: var(--primary); box-shadow: var(--focus-ring); }
+.time-field.invalid { border-color: var(--danger); }
+.time-field.disabled { opacity: .55; cursor: not-allowed; }
+.time-field > input {
+  flex: none;
+  width: 3.2ch;
+  min-height: 0;
+  padding: 0;
+  color: var(--text);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.stack-form .time-field > input { width: 3.2ch; }
+
+/* read-only project: fieldset wrapper disables everything inside */
+.read-only-fields { display: contents; }
+.read-only-fields:disabled input,
+.read-only-fields:disabled textarea,
+.read-only-fields:disabled select { color: var(--text); opacity: .8; cursor: not-allowed; }
+
+.inline-warning {
+  margin: 0;
+  padding: 9px 12px;
+  color: var(--warning-fg);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-md);
+  background: var(--warning-bg);
+  font-size: var(--fs-sm);
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Icon } from '@/components/common/Icon';
 import { TOAST_EVENT, type ToastItem } from './toast';
 
 export function Toaster() {
@@ -18,7 +19,8 @@ export function Toaster() {
     <div className="toaster" aria-live="polite">
       {items.map((item) => (
         <div key={item.id} className={`toast ${item.kind}`}>
-          {item.kind === 'error' ? '⚠' : item.kind === 'success' ? '✓' : 'ℹ'} {item.message}
+          <Icon name={item.kind === 'error' ? 'alert' : item.kind === 'success' ? 'check' : 'info'} />
+          <span>{item.message}</span>
         </div>
       ))}
     </div>

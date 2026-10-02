@@ -5,6 +5,7 @@ import { FEEDBACK_CATEGORIES, FEEDBACK_STATUSES } from '@/config/constants';
 import type { FeedbackCategory, FeedbackStatus } from '@/types';
 import { useSiteFeedbackPage } from '@/hooks/useSiteFeedback';
 import { AppHeader } from '@/components/layout/AppHeader';
+import { Icon } from '@/components/common/Icon';
 import { Empty } from '@/components/common/Empty';
 import { Segmented } from '@/components/common/Segmented';
 import { FeedbackCard } from '@/components/feedback/FeedbackCard';
@@ -27,7 +28,7 @@ export function SiteFeedbackPage({ context }: { context: AppContextValue }) {
       <AppHeader context={context} />
       <main className="page-shell feedback-page">
         <Link className="back-link" to="/">
-          ← {context.t('overview')}
+          <Icon name="arrowLeft" /> {context.t('overview')}
         </Link>
         <header className="page-title">
           <div>
@@ -50,7 +51,7 @@ export function SiteFeedbackPage({ context }: { context: AppContextValue }) {
             </p>
           </div>
           <button className="primary" onClick={() => setComposing(true)}>
-            ＋ {pick(locale, 'ส่งฟีดแบ็ก', 'Send feedback')}
+            <Icon name="add" /> {pick(locale, 'ส่งฟีดแบ็ก', 'Send feedback')}
           </button>
         </header>
         <div className="list-toolbar wrap">
@@ -92,7 +93,7 @@ export function SiteFeedbackPage({ context }: { context: AppContextValue }) {
         </div>
         {!visible.length && (
           <Empty
-            icon="💬"
+            icon="feedback"
             title={pick(locale, 'ยังไม่มีฟีดแบ็ก', 'No feedback here')}
             description={
               admin

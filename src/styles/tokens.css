@@ -1,0 +1,188 @@
+/* Design tokens. The only file (besides the themed Tarot / gacha-reveal stages) allowed to hold raw colours. */
+
+:root {
+  color-scheme: light;
+  font-family: Inter, 'Noto Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-serif: Georgia, 'Noto Serif Thai', serif;
+
+  /* neutrals */
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --surface-3: #e9e9ec;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --text: #18181b;
+  --muted: #52525b;
+  --dim: #71717a;
+
+  /* accent: --primary for text/borders, --primary-solid for filled surfaces with --on-primary text */
+  --primary: #4f46e5;
+  --primary-strong: #4338ca;
+  --primary-soft: #eef2ff;
+  --primary-solid: #4f46e5;
+  --primary-solid-hover: #4338ca;
+  --on-primary: #ffffff;
+
+  /* status: solid (dots, bars, fills) + fg/bg/border triplets for tinted chips and banners */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #e11d48;
+  --info: #3b82f6;
+  --success-fg: #047857; --success-bg: #ecfdf5; --success-border: #a7f3d0;
+  --warning-fg: #b45309; --warning-bg: #fffbeb; --warning-border: #fde68a;
+  --danger-fg: #be123c;  --danger-bg: #fff1f2;  --danger-border: #fecdd3;
+  --info-fg: #1d4ed8;    --info-bg: #eff6ff;    --info-border: #bfdbfe;
+  --violet-fg: #6d28d9;  --violet-bg: #f5f3ff;  --violet-border: #ddd6fe;
+  --teal-fg: #0f766e;    --teal-bg: #f0fdfa;    --teal-border: #99f6e4;
+  --pink-fg: #a21caf;    --pink-bg: #fdf4ff;    --pink-border: #f5d0fe;
+
+  /* special surfaces */
+  --inverse-bg: #18181b;
+  --inverse-text: #fafafa;
+  --inverse-muted: #a1a1aa;
+  --inverse-border: rgba(255, 255, 255, .16);
+  --inverse-hover: rgba(255, 255, 255, .1);
+  --scrim: rgba(9, 9, 11, .5);
+  --canvas-dot: #d4d4d8;
+  --note-bg: #fef9c3;
+  --note-border: #ca8a04;
+  --note-text: #422006;
+  --sticky-text: #292524;
+  --sticky-muted: #57534e;
+  --sticky-link: #1d4ed8;
+  --sticky-hover: rgba(0, 0, 0, .08);
+  --sticky-rule: rgba(0, 0, 0, .1);
+  --sticky-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 8px 20px rgba(0, 0, 0, .1);
+  --sticky-shadow-hover: 0 2px 4px rgba(0, 0, 0, .1), 0 14px 30px rgba(0, 0, 0, .14);
+  --sticky-shadow-drag: 0 26px 50px rgba(0, 0, 0, .25);
+  --hairline: rgba(0, 0, 0, .08);
+  --avatar-gradient: linear-gradient(135deg, #38bdf8, #6366f1);
+  --google-blue: #4285f4;
+  --google-green: #188038;
+  --white: #ffffff;
+  --d-stroke: #27272a;
+  --d-fill: #ffffff;
+  --d-text: #18181b;
+  --d-common: #e0e7ff;
+  --d-extension: #fae8ff;
+
+  /* type scale */
+  --fs-2xs: .6875rem; /* 11px: uppercase micro labels only */
+  --fs-xs: .75rem;    /* 12 */
+  --fs-sm: .8125rem;  /* 13 */
+  --fs-base: .875rem; /* 14 */
+  --fs-md: 1rem;      /* 16 */
+  --fs-lg: 1.25rem;   /* 20 */
+  --fs-xl: 1.5rem;    /* 24 */
+  --fs-2xl: 1.875rem; /* 30 */
+  --fs-3xl: 2.5rem;   /* 40 */
+  --fs-input: var(--fs-base);
+  --lh: 1.55;
+  --lh-tight: 1.25;
+
+  /* spacing (4px grid) */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-7: 28px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px;
+
+  /* radius */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-2xl: 20px;
+  --r-full: 999px;
+
+  /* elevation: overlays only; cards stay flat */
+  --shadow-xs: 0 1px 2px rgba(9, 9, 11, .05);
+  --shadow-sm: 0 1px 3px rgba(9, 9, 11, .06), 0 1px 2px rgba(9, 9, 11, .04);
+  --shadow-md: 0 8px 24px rgba(9, 9, 11, .1), 0 2px 6px rgba(9, 9, 11, .05);
+  --shadow-lg: 0 24px 60px rgba(9, 9, 11, .18), 0 4px 12px rgba(9, 9, 11, .06);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--primary) 30%, transparent);
+
+  /* controls */
+  --h-control: 34px;
+  --h-control-sm: 28px;
+  --h-touch: 36px;
+  --fs-control: var(--fs-base);
+  --fs-control-sm: var(--fs-sm);
+  --r-control: var(--r-md);
+
+  /* layout */
+  --topbar-h: 56px;
+  --sidebar-w: 240px;
+  --rail-w: 64px;
+  --bottom-nav-h: 60px;
+  --content-max: 1280px;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --dur: .16s;
+
+  /* stacking */
+  --z-sticky: 40;
+  --z-topbar: 50;
+  --z-sidebar: 100;
+  --z-bulk: 300;
+  --z-bottom-nav: 450;
+  --z-chat: 700;
+  --z-sheet: 800;
+  --z-modal: 1000;
+  --z-popover: 1100;
+  --z-toast: 2000;
+}
+
+/* Touch devices get bigger targets and 16px inputs (prevents iOS focus-zoom) no matter the viewport width. */
+@media (pointer: coarse) {
+  :root {
+    --h-control: 40px;
+    --h-control-sm: 34px;
+    --h-touch: 44px;
+    --fs-input: 1rem;
+  }
+}
+
+:root[data-theme=dark] {
+  color-scheme: dark;
+  --bg: #09090b;
+  --surface: #131316;
+  --surface-2: #1a1a1e;
+  --surface-3: #25252b;
+  --border: #27272d;
+  --border-strong: #3a3a42;
+  --text: #ededef;
+  --muted: #a1a1aa;
+  --dim: #82828c;
+
+  --primary: #8b93ff;
+  --primary-strong: #a5abff;
+  --primary-soft: #1d1b3d;
+  --primary-solid: #5b5bd6;
+  --primary-solid-hover: #6c6ce0;
+  --on-primary: #ffffff;
+
+  --success-fg: #6ee7b7; --success-bg: #06261c; --success-border: #065f46;
+  --warning-fg: #fcd34d; --warning-bg: #2a1d08; --warning-border: #78350f;
+  --danger-fg: #fda4af;  --danger-bg: #2c0f17;  --danger-border: #7f1d1d;
+  --info-fg: #93c5fd;    --info-bg: #0f1d3a;    --info-border: #1e3a8a;
+  --violet-fg: #c4b5fd;  --violet-bg: #1f1438;  --violet-border: #4c1d95;
+  --teal-fg: #5eead4;    --teal-bg: #072623;    --teal-border: #134e4a;
+  --pink-fg: #f0abfc;    --pink-bg: #2a0f2e;    --pink-border: #701a75;
+
+  --inverse-bg: #2a2a31;
+  --inverse-text: #fafafa;
+  --inverse-muted: #a1a1aa;
+  --scrim: rgba(0, 0, 0, .62);
+  --canvas-dot: #2e2e35;
+  --hairline: rgba(255, 255, 255, .08);
+  --d-stroke: #d4d4d8;
+  --d-fill: #1a1a1e;
+  --d-text: #ededef;
+  --d-common: #2a2a5a;
+  --d-extension: #3d1a40;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .45);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .03);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, .6), 0 0 0 1px rgba(255, 255, 255, .04);
+}

@@ -4,6 +4,7 @@ import type { AppContextValue } from '@/context/AppContext';
 import { acceptInvite, subscribeInvite } from '@/services/invites';
 import type { Invite } from '@/types';
 import { AppHeader } from '@/components/layout/AppHeader';
+import { Icon } from '@/components/common/Icon';
 
 export function InviteAccept({ context }: { context: AppContextValue }) {
   const { inviteId = '' } = useParams();
@@ -33,7 +34,7 @@ export function InviteAccept({ context }: { context: AppContextValue }) {
       <AppHeader context={context} />
       <main className="center-content">
         <div className="invite-card">
-          <div className="invite-icon">✉</div>
+          <div className="invite-icon"><Icon name="mail" /></div>
           {invite === undefined ? (
             <p>{context.t('loading')}</p>
           ) : !invite ? (

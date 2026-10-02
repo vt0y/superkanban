@@ -3,6 +3,7 @@ import type { Label, Membership, Milestone } from '@/types';
 import { TASK_COLUMNS } from '@/config/constants';
 import { pick } from '@/utils/formatters';
 import { queryValue, toggleQueryTerm } from '@/utils/task-filter';
+import { Icon } from '@/components/common/Icon';
 
 /** GitHub-style filter input: `label:bug assignee:@me -is:done`, with value suggestions for the qualifier being typed. */
 export const FilterBar = forwardRef<HTMLInputElement, {
@@ -31,7 +32,7 @@ export const FilterBar = forwardRef<HTMLInputElement, {
 
   const chip = (term: string, label: string) => <button type="button" className={value.split(/\s+/).includes(term) ? 'active' : ''} onClick={() => onChange(toggleQueryTerm(value, term))}>{label}</button>;
   return <div className="filter-bar">
-    <label className="search filter-input"><span>⌕</span>
+    <label className="search filter-input"><span><Icon name="search" /></span>
       <input ref={ref} value={value} onChange={(e) => { onChange(e.target.value); setActive(0); }} onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 120)}
         placeholder={pick(locale, 'กรอง เช่น label:bug assignee:@me is:open  (กด / เพื่อค้นหา)', 'Filter, e.g. label:bug assignee:@me is:open  (press /)')} spellCheck={false}
         onKeyDown={(e) => {
@@ -41,7 +42,7 @@ export const FilterBar = forwardRef<HTMLInputElement, {
           if (e.key === 'ArrowUp') { e.preventDefault(); setActive((active - 1 + suggestions.length) % suggestions.length); }
           if (e.key === 'Tab' || (e.key === 'Enter' && suggestions[active])) { e.preventDefault(); apply(suggestions[active].insert); }
         }} />
-      {value && <button type="button" className="filter-clear" onClick={() => onChange('')} aria-label={pick(locale, 'ล้างตัวกรอง', 'Clear filter')}>×</button>}
+      {value && <button type="button" className="filter-clear" onClick={() => onChange('')} aria-label={pick(locale, 'ล้างตัวกรอง', 'Clear filter')}><Icon name="close" /></button>}
       {open && <div className="filter-suggestions" role="listbox">{suggestions.map((item, index) => <button key={item.insert} type="button" role="option" aria-selected={index === active} className={index === active ? 'active' : ''}
         onMouseDown={(e) => { e.preventDefault(); apply(item.insert); }}><b>{item.label}</b>{item.hint && <small>{item.hint}</small>}</button>)}</div>}
     </label>

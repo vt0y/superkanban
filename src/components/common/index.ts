@@ -1,4 +1,6 @@
 export * from './Avatar';
+export * from './Icon';
+export * from './Popover';
 export * from './Modal';
 export * from './Empty';
 export * from './FullLoader';

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Icon, type IconName } from './Icon';
 
 export function Empty({
   icon,
@@ -6,14 +7,14 @@ export function Empty({
   description,
   action,
 }: {
-  icon: string;
+  icon: IconName;
   title: string;
   description: string;
   action?: ReactNode;
 }) {
   return (
     <div className="empty">
-      <span>{icon}</span>
+      <span><Icon name={icon} /></span>
       <h3>{title}</h3>
       <p>{description}</p>
       {action}

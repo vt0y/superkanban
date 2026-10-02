@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { lockBodyScroll } from '@/utils/scroll-lock';
+import { Icon } from './Icon';
 
 export function Modal({
   title,
@@ -32,7 +33,7 @@ export function Modal({
       <section className={`modal ${wide ? 'wide' : ''} ${actions ? 'has-actions' : ''} ${className}`} role="dialog" aria-modal="true" aria-label={title}>
         <header>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
-            ×
+            <Icon name="close" />
           </button>
           <h2>{title}</h2>
           {actions && <div className="modal-header-actions">{actions}</div>}

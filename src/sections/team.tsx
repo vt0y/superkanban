@@ -28,6 +28,7 @@ import { isGitHubEnabled } from '@/config/features';
 import type { GitHubRevocation, Invite, Membership, Project, ProjectGitHubRepo, Role } from '@/types';
 import type { MessageKey } from '@/utils/i18n';
 import { fillMessage } from '@/utils/i18n';
+import { Icon } from '@/components/common/Icon';
 
 const GITHUB_PERMISSION_LABELS: [string, MessageKey][] = [
   ['none', 'ghPermNone'],
@@ -233,7 +234,7 @@ export function Team({ context, project, members, role, readOnly }: SectionProps
         action={
           canManageTeam(role) && !readOnly ? (
             <button className="primary" onClick={() => setShowInvite(true)}>
-              ＋ {context.t('invite')}
+              <Icon name="add" /> {context.t('invite')}
             </button>
           ) : undefined
         }
@@ -246,7 +247,7 @@ export function Team({ context, project, members, role, readOnly }: SectionProps
         {hasRepo && isOwner && (
           <div className="gh-status-bar">
             {!readOnly && <GitHubSessionBar context={context} />}
-            {managing && ownerType === 'User' && <small className="gh-note">ⓘ {t('ghPersonalRepoWriteOnly')}</small>}
+            {managing && ownerType === 'User' && <small className="gh-note"><Icon name="info" /> {t('ghPersonalRepoWriteOnly')}</small>}
             {access.hasToken && (
               <>
                 <button type="button" className="secondary small" disabled={access.checking} onClick={() => void access.refresh()}>
@@ -323,7 +324,7 @@ export function Team({ context, project, members, role, readOnly }: SectionProps
                         </select>
                       ) : (
                         <small title={isOwner && !readOnly ? t('ghLockedHint') : undefined}>
-                          {isOwner && !readOnly && '🔒 '}
+                          {isOwner && !readOnly && <Icon name="lock" />}
                           {member.githubPermission ? permissionLabel(member.githubPermission) : t('ghPermNone')}
                         </small>
                       )}
@@ -345,7 +346,7 @@ export function Team({ context, project, members, role, readOnly }: SectionProps
                       aria-label={removeBlockedReason(member) || fillMessage(t('removeMemberConfirm'), { name: member.displayName })}
                       onClick={() => void handleRemoveMember(member)}
                     >
-                      {removeBlockedReason(member) ? '🔒' : '×'}
+                      <Icon name={removeBlockedReason(member) ? 'lock' : 'trash'} />
                     </button>
                   </span>
                 )}
@@ -367,7 +368,7 @@ export function Team({ context, project, members, role, readOnly }: SectionProps
               .filter((item) => item.status === 'active')
               .map((invite) => (
                 <div key={invite.id}>
-                  <span>🔗</span>
+                  <span><Icon name="link" /></span>
                   <div>
                     <strong>{t('anyoneWithLink')}</strong>
                     <small>
@@ -379,7 +380,7 @@ export function Team({ context, project, members, role, readOnly }: SectionProps
                   </button>
                   {!readOnly && (
                     <button className="icon-danger" onClick={() => void revokeInvite(invite.id)}>
-                      ×
+                      <Icon name="close" />
                     </button>
                   )}
                 </div>
@@ -408,12 +409,12 @@ function RepoSummary({ context, repo, me }: { context: AppContextValue; repo: Pr
 
   return (
     <section className="panel gh-repo-summary">
-      <span aria-hidden="true">⎇</span>
+      <span aria-hidden="true"><Icon name="github" /></span>
       <div>
         <small>{t('ghRepoOfProject')}</small>
         <strong>
           <a className="gh-link" href={repo.url} target="_blank" rel="noreferrer">
-            {repo.fullName} ↗
+            {repo.fullName} <Icon name="open" />
           </a>{' '}
           <span className={`gh-badge ${repo.private ? '' : 'ok'}`}>{repo.private ? t('ghPrivate') : t('ghPublic')}</span>
         </strong>
@@ -495,7 +496,7 @@ function PendingRevocations({
   return (
     <section className="panel invites-panel gh-pending-panel">
       <PanelTitle
-        title={`⚠ ${fillMessage(t('ghPendingTitle'), { n: String(items.length) })}`}
+        title={fillMessage(t('ghPendingTitle'), { n: String(items.length) })}
         action={
           canRevoke && items.length > 1 ? (
             <button className="danger small" disabled={busy !== null} onClick={() => void revoke(items)}>
@@ -505,12 +506,12 @@ function PendingRevocations({
         }
       />
       <p className="muted gh-pending-hint">
-        {!isOwner ? t('ghPendingAdminHint') : canRevoke ? t('ghPendingOwnerHint') : `🔒 ${t('ghLockedHint')}`}
+        {!isOwner ? t('ghPendingAdminHint') : canRevoke ? t('ghPendingOwnerHint') : t('ghLockedHint')}
       </p>
       <div className="invite-list">
         {items.map((item) => (
           <div key={item.id}>
-            <span>🔓</span>
+            <span><Icon name="unlock" /></span>
             <div>
               <strong>
                 {item.displayName} · <GitHubHandle login={item.githubUsername} />

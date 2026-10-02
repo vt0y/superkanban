@@ -10,6 +10,7 @@ import {
   type GitHubSession,
 } from '@/services/github';
 import { fillMessage, type MessageKey } from '@/utils/i18n';
+import { Icon } from '@/components/common/Icon';
 
 /** The current management session; re-renders when it starts, ends, or expires. */
 export function useGitHubSession(): GitHubSession | null {
@@ -78,7 +79,7 @@ export function GitHubSessionBar({ context, disabled = false }: { context: AppCo
     return (
       <div className="gh-session-bar off">
         <span>
-          🔒 <strong>{t('ghSessionOff')}</strong>
+          <Icon name="lock" /> <strong>{t('ghSessionOff')}</strong>
           <small>{t('ghSessionOffHint')}</small>
         </span>
         <button type="button" className="primary small" disabled={busy || disabled} onClick={() => void enter()}>
@@ -97,7 +98,7 @@ export function GitHubSessionBar({ context, disabled = false }: { context: AppCo
   return (
     <div className="gh-session-bar on">
       <span>
-        🔓 <strong>{t('ghSessionOn')}</strong>
+        <Icon name="unlock" /> <strong>{t('ghSessionOn')}</strong>
         <small>{remaining}</small>
       </span>
       <button

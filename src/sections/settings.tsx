@@ -25,13 +25,14 @@ import { pick } from '@/utils/formatters';
 import type { Membership, Project } from '@/types';
 import { writeBatch } from 'firebase/firestore';
 import { database } from '@/services/helpers';
+import { Icon } from '@/components/common/Icon';
 
 export function Settings({ context, project, members, role, readOnly }: SectionProps) {
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: project.name, description: project.description, color: project.color });
 
   if (!canManageProject(role)) {
-    return <Empty icon="🔒" title={context.t('noAccess')} description={context.t('settingsOwnerOnly')} />;
+    return <Empty icon="lock" title={context.t('noAccess')} description={context.t('settingsOwnerOnly')} />;
   }
 
   const submit = async (e: FormEvent) => {
@@ -334,7 +335,7 @@ function LinkRepoModal({ project, context, onClose }: { project: Project; contex
         <div className="gh-linked-done" role="status">
           {linked?.id === pickedId ? (
             <>
-              <span className="gh-linked-check">✓</span>
+              <span className="gh-linked-check"><Icon name="check" /></span>
               <strong>{t('ghSelected')}</strong>
               <p>{fillMessage(t('ghLinkedToProject'), { repo: linked.fullName, project: project.name })}</p>
               <small className="muted">{t('ghLinkedNext')}</small>
@@ -359,10 +360,10 @@ function LinkRepoModal({ project, context, onClose }: { project: Project; contex
             <small className="muted">{t('ghInstallHelp')}</small>
             <div className="action-row">
               <a className="primary small gh-button-link" href={githubAppInstallUrl} target="_blank" rel="noreferrer">
-                {t('ghInstallApp')} ↗
+                {t('ghInstallApp')} <Icon name="open" />
               </a>
               <button type="button" className="secondary small" onClick={() => void loadRepos()}>
-                ↻ {t('ghInstalledReload')}
+                <Icon name="refresh" /> {t('ghInstalledReload')}
               </button>
             </div>
           </div>
@@ -372,7 +373,7 @@ function LinkRepoModal({ project, context, onClose }: { project: Project; contex
             <div className="gh-inline">
               <input type="search" placeholder={t('ghSearchRepos')} value={filter} onChange={(e) => setFilter(e.target.value)} />
               <button type="button" className="secondary" disabled={loading} onClick={() => void loadRepos()}>
-                ↻ {t('refresh')}
+                <Icon name="refresh" /> {t('refresh')}
               </button>
             </div>
             <div className="gh-repo-list">

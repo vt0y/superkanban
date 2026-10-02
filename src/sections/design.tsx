@@ -12,6 +12,7 @@ import { useProjectItems, useProjectItemsState, useProjectQuery, useSelection } 
 import { classifyUseCase, nextUseCaseCode, type UseCaseKind } from '@/utils/usecase-model';
 import { CommentThread } from '@/components/comments/CommentThread';
 import { DiagramEditor } from './diagram';
+import { Icon } from '@/components/common/Icon';
 
 export function SoftwareDesign({ context, project, members, role, readOnly }: SectionProps) {
   const { items: diagrams, loaded } = useProjectItemsState<Diagram>(project.id, 'diagrams');
@@ -59,15 +60,15 @@ export function SoftwareDesign({ context, project, members, role, readOnly }: Se
 
   return <>
     <PageTitle eyebrow="SOFTWARE DESIGN" title={context.t('design')} description={pick(locale, 'ออกแบบ Use Case Diagram (Actor, Base/Common Use Case, include/extend) และมอบหมายผู้รับผิดชอบแต่ละ Use Case', 'Model use case diagrams (actors, base/common use cases, include/extend) and assign an owner to each use case')}
-      action={<Segmented value={view} onChange={(next) => update({ view: next })} options={[{ id: 'diagram', label: <>◈ {pick(locale, 'ไดอะแกรม', 'Diagram')}</> }, { id: 'list', label: <>☰ {pick(locale, 'รายการ Use Case', 'Use case list')} <b>{useCases.length}</b></> }]} />} />
+      action={<Segmented value={view} onChange={(next) => update({ view: next })} options={[{ id: 'diagram', label: <><Icon name="design" /> {pick(locale, 'ไดอะแกรม', 'Diagram')}</> }, { id: 'list', label: <><Icon name="list" /> {pick(locale, 'รายการ Use Case', 'Use case list')} <b>{useCases.length}</b></> }]} />} />
     {view === 'diagram' ? <>
       <div className="diagram-tabs">
-        {sortedDiagrams.map((item) => <button key={item.id} className={current?.id === item.id ? 'active' : ''} onClick={() => update({ d: item.id })} onDoubleClick={readOnly ? undefined : renameDiagram}>◈ {item.title}</button>)}
-        {!readOnly && <button className="add-tab" onClick={() => void createDiagram()}>＋ {pick(locale, 'ไดอะแกรมใหม่', 'New diagram')}</button>}
-        {current && !readOnly && <span className="tab-actions"><button onClick={renameDiagram} title={pick(locale, 'เปลี่ยนชื่อ', 'Rename')}>✎</button>{canDeleteItem(role, current.createdBy, user.uid) && <button onClick={() => void deleteDiagram()} title={pick(locale, 'ลบไดอะแกรม', 'Delete diagram')}>🗑</button>}</span>}
+        {sortedDiagrams.map((item) => <button key={item.id} className={current?.id === item.id ? 'active' : ''} onClick={() => update({ d: item.id })} onDoubleClick={readOnly ? undefined : renameDiagram}>{item.title}</button>)}
+        {!readOnly && <button className="add-tab" onClick={() => void createDiagram()}><Icon name="add" /> {pick(locale, 'ไดอะแกรมใหม่', 'New diagram')}</button>}
+        {current && !readOnly && <span className="tab-actions"><button onClick={renameDiagram} title={pick(locale, 'เปลี่ยนชื่อ', 'Rename')}><Icon name="edit" /></button>{canDeleteItem(role, current.createdBy, user.uid) && <button onClick={() => void deleteDiagram()} title={pick(locale, 'ลบไดอะแกรม', 'Delete diagram')}><Icon name="trash" /></button>}</span>}
       </div>
       {current ? <DiagramEditor key={current.id} diagram={current} nodes={nodes} edges={edges} useCases={useCases} members={members} context={context} role={role} projectId={project.id} readOnly={readOnly} />
-        : loaded && <Empty icon="◈" title={pick(locale, 'ยังไม่มีไดอะแกรม', 'No diagrams yet')} description={pick(locale, 'สร้าง Use Case Diagram แรก: วาง Actor, Use Case และเชื่อมความสัมพันธ์แบบ draw.io', 'Create your first use case diagram — place actors and use cases and connect them, draw.io style')} action={!readOnly ? <button className="primary" onClick={() => void createDiagram()}>＋ {pick(locale, 'สร้างไดอะแกรม', 'Create diagram')}</button> : undefined} />}
+        : loaded && <Empty icon="design" title={pick(locale, 'ยังไม่มีไดอะแกรม', 'No diagrams yet')} description={pick(locale, 'สร้าง Use Case Diagram แรก: วาง Actor, Use Case และเชื่อมความสัมพันธ์แบบ draw.io', 'Create your first use case diagram — place actors and use cases and connect them, draw.io style')} action={!readOnly ? <button className="primary" onClick={() => void createDiagram()}><Icon name="add" /> {pick(locale, 'สร้างไดอะแกรม', 'Create diagram')}</button> : undefined} />}
     </> : <UseCaseList useCases={useCases} kinds={kinds} context={context} project={project} members={members} role={role} readOnly={readOnly} />}
   </>;
 }
@@ -98,21 +99,21 @@ function UseCaseList({ useCases, kinds, context, project, members, role, readOnl
   };
 
   return <>
-    <div className="list-toolbar"><label className="search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={pick(locale, 'ค้นหารหัส ชื่อ หรือ actor...', 'Search code, title or actor...')} /></label>
+    <div className="list-toolbar"><label className="search"><span><Icon name="search" /></span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={pick(locale, 'ค้นหารหัส ชื่อ หรือ actor...', 'Search code, title or actor...')} /></label>
       <select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">{pick(locale, 'ทุกสถานะ', 'All status')}</option><option value="mine">{pick(locale, 'ของฉัน', 'Assigned to me')}</option><option value="open">Open</option><option value="assigned">Assigned</option><option value="completed">Completed</option></select>
-      {!readOnly && <button className={`secondary ${selectMode ? 'on' : ''}`} onClick={() => { setSelectMode(!selectMode); if (selectMode) selection.clear(); }}>☑ {pick(locale, 'เลือกหลายรายการ', 'Select')}</button>}
-      {!readOnly && <button className="primary" onClick={() => setEditing('new')}>＋ {context.t('addUseCase')}</button>}</div>
+      {!readOnly && <button className={`secondary ${selectMode ? 'on' : ''}`} onClick={() => { setSelectMode(!selectMode); if (selectMode) selection.clear(); }}><Icon name="checklist" /> {pick(locale, 'เลือกหลายรายการ', 'Select')}</button>}
+      {!readOnly && <button className="primary" onClick={() => setEditing('new')}><Icon name="add" /> {context.t('addUseCase')}</button>}</div>
     <div className="usecase-grid">{filtered.map((item) => {
       const member = members.find((m) => m.userId === item.assigneeId);
       const kind = kinds.get(item.id);
       return <article key={item.id} className={`usecase-item ${item.status} ${selection.has(item.id) ? 'selected' : ''} ${selectMode || selection.selected.size ? 'select-mode' : ''}`} onClick={(event) => onCardClick(event, item)}>
-        <header><span>{!readOnly && <input type="checkbox" className="card-check" checked={selection.has(item.id)} onChange={() => selection.toggle(item.id)} aria-label="Select" />}{item.code}{kind && <em className={`kind-badge ${kind}`}>{kind}</em>}</span><button onClick={() => setEditing(item)} title={readOnly ? context.t('readOnly') : context.t('edit')}>•••</button></header>
-        <h3>{item.title}</h3><p className="uc-actor">♙ {item.actor || '—'}</p><p>{item.details || pick(locale, 'ยังไม่มีรายละเอียด', 'No description')}</p>
+        <header><span>{!readOnly && <input type="checkbox" className="card-check" checked={selection.has(item.id)} onChange={() => selection.toggle(item.id)} aria-label="Select" />}{item.code}{kind && <em className={`kind-badge ${kind}`}>{kind}</em>}</span><button onClick={() => setEditing(item)} title={readOnly ? context.t('readOnly') : context.t('edit')} aria-label={readOnly ? context.t('readOnly') : context.t('edit')}><Icon name="more" /></button></header>
+        <h3>{item.title}</h3><p className="uc-actor"><Icon name="user" /> {item.actor || '—'}</p><p>{item.details || pick(locale, 'ยังไม่มีรายละเอียด', 'No description')}</p>
         <div className="rule-tags">{item.businessRules.map((rule) => <span key={rule}>{rule}</span>)}</div>
         <footer>{readOnly ? <span className="muted">{member?.displayName || pick(locale, 'ยังไม่มอบหมาย', 'Unassigned')}</span> : <select value={item.assigneeId} onChange={(e) => assign(item, e.target.value)}><option value="">{pick(locale, 'ยังไม่มอบหมาย', 'Unassigned')}</option>{members.map((m) => <option key={m.id} value={m.userId}>{m.displayName}</option>)}</select>}{member && <Avatar name={member.displayName} src={member.photoURL} size="sm" />}</footer>
       </article>;
     })}</div>
-    {!filtered.length && <Empty icon="⌘" title={context.t('noData')} description={pick(locale, 'เพิ่ม Use Case ที่นี่ หรือวางบนไดอะแกรม', 'Add a use case here or place one on a diagram')} />}
+    {!filtered.length && <Empty icon="list" title={context.t('noData')} description={pick(locale, 'เพิ่ม Use Case ที่นี่ หรือวางบนไดอะแกรม', 'Add a use case here or place one on a diagram')} />}
     {!readOnly && <BulkBar count={selection.selected.size} locale={locale} onClear={selection.clear}>
       <select value="" onChange={(e) => { const value = e.target.value; if (value) bulk({ assigneeId: value === '-' ? '' : value, status: value === '-' ? 'open' : 'assigned' }, `มอบหมาย ${selectedIds.length} Use Case`, `assigned ${selectedIds.length} use cases`); }} aria-label="Assignee"><option value="">{pick(locale, 'มอบหมายให้…', 'Assign to…')}</option><option value="-">— {pick(locale, 'ยกเลิกการมอบหมาย', 'Unassign')}</option>{members.map((m) => <option key={m.id} value={m.userId}>{m.displayName}</option>)}</select>
       <select value="" onChange={(e) => e.target.value && bulk({ status: e.target.value as ProjectUseCase['status'] }, `เปลี่ยนสถานะ ${selectedIds.length} Use Case`, `changed status of ${selectedIds.length} use cases`)} aria-label="Status"><option value="">{pick(locale, 'สถานะ…', 'Status…')}</option><option value="open">Open</option><option value="assigned">Assigned</option><option value="completed">Completed</option></select>
@@ -135,7 +136,7 @@ function UseCaseModal({ item, allCodes, projectId, context, role, readOnly, onCl
     if (ok) onClose();
   };
   const actions = <>
-    {item && <button type="button" className="comment-toggle" onClick={() => setCommentsOpen(true)} aria-label={pick(locale, 'ความคิดเห็น', 'Comments')}>💬 {commentCount}</button>}
+    {item && <button type="button" className="comment-toggle" onClick={() => setCommentsOpen(true)} aria-label={pick(locale, 'ความคิดเห็น', 'Comments')}><Icon name="comment" /> {commentCount}</button>}
     {!readOnly && <button form={formId} className="primary">{t('save')}</button>}
   </>;
   return <Modal title={item ? `${item.code} · ${item.title}` : t('addUseCase')} onClose={commentsOpen ? () => setCommentsOpen(false) : onClose} wide={!!item} actions={actions}>

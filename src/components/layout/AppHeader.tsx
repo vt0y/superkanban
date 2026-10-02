@@ -1,90 +1,50 @@
-import { useState } from 'react';
-import { signOut } from 'firebase/auth';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '@/config/firebase';
 import type { AppContextValue } from '@/context/AppContext';
 import { useSiteFeedback } from '@/hooks/useSiteFeedback';
-import type { ThemeMode } from '@/types';
 import { Avatar } from '@/components/common/Avatar';
+import { Icon } from '@/components/common/Icon';
 import { Modal } from '@/components/common/Modal';
 import { SiteFeedbackModal } from '@/components/feedback/SiteFeedbackModal';
 import { linkGitHubAccount, unlinkGitHubAccount } from '@/services/github';
 import { isGitHubEnabled } from '@/config/features';
 import { attempt, toast } from '@/components/toast';
 import { fillMessage } from '@/utils/i18n';
+import { pick } from '@/utils/formatters';
+import { UserMenu } from './UserMenu';
 
-export function AppHeader({ context }: { context: AppContextValue }) {
-  const { profile, locale, setLocale, setTheme, t } = context;
+/** Top bar. `leading` replaces the brand (the workspace passes a project › section breadcrumb). */
+export function AppHeader({ context, leading }: { context: AppContextValue; leading?: ReactNode }) {
+  const { locale, t } = context;
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const navigate = useNavigate();
   const admin = context.siteRole !== null;
   // Query only open feedback on server up to limit 20 for badge
   const openCount = useSiteFeedback(context, admin, { status: 'open', limitCount: 20 }).length;
-  const identity = (
-    <>
-      <Avatar name={profile.displayName} src={profile.photoURL} />
-      <span>
-        <strong>{profile.displayName}</strong>
-        <small>{isGitHubEnabled && profile.githubUsername ? `@${profile.githubUsername}` : profile.email}</small>
-      </span>
-    </>
-  );
+  const feedbackLabel = admin ? t('feedbackInbox') : t('sendFeedback');
 
   return (
     <header className="topbar">
-      <a className="brand" href="/">
-        <span className="brand-mark">P</span>
-        <strong>ProjectSpace</strong>
-      </a>
+      <div className="topbar-leading">
+        {leading ?? (
+          <a className="brand" href="/">
+            <span className="brand-mark">P</span>
+            <strong>ProjectSpace</strong>
+          </a>
+        )}
+      </div>
       <div className="topbar-actions">
-        <button className="tarot-shortcut" onClick={() => navigate('/tarot')} title={locale === 'th' ? 'เปิดไพ่ทาโรต์' : 'Open Tarot'}>
-          ☾ <span>{locale === 'th' ? 'ดูไพ่' : 'Tarot'}</span>
+        <button type="button" className="topbar-button tarot" onClick={() => navigate('/tarot')} title={pick(locale, 'เปิดไพ่ทาโรต์', 'Open Tarot')} aria-label={pick(locale, 'เปิดไพ่ทาโรต์', 'Open Tarot')}>
+          <Icon name="sparkles" />
         </button>
-        <button
-          className="feedback-button"
-          onClick={() => (admin ? navigate('/feedback') : setFeedbackOpen(true))}
-          title={admin ? t('feedbackInbox') : t('sendFeedback')}
-        >
-          💬{' '}
-          <span>
-            {admin
-              ? locale === 'th'
-                ? 'กล่องฟีดแบ็ก'
-                : 'Inbox'
-              : locale === 'th'
-                ? 'ฟีดแบ็ก'
-                : 'Feedback'}
-          </span>
+        <button type="button" className="topbar-button" onClick={() => (admin ? navigate('/feedback') : setFeedbackOpen(true))} title={feedbackLabel} aria-label={feedbackLabel}>
+          <Icon name={admin ? 'inbox' : 'feedback'} />
           {admin && openCount > 0 && <b>{openCount}</b>}
         </button>
-        {feedbackOpen && <SiteFeedbackModal context={context} onClose={() => setFeedbackOpen(false)} />}
-        <button className="locale-switch" onClick={() => setLocale(locale === 'th' ? 'en' : 'th')}>
-          {locale === 'th' ? 'EN' : 'ไทย'}
-        </button>
-        <select
-          className="theme-select"
-          value={profile.theme}
-          onChange={(event) => setTheme(event.target.value as ThemeMode)}
-          aria-label="Theme"
-        >
-          <option value="system">◐ {t('themeSystem')}</option>
-          <option value="light">☀ {t('themeLight')}</option>
-          <option value="dark">☾ {t('themeDark')}</option>
-        </select>
-        <div className="profile-menu">
-          {isGitHubEnabled ? (
-            <button type="button" className={`profile-trigger ${profileOpen ? 'active' : ''}`} onClick={() => setProfileOpen(true)} title={t('profile')}>
-              {identity}
-            </button>
-          ) : (
-            identity
-          )}
-          <button onClick={() => signOut(auth!)} title={t('signOut')}>
-            ↪
-          </button>
-        </div>
+        <UserMenu context={context} onOpenProfile={() => setProfileOpen(true)} />
       </div>
+      {feedbackOpen && <SiteFeedbackModal context={context} onClose={() => setFeedbackOpen(false)} />}
       {isGitHubEnabled && profileOpen && <UserProfileModal context={context} onClose={() => setProfileOpen(false)} />}
     </header>
   );

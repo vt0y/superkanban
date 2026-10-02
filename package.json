@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "sync:rules": "node scripts/sync-rules.js",
-    "build": "npm run sync:rules && tsc --noEmit && npm run tarot:worker:typecheck && vite build && node scripts/report-bundle-size.js",
+    "build": "npm run sync:rules && npm run check:css && tsc --noEmit && npm run tarot:worker:typecheck && vite build && node scripts/report-bundle-size.js",
+    "check:css": "node scripts/check-css.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -25,6 +26,7 @@
   "dependencies": {
     "dompurify": "^3.2.6",
     "firebase": "^12.3.0",
+    "lucide-react": "^1.49.0",
     "marked": "^16.3.0",
     "mermaid": "11.17.2",
     "react": "^19.1.1",

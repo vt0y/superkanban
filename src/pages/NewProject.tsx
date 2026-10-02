@@ -4,6 +4,7 @@ import type { AppContextValue } from '@/context/AppContext';
 import { PROJECT_COLORS } from '@/config/constants';
 import { createProject } from '@/services/projects';
 import { AppHeader } from '@/components/layout/AppHeader';
+import { Icon } from '@/components/common/Icon';
 
 export function NewProject({ context }: { context: AppContextValue }) {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ export function NewProject({ context }: { context: AppContextValue }) {
       <AppHeader context={context} />
       <main className="narrow-page">
         <button className="back-link" onClick={() => navigate('/')}>
-          ← {context.t('overview')}
+          <Icon name="arrowLeft" /> {context.t('overview')}
         </button>
         <div className="form-card">
           <span className="eyebrow">NEW WORKSPACE</span>

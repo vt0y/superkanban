@@ -1,0 +1,96 @@
+.poll-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+@media (min-width: 768px) { .poll-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--sp-4); } }
+.poll-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+@media (min-width: 640px) { .poll-card { padding: var(--sp-5); } }
+.poll-card.closed { opacity: .8; }
+.poll-card > header { display: flex; justify-content: space-between; gap: var(--sp-2); }
+.poll-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.poll-card h3 { margin: 0; font-size: var(--fs-md); font-weight: 600; line-height: 1.35; }
+.poll-card > p { margin: -6px 0 0; color: var(--muted); font-size: var(--fs-sm); }
+.poll-options { display: flex; flex-direction: column; gap: 6px; }
+.poll-option {
+  position: relative;
+  min-height: var(--h-touch);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--sp-2) var(--sp-3);
+  overflow: hidden;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  text-align: left;
+  isolation: isolate;
+}
+.poll-option:hover:not(:disabled) { border-color: var(--border-strong); }
+.poll-option:disabled { opacity: 1; cursor: default; }
+.poll-fill { position: absolute; inset: 0 auto 0 0; z-index: -1; background: var(--surface-2); transition: width .45s var(--ease); }
+.poll-option.leading .poll-fill { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
+.poll-option.chosen { border-color: var(--primary); }
+.poll-mark {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--on-primary);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 50%;
+}
+.poll-mark .icon { width: 12px; height: 12px; stroke-width: 3; }
+.poll-mark.square { border-radius: var(--r-xs); }
+.poll-option.chosen .poll-mark { border-color: var(--primary-solid); background: var(--primary-solid); }
+.poll-label { flex: 1; font-size: var(--fs-sm); font-weight: 500; }
+.poll-option > b { color: var(--muted); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.poll-option .avatar-stack { display: none; }
+@media (min-width: 640px) { .poll-option .avatar-stack { display: flex; } }
+.poll-card > footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs);
+}
+.poll-card > footer > span:last-child { display: flex; gap: var(--sp-3); }
+.poll-meta-row { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.poll-meta-row > span { display: inline-flex; align-items: center; gap: 4px; }
+.poll-meta-row .icon { width: 12px; height: 12px; }
+.poll-meta { color: var(--dim); font-size: var(--fs-xs); }
+
+/* poll editor */
+.option-editor { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.option-editor > div { display: flex; align-items: center; gap: var(--sp-2); }
+.option-editor > div > span { width: 20px; color: var(--dim); font-size: var(--fs-xs); text-align: center; }
+.option-editor > div input { min-width: 0; flex: 1; }
+.toggle-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-2); }
+@media (min-width: 640px) { .toggle-cards { grid-template-columns: 1fr 1fr; } }
+.stack-form .toggle-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: border-color var(--dur), background-color var(--dur);
+}
+.toggle-card input { display: none; }
+.toggle-card strong { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font-size: var(--fs-sm); font-weight: 600; }
+.toggle-card strong .icon { width: 14px; height: 14px; }
+.toggle-card small { font-weight: 400; }
+.stack-form .toggle-card.on { border-color: var(--primary); background: var(--primary-soft); }

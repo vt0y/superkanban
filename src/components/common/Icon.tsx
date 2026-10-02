@@ -1,0 +1,121 @@
+import {
+  AlertTriangle, Archive, ArrowLeft, ArrowRight, ArrowUpRight, Bell, Calendar, CalendarDays, Check, CheckSquare, ChevronDown,
+  ChevronLeft, ChevronRight, ChevronsUpDown, Circle, Clock, Cloud, Copy, Diamond, Dices, Download, ExternalLink, Eye, EyeOff,
+  File, FileText, Filter, Flag, FolderOpen, GitBranch, Globe, Grip, Hand, Hash, Image, Inbox, Info, Layers,
+  LayoutDashboard, Link, List, Lock, LogOut, Mail, Maximize2, Menu, MessageCircle, MessageSquare, Minus, Monitor, Moon,
+  MoreHorizontal, MoreVertical, MousePointer2, PanelLeftClose, PanelLeftOpen, Paperclip, Pencil, Pin, Plus, RefreshCw,
+  Search, Send, Settings, Shapes, Share2, Sparkles, SquareDashed, SquareKanban, StickyNote, Sun, Table, Tag, ThumbsUp, Trash2, Trophy,
+  Type, Unlink, Unlock, Upload, User, UserPlus, Users, Vote, Workflow, X, Zap,
+} from 'lucide-react';
+import type { LucideProps } from 'lucide-react';
+import type { ComponentType } from 'react';
+
+/** lucide dropped brand marks; this is the GitHub mark, sized and coloured like a lucide icon. */
+function GithubMark({ size = 24, strokeWidth: _strokeWidth, absoluteStrokeWidth: _absolute, ...props }: LucideProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" {...props}>
+      <path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z" />
+    </svg>
+  );
+}
+
+/** Every icon the app uses, by a stable app-level name. Import from lucide only here. */
+export const ICONS = {
+  activity: Zap,
+  add: Plus,
+  alert: AlertTriangle,
+  archive: Archive,
+  arrowLeft: ArrowLeft,
+  arrowRight: ArrowRight,
+  attach: Paperclip,
+  back: ChevronLeft,
+  bell: Bell,
+  board: SquareKanban,
+  calendar: CalendarDays,
+  calendarSingle: Calendar,
+  canva: Shapes,
+  check: Check,
+  checklist: CheckSquare,
+  chevronDown: ChevronDown,
+  chevronRight: ChevronRight,
+  chevronsUpDown: ChevronsUpDown,
+  circle: Circle,
+  clock: Clock,
+  close: X,
+  cloud: Cloud,
+  comment: MessageSquare,
+  copy: Copy,
+  dashboard: LayoutDashboard,
+  design: Workflow,
+  diamond: Diamond,
+  document: FileText,
+  download: Download,
+  drag: Grip,
+  edit: Pencil,
+  external: ExternalLink,
+  eye: Eye,
+  eyeOff: EyeOff,
+  feedback: MessageCircle,
+  file: File,
+  filter: Filter,
+  fit: Maximize2,
+  flag: Flag,
+  folder: FolderOpen,
+  gacha: Dices,
+  github: GithubMark,
+  globe: Globe,
+  hand: Hand,
+  hash: Hash,
+  image: Image,
+  inbox: Inbox,
+  info: Info,
+  label: Tag,
+  layers: Layers,
+  link: Link,
+  list: List,
+  lock: Lock,
+  menu: Menu,
+  milestone: Flag,
+  minus: Minus,
+  monitor: Monitor,
+  moon: Moon,
+  more: MoreHorizontal,
+  moreVertical: MoreVertical,
+  note: StickyNote,
+  open: ArrowUpRight,
+  panelClose: PanelLeftClose,
+  panelOpen: PanelLeftOpen,
+  pin: Pin,
+  pointer: MousePointer2,
+  refresh: RefreshCw,
+  search: Search,
+  send: Send,
+  settings: Settings,
+  share: Share2,
+  sparkles: Sparkles,
+  boundary: SquareDashed,
+  sun: Sun,
+  table: Table,
+  team: Users,
+  text: Type,
+  trash: Trash2,
+  trophy: Trophy,
+  unlink: Unlink,
+  unlock: Unlock,
+  upload: Upload,
+  upvote: ThumbsUp,
+  user: User,
+  userPlus: UserPlus,
+  vote: Vote,
+  branch: GitBranch,
+  mail: Mail,
+  logout: LogOut,
+} satisfies Record<string, ComponentType<LucideProps>>;
+
+export type IconName = keyof typeof ICONS;
+
+/** Decorative by default (aria-hidden); pass `label` for a standalone, meaningful icon. */
+export function Icon({ name, label, className = '', ...props }: { name: IconName; label?: string } & Omit<LucideProps, 'ref'>) {
+  const Component = ICONS[name];
+  return <Component className={`icon ${className}`} aria-hidden={label ? undefined : true} aria-label={label} role={label ? 'img' : undefined} {...props} />;
+}

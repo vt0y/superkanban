@@ -5,6 +5,7 @@ import { deleteSiteFeedback, updateSiteFeedback } from '@/services/feedback';
 import type { SiteFeedback } from '@/types';
 import { attempt, toast } from '@/components/toast';
 import { pick, relativeTime } from '@/utils/formatters';
+import { Icon } from '@/components/common/Icon';
 
 export function FeedbackCard({ item, admin, context }: { item: SiteFeedback; admin: boolean; context: AppContextValue }) {
   const { locale, user } = context;
@@ -34,7 +35,7 @@ export function FeedbackCard({ item, admin, context }: { item: SiteFeedback; adm
                 void attempt(() => deleteSiteFeedback(item.id), failed);
             }}
           >
-            ×
+            <Icon name="close" />
           </button>
         )}
       </header>

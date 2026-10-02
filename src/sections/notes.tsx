@@ -19,6 +19,7 @@ import { LabelPicker } from '@/components/board/LabelPicker';
 import { DocumentFilterBar } from '@/components/board/DocumentFilterBar';
 import { matchDocument, parseDocumentQuery, tokenizeDocumentQuery } from '@/utils/document-filter';
 import { queryValue, toggleQueryTerm } from '@/utils/task-filter';
+import { Icon } from '@/components/common/Icon';
 
 const NOTE_W = 210;
 const NOTE_H = 160;
@@ -126,8 +127,8 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
     <PageTitle eyebrow={mode === 'sticky' ? 'QUICK NOTES' : 'KNOWLEDGE SPACE'} title={mode === 'sticky' ? context.t('notes') : context.t('documents')}
       description={mode === 'sticky' ? pick(locale, 'แปะไอเดียและโน้ตสั้นบนพื้นที่อิสระ', 'Capture ideas and quick notes on a freeform canvas') : pick(locale, 'ค้นหา จัดหมวดหมู่ และแชร์เอกสารสำคัญของโปรเจกต์', 'Find, organize and share key project documents')}
       action={mode === 'sticky'
-        ? (!readOnly && <button className="primary" onClick={() => setNoteModal({ x: NaN, y: NaN })}>＋ {context.t('sticky')}</button>)
-        : <div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}>🏷 {pick(locale, 'จัดการ Labels', 'Manage labels')}</button>{!readOnly && <button className="secondary" onClick={() => setCanvaOpen(true)}>＋ Canva</button>}{!readOnly && <button className="primary" onClick={() => setDocModal('new')}>＋ {context.t('documents')}</button>}</div>} />
+        ? (!readOnly && <button className="primary" onClick={() => setNoteModal({ x: NaN, y: NaN })}><Icon name="add" /> {context.t('sticky')}</button>)
+        : <div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}><Icon name="label" /> {pick(locale, 'จัดการ Labels', 'Manage labels')}</button>{!readOnly && <button className="secondary" onClick={() => setCanvaOpen(true)}><Icon name="add" /> Canva</button>}{!readOnly && <button className="primary" onClick={() => setDocModal('new')}><Icon name="add" /> {context.t('documents')}</button>}</div>} />
     {mode === 'sticky'
       ? <StickyCanvas notes={notes} tasks={tasks} context={context} projectId={project.id} role={role} readOnly={readOnly} onEdit={setNoteModal} />
       : <><div className="board-toolbar document-toolbar"><DocumentFilterBar value={query} onChange={setDocumentQuery} labels={labels} tasks={documentTasks} locale={locale} /></div>
@@ -190,15 +191,15 @@ function StickyCanvas({ notes, tasks, context, projectId, role, readOnly, onEdit
           style={{ background: note.color, transform: `translate3d(${position.x}px, ${position.y}px, 0)`, zIndex: dragging ? 9999 : order(note.id) }}
           onPointerDown={(event) => onNotePointerDown(event, note)} onDoubleClick={(event) => { event.stopPropagation(); onEdit(note); }}>
           <header>
-            {!readOnly && <button type="button" className="sticky-action-btn" title={note.pinned ? pick(locale, 'ถอนหมุด', 'Unpin') : pick(locale, 'ปักหมุด (ล็อกตำแหน่ง)', 'Pin (lock position)')} onClick={() => togglePin(note)}>{note.pinned ? '📌' : '⋮⋮'}</button>}
-            <div className="sticky-header-actions"><button type="button" className="sticky-action-btn" title={readOnly ? context.t('readOnly') : context.t('edit')} onClick={() => onEdit(note)}>{readOnly ? '⌕' : '✎'}</button>{!readOnly && canDeleteItem(role, note.createdBy, user.uid) && <button type="button" className="sticky-action-btn danger" title={context.t('delete')} onClick={() => removeNote(note)}>×</button>}</div>
+            {!readOnly && <button type="button" className="sticky-action-btn" title={note.pinned ? pick(locale, 'ถอนหมุด', 'Unpin') : pick(locale, 'ปักหมุด (ล็อกตำแหน่ง)', 'Pin (lock position)')} onClick={() => togglePin(note)}><Icon name={note.pinned ? 'pin' : 'drag'} /></button>}
+            <div className="sticky-header-actions"><button type="button" className="sticky-action-btn" title={readOnly ? context.t('readOnly') : context.t('edit')} onClick={() => onEdit(note)}><Icon name={readOnly ? 'eye' : 'edit'} /></button>{!readOnly && canDeleteItem(role, note.createdBy, user.uid) && <button type="button" className="sticky-action-btn danger" title={context.t('delete')} onClick={() => removeNote(note)}><Icon name="close" /></button>}</div>
           </header>
           <p>{parseContentWithLinks(note.content)}</p>
-          {note.taskId && <small>↗ {tasks.find((task) => task.id === note.taskId)?.title || 'Task'}</small>}
+          {note.taskId && <small><Icon name="open" /> {tasks.find((task) => task.id === note.taskId)?.title || 'Task'}</small>}
         </article>;
       })}
     </div>
-    {!notes.length && <div className="canvas-empty"><Empty icon="▤" title={pick(locale, 'ยังไม่มี Sticky Note', 'No sticky notes yet')} description={pick(locale, 'ดับเบิลคลิกที่ว่างเพื่อแปะโน้ต', 'Double-click anywhere to add a note')} /></div>}
+    {!notes.length && <div className="canvas-empty"><Empty icon="note" title={pick(locale, 'ยังไม่มี Sticky Note', 'No sticky notes yet')} description={pick(locale, 'ดับเบิลคลิกที่ว่างเพื่อแปะโน้ต', 'Double-click anywhere to add a note')} /></div>}
     <div className="canvas-hint">{pick(locale, 'ลากที่ว่างเพื่อเลื่อน · Ctrl/⌘ + scroll เพื่อซูม · ดับเบิลคลิกเพื่อเพิ่มโน้ต', 'Drag empty space to pan · Ctrl/⌘ + scroll to zoom · double-click to add')}</div>
     <CanvasControls zoom={canvas.view.zoom} onZoomIn={() => canvas.zoomBy(1.2)} onZoomOut={() => canvas.zoomBy(1 / 1.2)} onReset={canvas.reset} onFit={() => canvas.fit(rects())} fitLabel={pick(locale, 'แสดงทั้งหมด', 'Fit all')} />
   </div>;
@@ -244,12 +245,12 @@ function DocumentList({ documents, labels, tasks, filtered, projectId, context, 
       if (!confirm(pick(locale, 'นำงานออกแบบนี้ออกจาก SuperKanban หรือไม่? งานและการแชร์ใน Canva จะไม่เปลี่ยนแปลง', 'Remove this design from SuperKanban? The design and its sharing in Canva will stay unchanged.'))) return false;
       return attempt(() => detachDriveProjectDocument(projectId, document.id).then(() => true), pick(locale, 'นำงานออกแบบออกไม่สำเร็จ', 'Could not remove design')).then((ok) => ok === true);
     }} /><DocumentMetadataRow document={document} labels={labels} tasks={tasks} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} onTaskFilter={onTaskFilter} onEdit={() => onEditDrive(document)} /></div>
-    : <div className="document-entry" key={document.id}><Link to={`/p/${projectId}/documents/${document.id}`}><span>▤</span><div><h3>{document.title}</h3><p>{document.excerpt || document.content?.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b>→</b></Link><DocumentMetadataRow document={document} labels={labels} tasks={tasks} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} onTaskFilter={onTaskFilter} /></div>)}{!documents.length && <Empty icon="▤" title={filtered ? pick(locale, 'ไม่พบเอกสารที่ตรงกับตัวกรอง', 'No documents match this filter') : pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={filtered ? pick(locale, 'ลองแก้คำค้นหาหรือล้างตัวกรอง', 'Try changing or clearing the filter') : pick(locale, 'สร้างเอกสาร Markdown หรือแนบไฟล์จาก Google Drive', 'Create a Markdown document or attach a Google Drive file or Canva design')} />}</div>;
+    : <div className="document-entry" key={document.id}><Link to={`/p/${projectId}/documents/${document.id}`}><span><Icon name="document" /></span><div><h3>{document.title}</h3><p>{document.excerpt || document.content?.replace(/[#*_`]/g, '').slice(0, 130) || 'Empty document'}</p><small>{relativeTime(document.updatedAt?.toDate(), locale)}</small></div><b><Icon name="arrowRight" /></b></Link><DocumentMetadataRow document={document} labels={labels} tasks={tasks} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} onTaskFilter={onTaskFilter} /></div>)}{!documents.length && <Empty icon="document" title={filtered ? pick(locale, 'ไม่พบเอกสารที่ตรงกับตัวกรอง', 'No documents match this filter') : pick(locale, 'ยังไม่มีเอกสาร', 'No documents yet')} description={filtered ? pick(locale, 'ลองแก้คำค้นหาหรือล้างตัวกรอง', 'Try changing or clearing the filter') : pick(locale, 'สร้างเอกสาร Markdown หรือแนบไฟล์จาก Google Drive', 'Create a Markdown document or attach a Google Drive file or Canva design')} />}</div>;
 }
 
 function DocumentMetadataRow({ document, labels, tasks, projectId, context, readOnly, onFilter, onTaskFilter, onEdit }: { document: ProjectDocument; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; readOnly: boolean; onFilter: (label: Label) => void; onTaskFilter: (task: Task) => void; onEdit?: () => void }) {
   const linkedTasks = tasks.filter((task) => (document.taskIds || []).includes(task.id));
-  return <div className="document-metadata-row"><div className="document-metadata-tags"><DocumentLabelRow document={document} labels={labels} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} /><div className="document-task-chips">{linkedTasks.map((task) => <button type="button" key={task.id} onClick={() => onTaskFilter(task)}>▣ {task.title}</button>)}</div></div>{onEdit && !readOnly && <button type="button" className="secondary document-details-button" onClick={onEdit}><span aria-hidden="true">✎</span>{pick(context.locale, 'แก้ไข', 'Edit')}</button>}</div>;
+  return <div className="document-metadata-row"><div className="document-metadata-tags"><DocumentLabelRow document={document} labels={labels} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} /><div className="document-task-chips">{linkedTasks.map((task) => <button type="button" key={task.id} onClick={() => onTaskFilter(task)}><Icon name="board" /> {task.title}</button>)}</div></div>{onEdit && !readOnly && <button type="button" className="secondary document-details-button" onClick={onEdit}><span aria-hidden="true"><Icon name="edit" /></span>{pick(context.locale, 'แก้ไข', 'Edit')}</button>}</div>;
 }
 
 function DriveDocumentDetailsModal({ item, labels, tasks, projectId, context, readOnly, onClose }: { item: DriveProjectDocument | CanvaProjectDocument; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; readOnly: boolean; onClose: () => void }) {
@@ -325,12 +326,12 @@ function DocumentReader({ documentId, projectId, context, role, readOnly }: { do
   }, [item?.id, item?.schemaVersion, projectId, documentId, readOnly]);
 
   if (item === undefined && !failed) return <div className="document-reader-state"><span className="loader" /></div>;
-  if (!item || failed) return <div className="document-reader-state"><Empty icon="▤" title={pick(locale, 'ไม่พบเอกสาร', 'Document not found')} description={pick(locale, 'เอกสารนี้อาจถูกลบหรือคุณไม่มีสิทธิ์เข้าถึง', 'It may have been deleted or you may not have access.')} /><Link className="secondary" to={`/p/${projectId}/documents`}>{pick(locale, 'กลับไปเอกสาร', 'Back to documents')}</Link></div>;
+  if (!item || failed) return <div className="document-reader-state"><Empty icon="document" title={pick(locale, 'ไม่พบเอกสาร', 'Document not found')} description={pick(locale, 'เอกสารนี้อาจถูกลบหรือคุณไม่มีสิทธิ์เข้าถึง', 'It may have been deleted or you may not have access.')} /><Link className="secondary" to={`/p/${projectId}/documents`}>{pick(locale, 'กลับไปเอกสาร', 'Back to documents')}</Link></div>;
 
   return <>
     <section className="document-reader-shell">
       <header className="document-reader-toolbar">
-        <button type="button" className="secondary document-back" onClick={() => navigate(`/p/${projectId}/documents`)}><span aria-hidden="true">←</span><span>{pick(locale, 'เอกสาร', 'Documents')}</span></button>
+        <button type="button" className="secondary document-back" onClick={() => navigate(`/p/${projectId}/documents`)}><span aria-hidden="true"><Icon name="arrowLeft" /></span><span>{pick(locale, 'เอกสาร', 'Documents')}</span></button>
         <div><h1>{item.title}</h1><div className="document-reader-labels">{labels.filter((label) => (item.labelIds || []).includes(label.id)).map((label) => <LabelChip key={label.id} label={label} />)}</div><small>{pick(locale, 'แก้ไขล่าสุด', 'Updated')} {relativeTime(item.updatedAt?.toDate(), locale)}</small></div>
         {!readOnly && <button type="button" className="primary" onClick={() => setEditing(true)}>{pick(locale, 'แก้ไข', 'Edit')}</button>}
       </header>

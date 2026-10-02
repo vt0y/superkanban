@@ -3,6 +3,7 @@ import type { Label, Task } from '@/types';
 import { parseDocumentQuery } from '@/utils/document-filter';
 import { pick } from '@/utils/formatters';
 import { queryValue, toggleQueryTerm } from '@/utils/task-filter';
+import { Icon } from '@/components/common/Icon';
 
 /** Board-style query bar for documents: text, label/task terms and missing metadata. */
 export function DocumentFilterBar({ value, onChange, labels, tasks, locale }: { value: string; onChange: (value: string) => void; labels: Label[]; tasks: Task[]; locale: string }) {
@@ -33,7 +34,7 @@ export function DocumentFilterBar({ value, onChange, labels, tasks, locale }: { 
   const hasNoTask = parsed.terms.some((term) => term.key === 'no' && term.value === 'task' && !term.negated);
 
   return <div className="filter-bar document-filter-bar">
-    <label className="search filter-input"><span>⌕</span>
+    <label className="search filter-input"><span><Icon name="search" /></span>
       <input value={value} onChange={(event) => { onChange(event.target.value); setActive(0); }} onFocus={() => setFocused(true)} onBlur={() => window.setTimeout(() => setFocused(false), 120)}
         placeholder={pick(locale, 'กรอง เช่น label:design หรือพิมพ์ชื่อเอกสาร', 'Filter, e.g. label:design or document title')} spellCheck={false}
         onKeyDown={(event) => {
@@ -43,7 +44,7 @@ export function DocumentFilterBar({ value, onChange, labels, tasks, locale }: { 
           if (event.key === 'ArrowUp') { event.preventDefault(); setActive((active - 1 + suggestions.length) % suggestions.length); }
           if (event.key === 'Tab' || (event.key === 'Enter' && suggestions[active])) { event.preventDefault(); apply(suggestions[active].insert); }
         }} />
-      {value && <button type="button" className="filter-clear" onClick={() => onChange('')} aria-label={pick(locale, 'ล้างตัวกรอง', 'Clear filter')}>×</button>}
+      {value && <button type="button" className="filter-clear" onClick={() => onChange('')} aria-label={pick(locale, 'ล้างตัวกรอง', 'Clear filter')}><Icon name="close" /></button>}
       {open && <div className="filter-suggestions" role="listbox">{suggestions.map((item, index) => <button key={item.insert} type="button" role="option" aria-selected={index === active} className={index === active ? 'active' : ''}
         onMouseDown={(event) => { event.preventDefault(); apply(item.insert); }}><b>{item.label}</b>{item.hint && <small>{item.hint}</small>}</button>)}</div>}
     </label>
@@ -57,7 +58,7 @@ export function DocumentFilterBar({ value, onChange, labels, tasks, locale }: { 
       {[...tasks].sort((a, b) => a.title.localeCompare(b.title)).slice(0, 30).map((task) => {
         const term = `task:${queryValue(task.title)}`;
         const selected = parsed.terms.some((item) => item.key === 'task' && !item.negated && item.value === task.title.toLowerCase());
-        return <button type="button" key={task.id} className={`document-task-filter ${selected ? 'active' : ''}`} onClick={() => onChange(toggleQueryTerm(value, term))}>▣ {task.title}</button>;
+        return <button type="button" key={task.id} className={`document-task-filter ${selected ? 'active' : ''}`} onClick={() => onChange(toggleQueryTerm(value, term))}><Icon name="board" /> {task.title}</button>;
       })}
       <button type="button" className={hasNoTask ? 'active' : ''} onClick={() => onChange(toggleQueryTerm(value, 'no:task'))}>{pick(locale, 'ไม่มี Task', 'No task')}</button>
     </div>

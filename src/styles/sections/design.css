@@ -1,0 +1,283 @@
+/* Software design: use-case list + UML use-case diagram editor. */
+
+/* ── use-case list ── */
+.usecase-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+@media (min-width: 640px) { .usecase-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1280px) { .usecase-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.usecase-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  transition: border-color var(--dur) var(--ease);
+}
+.usecase-item:hover { border-color: var(--border-strong); }
+.usecase-item.assigned { box-shadow: inset 0 3px 0 var(--warning); }
+.usecase-item.completed { box-shadow: inset 0 3px 0 var(--success); }
+.usecase-item header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.usecase-item header > span { display: flex; align-items: center; gap: 6px; color: var(--primary); font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
+.usecase-item .card-check { position: static; display: none; }
+.usecase-item:hover .card-check, .usecase-item.select-mode .card-check, .usecase-item.selected .card-check { display: inline-block; }
+@media (hover: none) { .usecase-item .card-check { display: inline-block; } }
+.usecase-item header button { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; color: var(--dim); border: 0; border-radius: var(--r-sm); background: transparent; }
+.usecase-item header button:hover { color: var(--text); background: var(--surface-2); }
+.usecase-item header button .icon { width: 15px; height: 15px; }
+.usecase-item h3 { margin: var(--sp-2) 0 2px; font-size: var(--fs-base); font-weight: 600; }
+.usecase-item > p { margin: 4px 0; color: var(--muted); font-size: var(--fs-sm); }
+.usecase-item > p.uc-actor { display: flex; align-items: center; gap: 5px; color: var(--warning-fg); font-weight: 500; }
+.uc-actor .icon { width: 13px; height: 13px; }
+.rule-tags { min-height: 22px; display: flex; flex-wrap: wrap; gap: 4px; margin-top: var(--sp-2); }
+.rule-tags span { padding: 0 6px; color: var(--muted); border-radius: var(--r-xs); background: var(--surface-2); font-size: var(--fs-xs); }
+.usecase-item footer { display: flex; align-items: center; gap: var(--sp-2); margin-top: auto; padding-top: var(--sp-3); border-top: 1px solid var(--border); }
+.usecase-item footer select { min-width: 0; min-height: var(--h-control-sm); flex: 1; font-size: var(--fs-xs); }
+
+/* ── diagram tabs ── */
+.diagram-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0 calc(-1 * var(--sp-3)) var(--sp-3);
+  padding: 0 var(--sp-3);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.diagram-tabs::-webkit-scrollbar { display: none; }
+@media (min-width: 640px) { .diagram-tabs { flex-wrap: wrap; margin-inline: 0; padding: 0; overflow: visible; } }
+.diagram-tabs > button {
+  min-height: var(--h-control-sm);
+  flex: 0 0 auto;
+  padding: 0 var(--sp-3);
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: var(--r-full);
+  background: transparent;
+  font-size: var(--fs-control-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.diagram-tabs > button:hover { color: var(--text); background: var(--surface-2); }
+.diagram-tabs > button.active { color: var(--text); border-color: var(--border); background: var(--surface); box-shadow: var(--shadow-xs); }
+.diagram-tabs .add-tab { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); }
+.diagram-tabs .add-tab .icon { width: 14px; height: 14px; }
+.tab-actions { display: flex; flex: 0 0 auto; gap: 4px; margin-left: auto; }
+.tab-actions button { width: var(--h-control-sm); height: var(--h-control-sm); display: grid; place-items: center; padding: 0; color: var(--muted); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+.tab-actions button:hover { color: var(--text); background: var(--surface-2); }
+.tab-actions button .icon { width: 14px; height: 14px; }
+
+/* ── editor shell ── */
+.diagram-shell { display: flex; flex-direction: column; overflow: visible; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+@media (min-width: 640px) { .diagram-shell { overflow: hidden; } }
+.diagram-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  scrollbar-width: none;
+}
+.diagram-toolbar::-webkit-scrollbar { display: none; }
+@media (min-width: 1024px) { .diagram-toolbar { flex-wrap: wrap; overflow: visible; } }
+.diagram-toolbar > button {
+  min-width: var(--h-touch);
+  height: var(--h-touch);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 0 var(--sp-2);
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.diagram-toolbar > button:hover { background: var(--surface-2); }
+.diagram-toolbar > button.active { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); background: var(--primary-soft); }
+.diagram-toolbar .tool-icon { width: 18px; height: 18px; }
+.diagram-toolbar > button small { display: none; font-size: var(--fs-xs); }
+@media (min-width: 1600px) { .diagram-toolbar > button small { display: inline; } }
+.diagram-toolbar .divider { width: 1px; height: 22px; flex: 0 0 auto; margin: 0 4px; background: var(--border); }
+.diagram-toolbar .spacer { flex: 1; }
+.mini-toggle {
+  min-height: var(--h-control-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 0 var(--sp-2);
+  color: var(--muted);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mini-toggle:hover { background: var(--surface-2); }
+
+.diagram-body { display: block; }
+@media (min-width: 1024px) { .diagram-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; } }
+.diagram-canvas { height: calc(100dvh - 310px - env(safe-area-inset-bottom)); min-height: 380px; border: 0; border-radius: 0; }
+@media (min-width: 640px) { .diagram-canvas { height: calc(100dvh - 330px); min-height: 520px; } }
+.diagram-canvas.tool-actor, .diagram-canvas.tool-usecase, .diagram-canvas.tool-boundary, .diagram-canvas.tool-note { cursor: copy; }
+.diagram-canvas.tool-association, .diagram-canvas.tool-include, .diagram-canvas.tool-extend, .diagram-canvas.tool-generalization { cursor: crosshair; }
+
+/* ── SVG ── */
+.diagram-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; --d-surface: var(--d-fill); --d-boundary: color-mix(in srgb, var(--surface) 70%, transparent); }
+.diagram-node { cursor: move; }
+.diagram-canvas:not(.tool-select) .diagram-node { cursor: inherit; }
+.diagram-node text { fill: var(--d-text); font-family: inherit; pointer-events: none; user-select: none; }
+.node-label { font-size: var(--fs-xs); font-weight: 600; }
+.actor-label { font-size: var(--fs-xs); }
+.hit-area, .boundary-grab { fill: transparent; }
+.actor-line { fill: none; stroke: var(--d-stroke); stroke-width: 2; stroke-linecap: round; }
+.diagram-node.actor circle.actor-line { fill: var(--d-fill); }
+.usecase-shape { fill: var(--d-fill); stroke: var(--d-stroke); stroke-width: 1.6; transition: stroke var(--dur), fill var(--dur); }
+.usecase-shape.kind-common { fill: var(--d-common); }
+.usecase-shape.kind-extension { fill: var(--d-extension); }
+.diagram-node.usecase:hover .usecase-shape { stroke: var(--primary); }
+.diagram-node .usecase-code { fill: var(--primary); font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .03em; }
+.diagram-node .usecase-code.unlinked { fill: var(--danger); }
+.boundary-rect { fill: var(--d-boundary); stroke: var(--d-stroke); stroke-width: 1.5; stroke-opacity: .7; }
+.diagram-node.boundary { cursor: default; }
+.diagram-node.boundary .boundary-grab { cursor: move; }
+.boundary-title { font-size: var(--fs-base); font-weight: 700; }
+.note-shape { fill: var(--note-bg); stroke: var(--note-border); stroke-width: 1.2; }
+.note-fold { fill: none; stroke: var(--note-border); stroke-width: 1.2; }
+.diagram-node.note text { fill: var(--note-text); }
+.note-label { font-size: var(--fs-xs); font-weight: 500; }
+.diagram-node.selected .usecase-shape, .diagram-node.selected .boundary-rect, .diagram-node.selected .note-shape { stroke: var(--primary); stroke-width: 2.6; }
+.diagram-node.selected .actor-line { stroke: var(--primary); }
+.diagram-node.selected.actor .hit-area { fill: color-mix(in srgb, var(--primary) 8%, transparent); stroke: var(--primary); stroke-dasharray: 4 3; rx: 6; }
+.diagram-node.dim { opacity: .28; }
+.diagram-edge { color: var(--d-stroke); cursor: pointer; }
+.edge-hit { stroke: transparent; stroke-width: 14; }
+@media (pointer: coarse) { .edge-hit { stroke-width: 22; } .connect-handle { r: 10px; } }
+.edge-line { fill: none; stroke: currentColor; stroke-width: 1.6; }
+.edge-label { fill: var(--muted); font-size: var(--fs-2xs); font-style: italic; paint-order: stroke; stroke: var(--surface-2); stroke-width: 4px; pointer-events: none; }
+.diagram-edge:hover, .diagram-edge.selected { color: var(--primary); }
+.diagram-edge.selected .edge-line { stroke-width: 2.6; }
+.connect-handle { fill: var(--primary); stroke: var(--surface); stroke-width: 2; cursor: crosshair; transition: r var(--dur); }
+.connect-handle:hover { r: 9; }
+.resize-handle { fill: var(--surface); stroke: var(--primary); stroke-width: 1.6; cursor: nwse-resize; }
+.draft-edge { stroke: var(--primary); stroke-width: 2; stroke-dasharray: 6 4; pointer-events: none; }
+.marquee { fill: color-mix(in srgb, var(--primary) 10%, transparent); stroke: var(--primary); stroke-dasharray: 4 3; pointer-events: none; }
+.assignee-ring { fill: var(--d-surface); stroke: var(--primary); stroke-width: 1.5; }
+.assignee-fallback { fill: var(--primary-solid); }
+.diagram-node .assignee-initial { fill: var(--on-primary); font-size: var(--fs-2xs); font-weight: 700; }
+.label-editor {
+  position: absolute;
+  z-index: 30;
+  padding: 6px 9px;
+  color: var(--text);
+  border: 2px solid var(--primary);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-align: center;
+  outline: 0;
+}
+.diagram-empty {
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--sp-5) var(--sp-6);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  text-align: center;
+}
+.diagram-empty strong { font-size: var(--fs-base); font-weight: 600; }
+.diagram-empty span { color: var(--muted); font-size: var(--fs-sm); line-height: 1.7; }
+
+/* ── inspector: side column ≥1024px, bottom sheet below ── */
+.mobile-inspector-button, .mobile-inspector-head, .diagram-inspector-scrim { display: none; }
+.diagram-inspector { overflow-y: auto; overscroll-behavior: contain; background: var(--surface); }
+@media (min-width: 1024px) {
+  .diagram-inspector { max-height: calc(100dvh - 330px); min-height: 520px; border-left: 1px solid var(--border); }
+}
+@media (max-width: 1023px) {
+  .mobile-inspector-button {
+    position: absolute;
+    left: var(--sp-2);
+    bottom: var(--sp-2);
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: var(--h-control);
+    padding: 0 var(--sp-3);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+  }
+  .diagram-inspector-scrim { position: fixed; inset: 0; z-index: 590; display: block; width: 100%; height: 100%; padding: 0; border: 0; background: var(--scrim); }
+  .diagram-inspector {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 600;
+    max-height: 72dvh;
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+    box-shadow: var(--shadow-lg);
+    transform: translateY(105%);
+    visibility: hidden;
+    transition: transform .22s var(--ease), visibility .22s;
+  }
+  .diagram-inspector.open { transform: none; visibility: visible; }
+  .mobile-inspector-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    padding: 6px var(--sp-3) var(--sp-2);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .mobile-inspector-head .mobile-sheet-handle { grid-column: 1 / -1; width: 40px; height: 4px; margin: 0 auto var(--sp-2); border-radius: var(--r-full); background: var(--border-strong); }
+  .mobile-inspector-head strong { font-size: var(--fs-sm); font-weight: 600; }
+  .mobile-inspector-head button { width: var(--h-touch); height: var(--h-touch); display: grid; place-items: center; padding: 0; color: var(--muted); border: 0; border-radius: var(--r-md); background: var(--surface-2); }
+  .inspector-section { padding-bottom: calc(var(--sp-5) + env(safe-area-inset-bottom)); }
+}
+.inspector-section { display: flex; flex-direction: column; gap: 10px; padding: var(--sp-4); }
+.inspector-section h3 { margin: 4px 0 0; font-size: var(--fs-sm); font-weight: 600; }
+.inspector-section > p { margin: -4px 0 0; font-size: var(--fs-sm); }
+.inspector-head { display: flex; align-items: center; justify-content: space-between; }
+.inspector-section .inspector-title { display: flex; align-items: center; gap: 6px; font-size: var(--fs-base); line-height: 1.35; }
+.inspector-title b { color: var(--primary); font-size: var(--fs-xs); }
+.inspector-field { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: var(--fs-xs); font-weight: 500; }
+.inspector-field input, .inspector-field select, .inspector-field textarea { width: 100%; }
+.assignee-picker { display: flex; align-items: center; gap: 6px; }
+.assignee-picker select { flex: 1; }
+.legend { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; color: var(--muted); font-size: var(--fs-sm); list-style: none; }
+.legend b { color: var(--text); font-weight: 500; }
+.unplaced-list { max-height: 240px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.unplaced-list button { display: flex; gap: var(--sp-2); padding: 6px 10px; color: var(--text); border: 1px dashed var(--border-strong); border-radius: var(--r-sm); background: var(--surface-2); font-size: var(--fs-sm); text-align: left; }
+.unplaced-list button:hover { border-color: var(--primary); background: var(--primary-soft); }
+.unplaced-list b { color: var(--primary); font-size: var(--fs-xs); }
+.relation-list { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: var(--r-sm); background: var(--surface-2); font-size: var(--fs-sm); }
+.relation-list small { color: var(--muted); font-weight: 600; }
+.relation-list em { color: var(--primary); font-style: normal; font-weight: 600; }
+.edge-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.edge-kinds button { display: inline-flex; align-items: center; gap: 6px; padding: 6px var(--sp-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); font-size: var(--fs-xs); font-weight: 500; }
+.edge-kinds button .icon { width: 16px; height: 16px; }
+.edge-kinds button.active { color: var(--primary); border-color: var(--primary); background: var(--primary-soft); }

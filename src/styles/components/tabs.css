@@ -1,0 +1,80 @@
+/* Segmented control + underline tabs. Both scroll horizontally instead of wrapping on narrow screens. */
+
+.segmented {
+  max-width: 100%;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  scrollbar-width: none;
+}
+.segmented::-webkit-scrollbar { display: none; }
+.segmented button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: calc(var(--h-control) - 8px);
+  padding: 0 10px;
+  color: var(--muted);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--fs-control-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.segmented button .icon { width: 15px; height: 15px; }
+.segmented button:hover { color: var(--text); }
+.segmented button.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.segmented b {
+  padding: 0 6px;
+  color: var(--muted);
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+
+.content-tabs {
+  display: flex;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+.content-tabs::-webkit-scrollbar { display: none; }
+.content-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: var(--h-control);
+  margin-bottom: -1px;
+  padding: 0 var(--sp-3);
+  color: var(--muted);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-size: var(--fs-control-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.content-tabs button:hover { color: var(--text); }
+.content-tabs button.active { color: var(--text); border-bottom-color: var(--primary); }
+.content-tabs b {
+  padding: 0 6px;
+  color: var(--muted);
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  font-size: var(--fs-2xs);
+}

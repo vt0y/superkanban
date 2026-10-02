@@ -7,6 +7,7 @@ import { compareDueDate, dueState } from '@/utils/calendar';
 import { formatDue, pick } from '@/utils/formatters';
 import { LabelChip } from './LabelChip';
 import { PRIORITIES } from './TaskModal';
+import { Icon } from '@/components/common/Icon';
 
 export interface TaskGroup { key: string; title: ReactNode; tasks: Task[] }
 type SortKey = 'order' | 'title' | 'status' | 'priority' | 'milestone' | 'dueDate' | 'checklist';
@@ -41,14 +42,14 @@ export function TaskTable({ groups, members, labels, milestones, locale, selecti
     <thead><tr>
       <th className="col-check">{!readOnly && <input type="checkbox" checked={allSelected} onChange={() => (allSelected ? selection.clear() : selection.set(allIds))} aria-label="Select all" />}</th>
       {header('title', pick(locale, 'ชื่องาน', 'Title'))}{header('status', pick(locale, 'สถานะ', 'Status'))}<th>{pick(locale, 'ผู้รับผิดชอบ', 'Assignees')}</th><th>Labels</th>
-      {header('priority', pick(locale, 'ความสำคัญ', 'Priority'))}{header('milestone', 'Milestone')}{header('dueDate', pick(locale, 'กำหนดส่ง', 'Due'))}{header('checklist', '☑')}
+      {header('priority', pick(locale, 'ความสำคัญ', 'Priority'))}{header('milestone', 'Milestone')}{header('dueDate', pick(locale, 'กำหนดส่ง', 'Due'))}{header('checklist', pick(locale, 'เช็กลิสต์', 'Checklist'))}
     </tr></thead>
     {groups.map((group) => {
       const rows = [...group.tasks].sort((a, b) => compare(a, b) * sort.dir);
       const isCollapsed = collapsed.has(group.key);
       return <tbody key={group.key}>
         {groups.length > 1 && <tr className="group-row"><td colSpan={9}><button type="button" onClick={() => setCollapsed((current) => { const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next; })}>
-          {isCollapsed ? '▸' : '▾'} {group.title} <b>{group.tasks.length}</b></button></td></tr>}
+          <Icon name={isCollapsed ? 'chevronRight' : 'chevronDown'} /> {group.title} <b>{group.tasks.length}</b></button></td></tr>}
         {!isCollapsed && rows.map((task) => {
           const assignees = members.filter((member) => task.assigneeIds.includes(member.userId));
           const due = task.status === 'done' ? 'normal' : dueState(task.dueDate, undefined, undefined, task.dueTime);

@@ -5,11 +5,27 @@ import { fitRects, MAX_ZOOM, MIN_ZOOM, zoomAt, type Viewport } from '@/utils/can
 import { pick } from '@/utils/formatters';
 import { renderMarkdown } from '@/utils/markdown';
 
-function makeButton(label: string, text: string, onClick: () => void, className = '') {
+/** Imperative twin of <Icon>: a lucide-styled stroke icon built from path data (these controls live outside React). */
+function strokeIcon(paths: string[]) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const [name, value] of Object.entries({ class: 'icon', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(name, value);
+  for (const d of paths) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
+}
+const MINUS = ['M5 12h14'];
+const PLUS = ['M5 12h14', 'M12 5v14'];
+const FIT = ['M15 3h6v6', 'M9 21H3v-6', 'm21 3-7 7', 'm3 21 7-7'];
+
+function makeButton(label: string, content: string | string[], onClick: () => void, className = '') {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = className;
-  button.textContent = text;
+  if (typeof content === 'string') button.textContent = content;
+  else button.append(strokeIcon(content));
   button.title = label;
   button.setAttribute('aria-label', label);
   button.addEventListener('click', onClick);
@@ -82,11 +98,11 @@ function makeDiagramZoomable(wrapper: HTMLElement, svgMarkup: string, locale: Lo
     setView((current) => zoomAt(current, 1, viewport.clientWidth / 2, viewport.clientHeight / 2));
   };
 
-  zoomOut = makeButton(zoomOutLabel, '−', () => zoomBy(1 / 1.2));
+  zoomOut = makeButton(zoomOutLabel, MINUS, () => zoomBy(1 / 1.2));
   zoomValue = makeButton(resetLabel, '100%', reset, 'zoom-value');
-  zoomIn = makeButton(zoomInLabel, '＋', () => zoomBy(1.2));
+  zoomIn = makeButton(zoomInLabel, PLUS, () => zoomBy(1.2));
   const divider = document.createElement('span');
-  const fitButton = makeButton(fitLabel, '⤢', fit);
+  const fitButton = makeButton(fitLabel, FIT, fit);
   controls.append(zoomOut, zoomValue, zoomIn, divider, fitButton);
   viewport.append(canvas);
   wrapper.replaceChildren(viewport, controls);

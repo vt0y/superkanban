@@ -7,6 +7,7 @@ import { addComment, deleteWorkItem, subscribeComments } from '@/services';
 import type { Comment, CommentTarget, Role } from '@/types';
 import { attempt } from '@/components/toast';
 import { pick, relativeTime } from '@/utils/formatters';
+import { Icon } from '@/components/common/Icon';
 
 export function CommentThread({
   projectId,
@@ -54,10 +55,10 @@ export function CommentThread({
   return (
     <section className={`comment-thread ${compact ? 'compact' : ''}`}>
       <h3>
-        💬 {pick(locale, 'ความคิดเห็น', 'Comments')} <b>{comments.length}</b>
+        <Icon name="comment" /> {pick(locale, 'ความคิดเห็น', 'Comments')} <b>{comments.length}</b>
         {onClose && (
           <button type="button" className="comment-sheet-close" onClick={onClose} aria-label={pick(locale, 'ปิด', 'Close')}>
-            ×
+            <Icon name="close" />
           </button>
         )}
       </h3>
@@ -81,7 +82,7 @@ export function CommentThread({
                         );
                     }}
                   >
-                    ×
+                    <Icon name="close" />
                   </button>
                 )}
               </header>

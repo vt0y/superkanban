@@ -1,0 +1,296 @@
+/* Modal: centred dialog ≥640px; below that a bottom sheet, or full-screen for editors (.has-actions). */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: end center;
+  padding: 0;
+  overscroll-behavior: contain;
+  background: var(--scrim);
+  animation: fade-in .18s var(--ease);
+}
+.modal {
+  width: 100%;
+  max-height: calc(92dvh - env(safe-area-inset-top));
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  animation: sheet-in .22s var(--ease);
+}
+.modal > header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 56px;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.modal > header h2 {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modal > header .modal-close {
+  order: 3;
+  width: var(--h-touch);
+  height: var(--h-touch);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  color: var(--muted);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  font-size: var(--fs-lg);
+}
+.modal > header .modal-close .icon { width: 18px; height: 18px; }
+.modal > header .modal-close:hover { color: var(--text); background: var(--surface-2); }
+.modal > form, .modal > div { padding: var(--sp-4) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom)); }
+.modal-header-actions, .comment-toggle, .comment-sheet-close, .comments-scrim { display: none; }
+
+/* sticky footer actions inside sheets */
+.modal .form-actions {
+  position: sticky;
+  bottom: calc(-1 * var(--sp-4) - env(safe-area-inset-bottom));
+  z-index: 3;
+  margin: var(--sp-1) calc(-1 * var(--sp-4)) calc(-1 * var(--sp-4) - env(safe-area-inset-bottom));
+  padding: var(--sp-3) var(--sp-4) calc(var(--sp-3) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+@media (min-width: 640px) {
+  .modal-backdrop { place-items: center; padding: var(--sp-6); }
+  .modal {
+    width: min(540px, 100%);
+    max-height: min(88vh, 900px);
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--r-xl);
+    animation: pop-in .18s var(--ease);
+  }
+  .modal.wide { width: min(860px, 100%); }
+  .modal > header { padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5); }
+  .modal > header .modal-close { width: 32px; height: 32px; }
+  .modal > form, .modal > div { padding: var(--sp-5); }
+  .modal .form-actions {
+    bottom: calc(-1 * var(--sp-5));
+    margin: var(--sp-2) calc(-1 * var(--sp-5)) calc(-1 * var(--sp-5));
+    padding: var(--sp-3) var(--sp-5);
+    border-radius: 0 0 var(--r-xl) var(--r-xl);
+  }
+}
+
+/* ── editor with a comments side column ── */
+.modal-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
+.modal-split > .stack-form { padding: 0; }
+@media (min-width: 1024px) {
+  .modal-split { grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr); gap: var(--sp-6); }
+  .modal.wide:has(.modal-split) { width: min(1040px, 100%); }
+}
+
+/* ── Linear-style property editor (task / milestone / use case) ── */
+.edit-form .field-name { color: var(--muted); font-size: var(--fs-xs); font-weight: 500; }
+.modal .edit-form input.title-input:not([type=checkbox], [type=radio]) {
+  min-height: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.modal .edit-form textarea.description-input {
+  min-height: 96px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  resize: vertical;
+}
+.edit-form label:has(> .title-input) > .field-name,
+.edit-form label:has(> .description-input) > .field-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.edit-form .chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.two-col > .chip-row { grid-column: 1 / -1; }
+.edit-form .chip-row > label { flex: 0 1 auto; min-width: 0; gap: 4px; }
+.edit-form .chip-row .date-clear { gap: 6px; }
+.modal .edit-form .chip-row select,
+.modal .edit-form .chip-row input:is([type=date], .code-input):not([type=checkbox]) {
+  width: auto;
+  max-width: 62vw;
+  min-height: var(--h-control-sm);
+  padding: 0 28px 0 12px;
+  border-radius: var(--r-full);
+  background-color: var(--surface-2);
+  font-size: var(--fs-control-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+.modal .edit-form .chip-row input:is([type=date], .code-input) { padding-right: 12px; }
+.modal .edit-form .chip-row input[type=date] { min-width: 9em; }
+.modal .edit-form .chip-row input.code-input { width: 7em; }
+.edit-form .chip-row .time-field { min-width: 0; min-height: var(--h-control-sm); padding: 0 10px; border-radius: var(--r-full); background: var(--surface-2); }
+.edit-form .chip-row .time-field.disabled { display: none; }
+.edit-form .chip-row .link-button { font-size: var(--fs-control-sm); }
+
+/* assignee pills */
+.edit-form .member-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.edit-form .member-checks label {
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 2px 10px 2px 3px;
+  border-radius: var(--r-full);
+  white-space: nowrap;
+}
+.edit-form .member-checks input { position: absolute; opacity: 0; pointer-events: none; }
+.edit-form .member-checks label:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ── phones ── */
+@media (max-width: 639px) {
+  /* Editors go full-screen; anchored top with vh fallback for browsers without dvh. */
+  .modal-backdrop:has(> .modal.has-actions) { place-items: start center; overflow-y: auto; }
+  .modal.has-actions {
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+  .modal.has-actions > header {
+    display: grid;
+    grid-template-columns: var(--h-touch) minmax(0, 1fr) auto;
+    gap: var(--sp-2);
+    padding: calc(var(--sp-2) + env(safe-area-inset-top)) var(--sp-3) var(--sp-2);
+  }
+  .modal.has-actions > header .modal-close { order: 0; }
+  .modal.has-actions > header h2 { font-size: var(--fs-base); text-align: center; }
+  .modal-header-actions { display: flex; align-items: center; gap: 6px; }
+  .modal-header-actions .primary { min-height: var(--h-control-sm); padding: 0 14px; }
+  .comment-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: var(--h-control-sm);
+    padding: 0 10px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: var(--r-full);
+    background: var(--surface-2);
+    font-size: var(--fs-control-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .comment-toggle .icon { width: 14px; height: 14px; }
+  /* footer Cancel/Save move to the header; keep the footer only for Delete / secondary links */
+  .modal.has-actions .form-actions .primary,
+  .modal.has-actions .form-actions .secondary,
+  .modal.has-actions .form-actions .kbd-hint { display: none; }
+  .modal.has-actions .form-actions:not(:has(.danger, .link-button)) { display: none; }
+  .modal.has-actions .form-actions { position: static; margin: var(--sp-1) 0 0; padding: var(--sp-3) 0 0; background: transparent; }
+  .modal.has-actions .form-actions button.danger.ghost { min-height: var(--h-control-sm); }
+  .modal:not(.has-actions) .form-actions .primary,
+  .modal:not(.has-actions) .form-actions .secondary { flex: 1; }
+
+  /* task editor: only the body scrolls, header stays reachable above browser chrome */
+  .task-editor-modal { display: flex; flex-direction: column; max-width: 100vw; overflow: hidden; }
+  .task-editor-modal > header { flex: 0 0 auto; }
+  .task-editor-modal > header + div {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-bottom: calc(var(--sp-5) + env(safe-area-inset-bottom));
+  }
+  .task-editor-modal .edit-form,
+  .task-editor-modal .read-only-fields,
+  .task-editor-modal .edit-form > *,
+  .task-editor-modal .chip-row { min-width: 0; max-width: 100%; }
+
+  .edit-form .chip-row .field-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .edit-form .chip-row > label { flex-direction: row; align-items: center; }
+  .edit-form .member-checks { flex-wrap: nowrap; margin: 0 calc(-1 * var(--sp-4)); padding: 0 var(--sp-4) 2px; overflow-x: auto; scrollbar-width: none; }
+  .edit-form .member-checks::-webkit-scrollbar { display: none; }
+
+  /* comments slide up as a sheet over the editor */
+  .modal-split > .comment-thread {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    height: 85dvh;
+    padding: var(--sp-4) var(--sp-4) calc(var(--sp-3) + env(safe-area-inset-bottom));
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    transform: translateY(105%);
+    visibility: hidden;
+    transition: transform .24s var(--ease), visibility 0s .24s;
+  }
+  .modal-split.comments-open > .comment-thread { transform: none; visibility: visible; transition: transform .24s var(--ease); }
+  .modal-split > .comment-thread .comment-list { flex: 1; max-height: none; }
+  .comment-sheet-close {
+    width: var(--h-touch);
+    height: var(--h-touch);
+    display: grid;
+    place-items: center;
+    margin-left: auto;
+    padding: 0;
+    color: var(--muted);
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+  }
+  .modal-split.comments-open > .comments-scrim { position: fixed; inset: 0; z-index: 19; display: block; background: var(--scrim); }
+}
+@media (max-width: 430px) {
+  .task-editor-modal .edit-form .chip-row > label:has(.date-clear) { width: 100%; }
+  .task-editor-modal .edit-form .chip-row .date-clear { width: 100%; flex-wrap: wrap; }
+  .task-editor-modal .edit-form .chip-row .date-clear > input[type=date] { min-width: 0; max-width: 100%; flex: 1 1 9rem; }
+}

@@ -8,6 +8,7 @@ import type { Membership, Poll, PollOption, PollVote, Role } from '@/types';
 import { attempt } from '@/components/toast';
 import { formatDue, pick, relativeTime } from '@/utils/formatters';
 import { usePolls } from '@/hooks';
+import { Icon } from '@/components/common/Icon';
 
 export function Votes({ context, project, members, role, readOnly }: SectionProps) {
   const [expandedClosed, setExpandedClosed] = useState<Set<string>>(new Set());
@@ -21,11 +22,11 @@ export function Votes({ context, project, members, role, readOnly }: SectionProp
   const openCount = polls.filter((poll) => isPollOpen(poll)).length;
 
   return <>
-    <PageTitle eyebrow="TEAM DECISIONS" title={context.t('votes')} description={pick(locale, 'ตั้งคำถามให้ทีมโหวต เลือกได้คำตอบเดียวหรือหลายคำตอบ ผลอัปเดตแบบเรียลไทม์', 'Ask the team — single or multiple choice, results update live')} action={!readOnly && <button className="primary" onClick={() => setEditing('new')}>＋ {pick(locale, 'สร้างโพล', 'New poll')}</button>} />
+    <PageTitle eyebrow="TEAM DECISIONS" title={context.t('votes')} description={pick(locale, 'ตั้งคำถามให้ทีมโหวต เลือกได้คำตอบเดียวหรือหลายคำตอบ ผลอัปเดตแบบเรียลไทม์', 'Ask the team — single or multiple choice, results update live')} action={!readOnly && <button className="primary" onClick={() => setEditing('new')}><Icon name="add" /> {pick(locale, 'สร้างโพล', 'New poll')}</button>} />
     <div className="list-toolbar"><Segmented value={filter} onChange={setFilter} options={[{ id: 'open', label: <>{pick(locale, 'เปิดโหวต', 'Open')} <b>{openCount}</b></> }, { id: 'closed', label: <>{pick(locale, 'ปิดแล้ว', 'Closed')} <b>{polls.length - openCount}</b></> }, { id: 'all', label: pick(locale, 'ทั้งหมด', 'All') }]} /></div>
     <div className="poll-grid">{visible.map((poll) => <PollCard key={poll.id} poll={poll} votes={votes} members={members} context={context} role={role} projectId={project.id} readOnly={readOnly} details={isPollOpen(poll) || expandedClosed.has(poll.id)} onDetails={() => setExpandedClosed((current) => new Set([...current, poll.id]))} onEdit={() => setEditing(poll)} />)}</div>
     {(filter === 'closed' || filter === 'all') && hasMore && <div className="load-more-row"><button type="button" className="secondary" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? pick(locale, 'กำลังโหลด…', 'Loading…') : pick(locale, 'โหลดโพลเก่าเพิ่มเติม', 'Load more closed polls')}</button></div>}
-    {!visible.length && <Empty icon="☑" title={pick(locale, 'ยังไม่มีโพล', 'No polls here')} description={pick(locale, 'สร้างโพลเพื่อให้ทีมช่วยกันตัดสินใจ', 'Create a poll to let the team decide together')} action={!readOnly ? <button className="primary" onClick={() => setEditing('new')}>＋ {pick(locale, 'สร้างโพล', 'New poll')}</button> : undefined} />}
+    {!visible.length && <Empty icon="vote" title={pick(locale, 'ยังไม่มีโพล', 'No polls here')} description={pick(locale, 'สร้างโพลเพื่อให้ทีมช่วยกันตัดสินใจ', 'Create a poll to let the team decide together')} action={!readOnly ? <button className="primary" onClick={() => setEditing('new')}><Icon name="add" /> {pick(locale, 'สร้างโพล', 'New poll')}</button> : undefined} />}
     {editing && !readOnly && <PollModal poll={editing === 'new' ? null : editing} projectId={project.id} context={context} role={role} onClose={() => setEditing(null)} />}
   </>;
 }
@@ -45,8 +46,8 @@ function PollCard({ poll, votes, members, context, role, projectId, readOnly, de
 
   return <article className={`poll-card ${open ? '' : 'closed'}`}>
     <header>
-      <div className="poll-badges"><span className={`chip ${poll.multiple ? 'violet' : 'blue'}`}>{poll.multiple ? pick(locale, 'เลือกได้หลายข้อ', 'Multiple choice') : pick(locale, 'เลือกได้ 1 ข้อ', 'Single choice')}</span>{poll.anonymous && <span className="chip">🙈 {pick(locale, 'ไม่แสดงชื่อ', 'Names hidden')}</span>}<span className={`chip ${open ? 'green' : ''}`}>{open ? pick(locale, '● เปิดโหวต', '● Open') : pick(locale, 'ปิดแล้ว', 'Closed')}</span></div>
-      {canManage && !readOnly && <button className="icon-button" onClick={onEdit} title={pick(locale, 'แก้ไข', 'Edit')}>•••</button>}
+      <div className="poll-badges"><span className={`chip ${poll.multiple ? 'violet' : 'blue'}`}>{poll.multiple ? pick(locale, 'เลือกได้หลายข้อ', 'Multiple choice') : pick(locale, 'เลือกได้ 1 ข้อ', 'Single choice')}</span>{poll.anonymous && <span className="chip"><Icon name="eyeOff" /> {pick(locale, 'ไม่แสดงชื่อ', 'Names hidden')}</span>}<span className={`chip ${open ? 'green' : ''}`}>{open ? <><i className="dot" />{pick(locale, 'เปิดโหวต', 'Open')}</> : pick(locale, 'ปิดแล้ว', 'Closed')}</span></div>
+      {canManage && !readOnly && <button className="icon-button" onClick={onEdit} title={pick(locale, 'แก้ไข', 'Edit')} aria-label={pick(locale, 'แก้ไข', 'Edit')}><Icon name="more" /></button>}
     </header>
     <h3>{poll.question}</h3>
     {poll.description && <p className="muted">{poll.description}</p>}
@@ -55,14 +56,14 @@ function PollCard({ poll, votes, members, context, role, projectId, readOnly, de
       const chosen = mine.includes(result.id);
       return <button key={result.id} type="button" className={`poll-option ${chosen ? 'chosen' : ''} ${result.count && result.count === leader ? 'leading' : ''}`} disabled={!open || readOnly} onClick={() => vote(result.id)} role={poll.multiple ? 'checkbox' : 'radio'} aria-checked={chosen}>
         <i className="poll-fill" style={{ width: `${result.percent}%` }} />
-        <span className={`poll-mark ${poll.multiple ? 'square' : ''}`}>{chosen ? '✓' : ''}</span>
+        <span className={`poll-mark ${poll.multiple ? 'square' : ''}`}>{chosen && <Icon name="check" />}</span>
         <span className="poll-label">{result.label}</span>
         {!poll.anonymous && result.voterIds.length > 0 && <span className="avatar-stack mini">{result.voterIds.slice(0, 4).map((uid) => { const member = memberFor(uid); return <Avatar key={uid} name={member?.displayName || '?'} src={member?.photoURL} size="sm" />; })}</span>}
         <b>{result.count} · {result.percent}%</b>
       </button>;
     })}</div>}
     <footer>
-      <span>{details ? `👥 ${voters}/${members.length} ${pick(locale, 'คนโหวต', 'voted')}` : ''}{poll.deadline ? ` · ◷ ${pick(locale, 'ถึง', 'until')} ${formatDue(poll.deadline, poll.deadlineTime, locale)}` : ''}</span>
+      <span className="poll-meta-row">{details && <span><Icon name="team" /> {voters}/{members.length} {pick(locale, 'คนโหวต', 'voted')}</span>}{poll.deadline && <span><Icon name="clock" /> {pick(locale, 'ถึง', 'until')} {formatDue(poll.deadline, poll.deadlineTime, locale)}</span>}</span>
       <span>{!readOnly && mine.length > 0 && open && <button className="link-button" onClick={() => void attempt(() => castVote(projectId, poll.id, user.uid, []), pick(locale, 'ล้างโหวตไม่สำเร็จ', 'Could not clear vote'))}>{pick(locale, 'ล้างโหวตของฉัน', 'Clear my vote')}</button>}
         {!readOnly && canManage && <button className="link-button" onClick={() => void attempt(() => updateWorkItem(projectId, 'polls', poll.id, { closed: !poll.closed }), pick(locale, 'อัปเดตไม่สำเร็จ', 'Update failed'))}>{poll.closed ? pick(locale, 'เปิดโหวตอีกครั้ง', 'Reopen') : pick(locale, 'ปิดโหวต', 'Close poll')}</button>}</span>
     </footer>
@@ -97,13 +98,13 @@ function PollModal({ poll, projectId, context, role, onClose }: { poll: Poll | n
         <div className="option-editor">{options.map((option, index) => <div key={option.id}>
           <span>{index + 1}</span>
           <input value={option.label} maxLength={120} placeholder={`${pick(locale, 'ตัวเลือก', 'Option')} ${index + 1}`} onChange={(e) => setOptions(options.map((item) => item.id === option.id ? { ...item, label: e.target.value } : item))} />
-          <button type="button" className="icon-button" disabled={options.length <= 2} onClick={() => setOptions(options.filter((item) => item.id !== option.id))} title={t('delete')}>×</button>
+          <button type="button" className="icon-button" disabled={options.length <= 2} onClick={() => setOptions(options.filter((item) => item.id !== option.id))} title={t('delete')}><Icon name="close" /></button>
         </div>)}</div>
-        {options.length < 10 && <button type="button" className="add-inline" onClick={() => setOptions([...options, newOption()])}>＋ {pick(locale, 'เพิ่มตัวเลือก', 'Add option')}</button>}
+        {options.length < 10 && <button type="button" className="add-inline" onClick={() => setOptions([...options, newOption()])}><Icon name="add" /> {pick(locale, 'เพิ่มตัวเลือก', 'Add option')}</button>}
       </fieldset>
       <div className="toggle-cards">
-        <label className={`toggle-card ${!form.multiple ? 'on' : ''}`}><input type="radio" name="mode" checked={!form.multiple} onChange={() => setForm({ ...form, multiple: false })} /><strong>◉ {pick(locale, 'เลือกได้ 1 ข้อ', 'Single choice')}</strong><small>{pick(locale, 'แต่ละคนเลือกคำตอบเดียว', 'Each member picks one answer')}</small></label>
-        <label className={`toggle-card ${form.multiple ? 'on' : ''}`}><input type="radio" name="mode" checked={form.multiple} onChange={() => setForm({ ...form, multiple: true })} /><strong>☑ {pick(locale, 'เลือกได้หลายข้อ', 'Multiple choice')}</strong><small>{pick(locale, 'เลือกได้หลายคำตอบพร้อมกัน', 'Members can pick several answers')}</small></label>
+        <label className={`toggle-card ${!form.multiple ? 'on' : ''}`}><input type="radio" name="mode" checked={!form.multiple} onChange={() => setForm({ ...form, multiple: false })} /><strong><Icon name="circle" /> {pick(locale, 'เลือกได้ 1 ข้อ', 'Single choice')}</strong><small>{pick(locale, 'แต่ละคนเลือกคำตอบเดียว', 'Each member picks one answer')}</small></label>
+        <label className={`toggle-card ${form.multiple ? 'on' : ''}`}><input type="radio" name="mode" checked={form.multiple} onChange={() => setForm({ ...form, multiple: true })} /><strong><Icon name="checklist" /> {pick(locale, 'เลือกได้หลายข้อ', 'Multiple choice')}</strong><small>{pick(locale, 'เลือกได้หลายคำตอบพร้อมกัน', 'Members can pick several answers')}</small></label>
       </div>
       <div className="field-row">
         <label>{pick(locale, 'ปิดโหวตอัตโนมัติ (ไม่บังคับ)', 'Auto-close on (optional)')}<span className="date-clear"><input type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value, deadlineTime: e.target.value ? form.deadlineTime : '' })} /><TimeField label={pick(locale, 'เวลา (ไม่บังคับ)', 'Time (optional)')} value={form.deadlineTime} disabled={!form.deadline} onChange={(deadlineTime) => setForm((current) => ({ ...current, deadlineTime }))} /></span></label>

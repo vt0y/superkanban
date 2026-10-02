@@ -7,6 +7,7 @@ import { CanvaShortLinkError, expandCanvaShortLink, fetchCanvaDesignTitle, isLin
 import { canvaShortLinkSlug } from '@/utils/canva-short-link';
 import { canvaDefaultTitle, canvaEditUrl, parseCanvaInput, type CanvaLink, type CanvaParseError } from '@/utils/canva-link';
 import { beginOptimisticDetach, type DetachAction } from './DriveAttachmentControl';
+import { Icon } from '@/components/common/Icon';
 
 function parseErrorMessage(error: CanvaParseError, locale: Locale): string {
   if (error === 'short_link') return pick(locale, 'ลิงก์ canva.link เปิดอ่านจากเบราว์เซอร์ไม่ได้ ให้คัดลอกลิงก์เต็ม canva.com/design/…/edit แทน', 'canva.link short links cannot be resolved here. Copy the full canva.com/design/…/edit link instead.');
@@ -120,8 +121,8 @@ export function CanvaFileRow({ file, locale, uploader, canDetach, onDetach, deta
     <a className="drive-file-main" href={canvaEditUrl(file)} target="_blank" rel="noreferrer" title={pick(locale, 'แก้ไขใน Canva', 'Edit in Canva')}>
       <span className="drive-file-icon canva" aria-hidden="true">CNV</span>
       <div className="drive-file-copy"><strong>{name}</strong>{file.nickname?.trim() && <small className="drive-original-name">{file.title}</small>}{file.description?.trim() && <p className="drive-file-description">{file.description}</p>}<span className="drive-file-meta"><small>Canva</small>{uploader && <small>{uploader}</small>}<small className={`drive-access-badge ${file.canvaEditToken ? 'external' : 'unmanaged'}`} title={pick(locale, 'SuperKanban เก็บแค่ลิงก์ สิทธิ์จัดการใน Canva', 'SuperKanban stores only the link; access is managed in Canva')}>{access}</small></span></div>
-      <span className="drive-open-mark" aria-hidden="true">✎</span>
+      <span className="drive-open-mark" aria-hidden="true"><Icon name="edit" /></span>
     </a>
-    {canDetach && <button type="button" className={`drive-detach${iconOnlyDetach ? ' icon-only' : ''}`} onClick={() => beginOptimisticDetach(onDetach, setHidden)} aria-label={detachLabel || pick(locale, `นำ ${name} ออกจาก SuperKanban`, `Remove ${name} from SuperKanban`)} title={detachLabel || pick(locale, 'นำออกจาก SuperKanban (งานใน Canva จะไม่เปลี่ยน)', 'Remove from SuperKanban (the Canva design stays unchanged)')}><span aria-hidden="true">×</span>{!iconOnlyDetach && <b>{detachLabel || pick(locale, 'นำออก', 'Remove')}</b>}</button>}
+    {canDetach && <button type="button" className={`drive-detach${iconOnlyDetach ? ' icon-only' : ''}`} onClick={() => beginOptimisticDetach(onDetach, setHidden)} aria-label={detachLabel || pick(locale, `นำ ${name} ออกจาก SuperKanban`, `Remove ${name} from SuperKanban`)} title={detachLabel || pick(locale, 'นำออกจาก SuperKanban (งานใน Canva จะไม่เปลี่ยน)', 'Remove from SuperKanban (the Canva design stays unchanged)')}><span aria-hidden="true"><Icon name="close" /></span>{!iconOnlyDetach && <b>{detachLabel || pick(locale, 'นำออก', 'Remove')}</b>}</button>}
   </div>;
 }
