@@ -7,6 +7,7 @@ import {
   Search, Send, Settings, Shapes, Share2, Sparkles, SquareDashed, SquareKanban, StickyNote, Sun, Table, Tag, ThumbsUp, Trash2, Trophy,
   Type, Unlink, Unlock, Upload, User, UserPlus, Users, Vote, Workflow, X, Zap,
   CalendarClock, CircleCheck, House, ListTodo, Map as MapIcon, Rocket,
+  Briefcase, Coins, Heart, History, MoonStar, RotateCcw, Shuffle, Star,
 } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import type { ComponentType } from 'react';
@@ -117,6 +118,14 @@ export const ICONS = {
   tasks: ListTodo,
   plan: MapIcon,
   rocket: Rocket,
+  briefcase: Briefcase,
+  coins: Coins,
+  heart: Heart,
+  history: History,
+  moonStar: MoonStar,
+  rotate: RotateCcw,
+  shuffle: Shuffle,
+  star: Star,
 } satisfies Record<string, ComponentType<LucideProps>>;
 
 export type IconName = keyof typeof ICONS;

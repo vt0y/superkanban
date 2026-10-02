@@ -245,7 +245,9 @@
 .project-card-meta { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; color: var(--muted); font-size: var(--fs-xs); }
 .project-card-meta .next-milestone { display: flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-card-meta .icon { width: 12px; height: 12px; flex: 0 0 auto; color: var(--primary); }
-.home-page .home-tarot-card { margin-top: var(--sp-8); }
+.home-page .home-tarot-card { margin: 0 0 var(--sp-5); }
+/* phones: one slim row so the summary stays on the first screen */
+@media (max-width: 639px) { .home-page .home-tarot-card { gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); } .home-page .home-tarot-card .home-tarot-moon { width: 36px; height: 36px; font-size: var(--fs-lg); } .home-page .home-tarot-card small, .home-page .home-tarot-card em { display: none; } }
 
 /* new project: template choice */
 .template-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-2); }

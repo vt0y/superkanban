@@ -65,6 +65,16 @@ export function Home({ context }: { context: AppContextValue }) {
           </button>
         </section>
 
+        <button className="home-tarot-card" onClick={() => navigate('/tarot')}>
+          <span className="home-tarot-moon">☾</span>
+          <span>
+            <small>ARCANA · AI TAROT</small>
+            <strong>{pick(locale, 'จักรวาลมีสิ่งใดอยากบอกคุณ', 'What does the universe want you to know?')}</strong>
+            <em>{pick(locale, 'สับสำรับ เลือกไพ่ 3 ใบ และรับคำทำนายจาก AI', 'Shuffle, choose three cards, and receive your AI reading')}</em>
+          </span>
+          <b>{pick(locale, 'เปิดไพ่', 'Enter')} <Icon name="arrowRight" /></b>
+        </button>
+
         {active.length > 0 && <>
           <section className="home-summary" aria-label={pick(locale, 'สรุปทุกโปรเจกต์', 'Summary of all projects')}>
             {tiles.map((tile) => (
@@ -163,15 +173,6 @@ export function Home({ context }: { context: AppContextValue }) {
           </details>
         )}
 
-        <button className="home-tarot-card" onClick={() => navigate('/tarot')}>
-          <span className="home-tarot-moon">☾</span>
-          <span>
-            <small>ARCANA · AI TAROT</small>
-            <strong>{pick(locale, 'จักรวาลมีสิ่งใดอยากบอกคุณ', 'What does the universe want you to know?')}</strong>
-            <em>{pick(locale, 'สับสำรับ เลือกไพ่ 3 ใบ และรับคำทำนายจาก AI', 'Shuffle, choose three cards, and receive your AI reading')}</em>
-          </span>
-          <b>{pick(locale, 'เปิดไพ่', 'Enter')} <Icon name="arrowRight" /></b>
-        </button>
       </main>
     </>
   );

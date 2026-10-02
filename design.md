@@ -74,11 +74,12 @@ Default form-field styles use `:where()`, so they have zero specificity and are 
 
 ### Home (`/`)
 Home is a summary across every active project:
-1. **Summary tiles:** active tasks, overdue, due in 7 days, assigned to me, and milestones due in 14 days. Clicking a tile scrolls to the matching section.
-2. **Upcoming deadlines:** tasks and milestones due in the next 14 days, plus anything overdue, grouped by day. A **Mine / Everyone** toggle filters it and is remembered (`ps.home.deadlines`).
-3. **My work:** my open tasks, grouped into Overdue · Today · Next 7 days · Later · No date.
-4. **Project cards:** active tasks, an overdue badge, a progress bar and the next milestone.
-5. Archived projects (collapsed), then the Tarot entry.
+1. **Tarot banner** under the greeting (a single slim row on phones, so the summary still fits on the first screen).
+2. **Summary tiles:** active tasks, overdue, due in 7 days, assigned to me, and milestones due in 14 days. Clicking a tile scrolls to the matching section.
+3. **Upcoming deadlines:** tasks and milestones due in the next 14 days, plus anything overdue, grouped by day. A **Mine / Everyone** toggle filters it and is remembered (`ps.home.deadlines`).
+4. **My work:** my open tasks, grouped into Overdue · Today · Next 7 days · Later · No date.
+5. **Project cards:** active tasks, an overdue badge, a progress bar and the next milestone.
+6. Archived projects (collapsed).
 
 The data comes from `useHomeSummary`, which makes one listener per active project. It reuses the same cached queries the board and Overview use. The calculations are pure functions in `src/utils/home-summary.ts`, with unit tests.
 
@@ -120,7 +121,21 @@ The data comes from `useHomeSummary`, which makes one listener per active projec
 
 ---
 
-## 4. Patterns to keep
+## 4. Arcana (Tarot)
+
+`/tarot` is a deliberately themed stage, separate from the neutral app look:
+- **Theme:** a night sky in indigo/violet with gold. Its palette lives as `--t-*` variables on `.tarot-page.arc` in `pages/tarot.css`; that file is exempt from `check:css`. Inside `.arc`, the app tokens (`--text`, `--border`, `--primary` …) are re-pointed, so shared pieces like markdown pick up the theme. Display type is Cormorant Garamond / Noto Serif Thai, loaded only on this page.
+- **Components** (`src/components/tarot/`):
+  - `CosmicBackdrop`: nebulae, `box-shadow` star layers, pointer parallax
+  - `TarotForm`: focus cards plus suggested questions from `src/tarot/suggestions.ts`
+  - `ShuffleRitual`: shown for at least 1.4s
+  - `CardSlots` + `CardSpread`: a two-arc fan at ≥1024px (angles from `src/tarot/spread.ts`), a swipeable row below that, keyboard roving focus
+  - `TarotResult`: staggered 3D flips, a lightbox, the reading panel, copy
+  - `HistoryPanel`: grouped by month, in-panel detail view
+- **Thai:** no letter-spacing on Thai labels (`.arc.th`), the drop cap is English-only, and tiny Latin labels carry `lang="en"` so Thai minimum font sizes don't enlarge them.
+- **Reduced motion** turns off every animation and shows the cards face up at once.
+
+## 5. Patterns to keep
 
 - **Wait for data before showing numbers.** Show content only once everything it depends on has arrived, with static placeholders (`.list-skeleton`, `Metric value={null}`) until then. Don't render zeros that then count up, bars that grow one after another, or empty states that flash and disappear. Don't animate the placeholders. Inside a project, sections don't render until memberships have loaded, so role-dependent UI never shows "member" first.
 - **Bilingual everywhere.** Every user-facing string is Thai + English, through `t('key')` (`src/utils/i18n.ts`; a test checks that both locales have the same keys) or `pick(locale, th, en)` for one-off text. The login page has no profile yet, so it uses the browser language plus its own toggle (`ps.loginLocale`).
