@@ -12,6 +12,7 @@ import {
   type TaskCursor,
   type TaskScope,
 } from '@/services/tasks';
+import { subscribeProjectDocsByIds } from '@/services/work-items';
 
 /** Like `useActiveTasks`, plus whether the first snapshot has arrived (to avoid rendering zeros meanwhile). */
 export function useActiveTasksState(projectId: string): { items: Task[]; loaded: boolean } {
@@ -99,4 +100,22 @@ export function useCalendarTasks(projectId: string, startDate: string, endDateEx
     return subscribeCalendarTasks(projectId, startDate, endDateExclusive, setItems);
   }, [projectId, startDate, endDateExclusive]);
   return items;
+}
+
+/**
+ * Active tasks plus any other tasks named in `ids` (in practice done tasks linked to
+ * documents). Avoids subscribing to the whole tasks collection just to resolve links.
+ */
+export function useLinkedTasks(projectId: string, activeTasks: Task[], ids: string[]): Task[] {
+  const activeIds = useMemo(() => new Set(activeTasks.map((task) => task.id)), [activeTasks]);
+  const missingKey = [...new Set(ids.filter((id) => !activeIds.has(id)))].sort().join('|');
+  const [linked, setLinked] = useState<{ key: string; items: Task[] }>({ key: '', items: [] });
+  useEffect(() => {
+    if (!missingKey) return;
+    return subscribeProjectDocsByIds<Task>(projectId, 'tasks', missingKey.split('|'), (items) => setLinked({ key: `${projectId}:${missingKey}`, items }));
+  }, [projectId, missingKey]);
+  return useMemo(() => {
+    const extra = linked.key === `${projectId}:${missingKey}` ? linked.items.filter((task) => !activeIds.has(task.id)) : [];
+    return extra.length ? [...activeTasks, ...extra] : activeTasks;
+  }, [activeTasks, activeIds, linked, projectId, missingKey]);
 }

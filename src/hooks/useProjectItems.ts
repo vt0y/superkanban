@@ -3,8 +3,8 @@ import { subscribeProjectCollection } from '@/services/work-items';
 import { subscribeProjectQuery } from '@/services/work-items';
 import type { QueryConstraint } from 'firebase/firestore';
 
-export function useProjectItems<T>(projectId: string, collection: string): T[] {
-  return useProjectItemsState<T>(projectId, collection).items;
+export function useProjectItems<T>(projectId: string, collection: string, enabled = true): T[] {
+  return useProjectItemsState<T>(projectId, collection, enabled).items;
 }
 
 export function useProjectQuery<T>(projectId: string, collection: string, scopeKey: string, constraints: QueryConstraint[]): T[] {
@@ -18,11 +18,13 @@ export function useProjectQuery<T>(projectId: string, collection: string, scopeK
   return items;
 }
 
-export function useProjectItemsState<T>(projectId: string, collection: string): { items: T[]; loaded: boolean } {
-  const [state, setState] = useState<{ items: T[]; loaded: boolean }>({ items: [], loaded: false });
+/** `enabled: false` skips the listener entirely (no reads) and reports an empty, loaded list. */
+export function useProjectItemsState<T>(projectId: string, collection: string, enabled = true): { items: T[]; loaded: boolean } {
+  const [state, setState] = useState<{ items: T[]; loaded: boolean }>({ items: [], loaded: !enabled });
   useEffect(() => {
+    if (!enabled) { setState({ items: [], loaded: true }); return; }
     setState({ items: [], loaded: false });
     return subscribeProjectCollection<T>(projectId, collection, (items) => setState({ items, loaded: true }));
-  }, [projectId, collection]);
+  }, [projectId, collection, enabled]);
   return state;
 }

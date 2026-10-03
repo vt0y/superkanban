@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const firestore = vi.hoisted(() => {
   const batch = { set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn(() => Promise.resolve()) };
-  return { batch, updateDoc: vi.fn(() => Promise.resolve()), writeBatch: vi.fn(() => batch) };
+  return { batch, getDoc: vi.fn(() => Promise.resolve({ exists: () => true })), updateDoc: vi.fn(() => Promise.resolve()), writeBatch: vi.fn(() => batch) };
 });
 
 vi.mock('firebase/firestore', () => ({
@@ -11,6 +11,7 @@ vi.mock('firebase/firestore', () => ({
   collection: vi.fn((...parts: unknown[]) => parts.join('/')),
   deleteField: vi.fn(() => 'delete-field'),
   doc: vi.fn((...parts: unknown[]) => parts.length === 1 ? { id: 'generated-id', path: `${parts[0]}/generated-id` } : parts.join('/')),
+  getDoc: firestore.getDoc,
   onSnapshot: vi.fn(),
   runTransaction: vi.fn(),
   serverTimestamp: vi.fn(() => 'server-time'),
@@ -52,7 +53,7 @@ describe('document v2 writes', () => {
 
   it('deletes both records atomically and rejects oversized bodies before writing', async () => {
     await deleteProjectDocument('project-1', 'doc-1');
-    expect(firestore.batch.delete).toHaveBeenCalledTimes(2);
+    expect(firestore.batch.delete).toHaveBeenCalledTimes(3);
     await expect(updateProjectDocument('project-1', 'doc-1', 'Large', 'x'.repeat(921601), [])).rejects.toThrow('DOCUMENT_TOO_LARGE');
     expect(firestore.writeBatch).toHaveBeenCalledTimes(1);
   });

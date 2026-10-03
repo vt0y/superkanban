@@ -131,6 +131,8 @@ service cloud.firestore {
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 240
           && request.resource.data.mimeType is string && request.resource.data.mimeType.size() <= 160
+          && (!('resourceKey' in request.resource.data) || (request.resource.data.resourceKey is string
+            && request.resource.data.resourceKey.matches('^[A-Za-z0-9_-]{1,512}$')))
           && (!('sizeBytes' in request.resource.data) || (request.resource.data.sizeBytes is int && request.resource.data.sizeBytes >= 0))
           && request.resource.data.shareMode in ['members', 'link', 'unmanaged']
           && request.resource.data.sharedMemberIds is list && request.resource.data.sharedMemberIds.size() <= 200
@@ -144,9 +146,12 @@ service cloud.firestore {
           && ((request.resource.data.shareMode == 'unmanaged' && request.resource.data.sharedMemberIds.size() == 0
               && !request.resource.data.keys().hasAny(['managedPermissionIds', 'permissionsSyncedAt', 'role']))
             || (request.resource.data.shareMode == 'link' && request.resource.data.sharedMemberIds.size() == 0)
+            // Member lists must match the project only when written; details edits keep a list that may
+            // have drifted after membership changes (the uploader re-syncs it explicitly).
             || (request.resource.data.shareMode == 'members'
-              && request.resource.data.sharedMemberIds.hasOnly(get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds)
-              && get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds.hasOnly(request.resource.data.sharedMemberIds)));
+              && ((resource != null && resource.data.get('shareMode', '') == 'members' && request.resource.data.sharedMemberIds == resource.data.sharedMemberIds)
+                || (request.resource.data.sharedMemberIds.hasOnly(get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds)
+                  && get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds.hasOnly(request.resource.data.sharedMemberIds)))));
       }
       match /tasks/{itemId} {
         allow read: if isMember(projectId);
@@ -191,10 +196,35 @@ service cloud.firestore {
         allow delete: if canDeleteWork(projectId);
       }
       match /stickyNotes/{itemId} {
+        function validNote() {
+          return request.resource.data.keys().hasOnly(['kind','content','color','x','y','taskId','pinned','createdBy','createdAt','updatedAt'])
+            && (!('kind' in request.resource.data) || request.resource.data.kind == 'note')
+            && request.resource.data.content is string;
+        }
+        function validDocumentCard() {
+          return request.resource.data.keys().hasOnly(['kind','documentId','x','y','pinned','color','createdBy','createdAt','updatedAt'])
+            && request.resource.data.kind == 'document'
+            && request.resource.data.documentId is string
+            && request.resource.data.documentId.size() > 0 && request.resource.data.documentId.size() <= 220
+            && request.resource.data.x is number && request.resource.data.y is number
+            && (!('pinned' in request.resource.data) || request.resource.data.pinned is bool)
+            && (!('color' in request.resource.data) || request.resource.data.color in ['#ffffff','#fef3c7','#dbeafe','#dcfce7','#fce7f3','#ede9fe'])
+            && itemId == 'document_' + request.resource.data.documentId;
+        }
         allow read: if isMember(projectId);
-        allow create: if validWorkCreate(projectId) && request.resource.data.keys().hasOnly(['content','color','x','y','taskId','pinned','createdBy','createdAt','updatedAt']) && request.resource.data.content is string;
-        allow update: if projectActive(projectId) && isMember(projectId) && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.keys().hasOnly(['content','color','x','y','taskId','pinned','createdBy','createdAt','updatedAt']);
-        allow delete: if canDeleteWork(projectId);
+        allow create: if validWorkCreate(projectId) && ((validNote())
+          || (validDocumentCard() && request.resource.data.createdAt == request.time
+            && request.resource.data.updatedAt == request.time
+            && existsAfter(projectDocumentPath(projectId, request.resource.data.documentId))));
+        allow update: if projectActive(projectId) && isMember(projectId)
+          && ((resource.data.get('kind', 'note') == 'document' && validDocumentCard()
+              && request.resource.data.documentId == resource.data.documentId
+              && request.resource.data.createdBy == resource.data.createdBy
+              && request.resource.data.createdAt == resource.data.createdAt
+              && request.resource.data.updatedAt == request.time
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['x','y','pinned','color','updatedAt']))
+            || (resource.data.get('kind', 'note') != 'document' && request.resource.data.createdBy == resource.data.createdBy && validNote()));
+        allow delete: if projectActive(projectId) && ((resource.data.get('kind', 'note') == 'document' && isMember(projectId)) || canDeleteWork(projectId));
       }
       match /documents/{itemId} {
         function validLegacyDocument() {
@@ -216,7 +246,7 @@ service cloud.firestore {
         }
         function validDriveDocument() {
           return request.resource.data.keys().hasAll(['kind','title','driveFileId','name','mimeType','shareMode','sharedMemberIds','createdBy','createdAt','updatedAt'])
-            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','driveFileId','name','mimeType','sizeBytes','shareMode','role','sharedMemberIds','managedPermissionIds','linkPermissionId','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
+            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','driveFileId','name','mimeType','sizeBytes','resourceKey','shareMode','role','sharedMemberIds','managedPermissionIds','linkPermissionId','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
             && request.resource.data.kind == 'drive'
             && itemId == 'drive_' + request.resource.data.driveFileId
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
@@ -240,18 +270,21 @@ service cloud.firestore {
         }
         allow read: if isMember(projectId);
         allow create: if validWorkCreate(projectId) && (validLegacyDocument() || validV2Document()
-          || (validDriveDocument() && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time)
+          // New folder attachments are unmanaged; folders attached earlier keep their recorded mode.
+          || (validDriveDocument() && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time
+            && (request.resource.data.mimeType != 'application/vnd.google-apps.folder' || request.resource.data.shareMode == 'unmanaged'))
           || (validCanvaDocument() && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time));
         allow update: if projectActive(projectId) && isMember(projectId) && request.resource.data.createdBy == resource.data.createdBy
-          && (validLegacyDocument() || validV2Document()
-            || (resource.data.kind == 'canva' && request.resource.data.updatedAt == request.time
+          // Dispatch on the stored kind first: evaluating every schema in turn exceeds the 1000-expression limit.
+          && ((!(resource.data.get('kind', 'markdown') in ['drive', 'canva']) && (validLegacyDocument() || validV2Document()))
+            || (resource.data.get('kind', 'markdown') == 'canva' && request.resource.data.updatedAt == request.time
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname','description','labelIds','taskIds','updatedAt'])
               && validCanvaDocument())
-            || (resource.data.kind == 'drive' && request.resource.data.updatedAt == request.time
+            || (resource.data.get('kind', 'markdown') == 'drive' && request.resource.data.updatedAt == request.time
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname','description','labelIds','taskIds','role','updatedAt'])
               && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']) || resource.data.createdBy == request.auth.uid)
               && validDriveDocument())
-            || (resource.data.kind == 'drive'
+            || (resource.data.get('kind', 'markdown') == 'drive'
               && resource.data.createdBy == request.auth.uid
               && request.resource.data.shareMode == 'members'
               && request.resource.data.createdAt == resource.data.createdAt

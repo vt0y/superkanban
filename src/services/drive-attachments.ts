@@ -3,7 +3,6 @@ import {
   arrayRemove,
   arrayUnion,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -16,7 +15,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import type { DriveAccessMode, DriveFileRef, DriveProjectDocument, DriveRole, Membership, ProjectDocument } from '@/types';
-import { allowedDriveRoles, removeDrivePermissions, syncDriveFileMembers, updateManagedPermissionRoles, type DriveFileCandidate, type DriveShareResult } from './google-drive';
+import { allowedDriveRoles, isDriveFolder, removeDrivePermissions, syncDriveFileMembers, updateManagedPermissionRoles, type DriveFileCandidate, type DriveShareResult } from './google-drive';
 import { activityData, BATCH_CHUNK, database, withId } from './helpers';
 import { bulkDeleteWorkItems } from './work-items';
 
@@ -31,6 +30,7 @@ function fileData(file: DriveFileCandidate, shareMode: DriveAccessMode, sharing:
     driveFileId: file.driveFileId,
     name: file.name.slice(0, 240),
     mimeType: file.mimeType.slice(0, 160),
+    ...(file.resourceKey ? { resourceKey: file.resourceKey.slice(0, 512) } : {}),
     ...(file.sizeBytes === undefined ? {} : { sizeBytes: file.sizeBytes }),
     shareMode,
     sharedMemberIds: sharing.sharedMemberIds,
@@ -59,8 +59,10 @@ export async function attachDriveProjectDocument(
     return;
   }
   const batch = writeBatch(store);
+  const accessMode = isDriveFolder(file) ? 'unmanaged' : shareMode;
+  const access = isDriveFolder(file) ? UNMANAGED_DRIVE_SHARING : sharing;
   batch.set(ref, {
-    kind: 'drive', title: file.name.slice(0, 200), labelIds: [], taskIds: [...new Set(taskIds)].slice(0, 100), ...fileData(file, shareMode, sharing, user),
+    kind: 'drive', title: file.name.slice(0, 200), labelIds: [], taskIds: [...new Set(taskIds)].slice(0, 100), ...fileData(file, accessMode, access, user),
   });
   batch.set(doc(collection(store, 'projects', projectId, 'activities')), activityData(user, 'file_attached', `แนบไฟล์ “${file.name}”`, `attached file “${file.name}”`, id));
   await batch.commit();
@@ -105,7 +107,13 @@ export function subscribeTaskDocuments(projectId: string, taskId: string, callba
 }
 
 export async function detachDriveProjectDocument(projectId: string, id: string): Promise<void> {
-  await deleteDoc(doc(database(), 'projects', projectId, 'documents', id));
+  const store = database();
+  const cardRef = doc(store, 'projects', projectId, 'stickyNotes', `document_${id}`);
+  const cardExists = (await getDoc(cardRef)).exists();
+  const batch = writeBatch(store);
+  if (cardExists) batch.delete(cardRef);
+  batch.delete(doc(store, 'projects', projectId, 'documents', id));
+  await batch.commit();
 }
 
 export interface DrivePermissionSyncSummary {

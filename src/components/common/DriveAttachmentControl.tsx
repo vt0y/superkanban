@@ -5,6 +5,7 @@ import {
   createGoogleWorkspaceFile,
   DEFAULT_DRIVE_SHARE_MODE,
   DRIVE_ROOT_FOLDER_NAME,
+  DRIVE_FOLDER_MIME_TYPE,
   driveFolderUrl,
   driveOpenUrl,
   effectiveDriveRole,
@@ -14,6 +15,8 @@ import {
   getOrCreateProjectDriveFolder,
   LOCAL_DRIVE_FILE_MAX_BYTES,
   parseGoogleFileLink,
+  parseGoogleFolderLink,
+  pickDriveFolder,
   pickDriveFiles,
   shareDriveFile,
   uploadFileToDrive,
@@ -28,7 +31,7 @@ import { pick } from '@/utils/formatters';
 import { Icon } from '@/components/common/Icon';
 
 type QueueState = 'queued' | 'uploading' | 'sharing' | 'attached' | 'duplicate' | 'error';
-type QueueSource = 'local' | 'drive' | 'picker' | 'create' | 'link';
+type QueueSource = 'local' | 'drive' | 'folder' | 'picker' | 'create' | 'link';
 
 interface UploadQueueItem {
   key: string;
@@ -249,9 +252,9 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
 
   const attachLink = async (event: FormEvent) => {
     event.preventDefault();
-    const parsed = parseGoogleFileLink(linkUrl);
+    const parsed = parseGoogleFolderLink(linkUrl) || parseGoogleFileLink(linkUrl);
     if (!parsed) {
-      setLinkError(pick(locale, 'ใช้ลิงก์ไฟล์จาก Google Docs, Sheets, Slides หรือ Drive (ไม่รองรับโฟลเดอร์)', 'Use a Google Docs, Sheets, Slides or Drive file link (folders are not supported)'));
+      setLinkError(pick(locale, 'ใช้ลิงก์ไฟล์หรือโฟลเดอร์จาก Google Drive', 'Use a Google Drive file or folder link'));
       return;
     }
     if (!startBusy()) return;
@@ -259,7 +262,8 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
     let item: UploadQueueItem;
     try {
       const candidate = await getDriveFile(user, parsed.driveFileId);
-      item = { key: `link:${crypto.randomUUID()}`, name: candidate.name, source: 'link', state: 'queued', mode, role, progress: 1, candidate };
+      if (parsed.mimeType === DRIVE_FOLDER_MIME_TYPE && candidate.mimeType !== DRIVE_FOLDER_MIME_TYPE) throw new Error('DRIVE_FOLDER_MIME_MISMATCH');
+      item = { key: `link:${crypto.randomUUID()}`, name: candidate.name, source: parsed.mimeType === DRIVE_FOLDER_MIME_TYPE ? 'folder' : 'link', state: 'queued', mode: parsed.mimeType === DRIVE_FOLDER_MIME_TYPE ? 'unmanaged' : mode, role, progress: 1, candidate: { ...candidate, resourceKey: parsed.resourceKey || candidate.resourceKey } };
     } catch (error) {
       const code = error instanceof Error ? error.message : '';
       if (code !== 'DRIVE_HTTP_403' && code !== 'DRIVE_HTTP_404') {
@@ -268,8 +272,9 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
         return;
       }
       // drive.file cannot read files that were never picked or created here, so keep a link-only reference.
-      const name = linkName.trim() || pick(locale, 'ไฟล์ Google Drive', 'Google Drive file');
-      item = { key: `link:${crypto.randomUUID()}`, name, source: 'link', state: 'queued', mode: 'unmanaged', role: 'reader', progress: 1, candidate: { driveFileId: parsed.driveFileId, name, mimeType: parsed.mimeType || 'application/octet-stream' } };
+      const folder = parsed.mimeType === DRIVE_FOLDER_MIME_TYPE;
+      const name = linkName.trim() || pick(locale, folder ? 'โฟลเดอร์ Google Drive' : 'ไฟล์ Google Drive', folder ? 'Google Drive folder' : 'Google Drive file');
+      item = { key: `link:${crypto.randomUUID()}`, name, source: folder ? 'folder' : 'link', state: 'queued', mode: 'unmanaged', role: 'reader', progress: 1, candidate: { driveFileId: parsed.driveFileId, name, mimeType: parsed.mimeType || 'application/octet-stream', ...(parsed.resourceKey ? { resourceKey: parsed.resourceKey } : {}) } };
     }
     stopBusy();
     setLinkUrl('');
@@ -311,6 +316,20 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
     } finally {
       stopBusy();
     }
+  };
+
+  const chooseFolder = async () => {
+    if (!startBusy()) return;
+    try {
+      const candidate = await pickDriveFolder(user);
+      if (!candidate) return;
+      const item: UploadQueueItem = { key: `folder:${candidate.driveFileId}:${crypto.randomUUID()}`, name: candidate.name, source: 'folder', state: 'queued', mode: 'unmanaged', role: 'reader', progress: 1, candidate };
+      setItems((current) => [...current, item]);
+      await processItem(item, new Set());
+    } catch (error) {
+      const details = errorDetails(error, locale);
+      setItems((current) => [...current, { key: `folder-picker:${crypto.randomUUID()}`, name: pick(locale, 'โฟลเดอร์ Google Drive', 'Google Drive folder'), source: 'picker', state: 'error', mode: 'unmanaged', role: 'reader', progress: 0, ...details }]);
+    } finally { stopBusy(); }
   };
 
   const retry = async (item: UploadQueueItem) => {
@@ -362,6 +381,7 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
         <input ref={inputRef} type="file" multiple hidden onChange={(event) => addLocal([...event.target.files || []])} />
         <button type="button" className="primary" disabled={busy} onClick={() => inputRef.current?.click()}><Icon name="upload" />{pick(locale, 'อัปโหลดจากเครื่อง', 'Upload from device')}</button>
         <button type="button" className="secondary" disabled={busy} onClick={() => void chooseDrive()}><Icon name="folder" className="google-drive-mark" />{pick(locale, 'เลือกจาก Drive', 'Choose from Drive')}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => void chooseFolder()}><Icon name="folder" />{pick(locale, 'เลือกโฟลเดอร์', 'Choose folder')}</button>
         <button type="button" className={`secondary ${panel === 'create' ? 'active' : ''}`} disabled={busy} aria-expanded={panel === 'create'} onClick={() => setPanel((current) => current === 'create' ? null : 'create')}><span aria-hidden="true"><Icon name="add" /></span>{pick(locale, 'สร้างไฟล์ Google', 'New Google file')}</button>
         <button type="button" className={`secondary ${panel === 'link' ? 'active' : ''}`} disabled={busy} aria-expanded={panel === 'link'} onClick={() => setPanel((current) => current === 'link' ? null : 'link')}><span aria-hidden="true"><Icon name="link" /></span>{pick(locale, 'วางลิงก์', 'Paste link')}</button>
       </div>
@@ -423,7 +443,7 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
           <span className="drive-queue-state" aria-hidden="true">{item.state === 'attached' ? <Icon name="check" /> : item.state === 'error' ? <Icon name="alert" /> : item.state === 'duplicate' ? <Icon name="copy" /> : working ? <Icon name="upload" /> : '·'}</span>
           <div><strong>{item.name}</strong><small>{queueStatus(item, locale)}</small>{item.state === 'uploading' && <progress value={item.progress} max={1} />}</div>
           <div className="drive-queue-actions">
-            {item.candidate && ['attached', 'error'].includes(item.state) && <a href={driveOpenUrl(item.candidate.driveFileId)} target="_blank" rel="noreferrer">{pick(locale, 'เปิด', 'Open')} <Icon name="open" /></a>}
+            {item.candidate && ['attached', 'error'].includes(item.state) && <a href={item.candidate.mimeType === DRIVE_FOLDER_MIME_TYPE ? driveFolderUrl(item.candidate.driveFileId, item.candidate.resourceKey) : driveOpenUrl(item.candidate.driveFileId, item.candidate.resourceKey)} target="_blank" rel="noreferrer">{pick(locale, 'เปิด', 'Open')} <Icon name="open" /></a>}
             {retryAction && <button type="button" disabled={busy} onClick={() => void retry(item)}>{pick(locale, 'ลองอีกครั้ง', 'Retry')}</button>}
             {!working && <button type="button" className="drive-queue-dismiss" aria-label={pick(locale, `นำ ${item.name} ออกจากคิว`, `Dismiss ${item.name}`)} onClick={() => setItems((current) => current.filter((currentItem) => currentItem.key !== item.key))}><Icon name="close" /></button>}
           </div>
@@ -479,6 +499,7 @@ export function DrivePermissionSyncPanel({ projectId, members, user, locale, dis
 function fileKind(file: Pick<DriveFileRef, 'mimeType' | 'name'>): { label: string; className: string } {
   const mime = file.mimeType.toLowerCase();
   const name = file.name.toLowerCase();
+  if (mime === DRIVE_FOLDER_MIME_TYPE) return { label: 'DIR', className: 'folder' };
   if (mime.includes('pdf') || name.endsWith('.pdf')) return { label: 'PDF', className: 'pdf' };
   if (mime.startsWith('image/')) return { label: 'IMG', className: 'image' };
   if (mime.includes('spreadsheet') || /\.(xlsx?|csv)$/.test(name)) return { label: 'SHT', className: 'sheet' };
@@ -508,7 +529,7 @@ export function DriveFileRow({ file, locale, uploader, canDetach, onDetach, deta
   const kind = fileKind(file);
 
   return <div className="drive-file-row">
-    <a className="drive-file-main" href={driveOpenUrl(file.driveFileId)} target="_blank" rel="noreferrer" title={pick(locale, 'เปิดใน Google Drive', 'Open in Google Drive')}>
+    <a className="drive-file-main" href={file.mimeType === DRIVE_FOLDER_MIME_TYPE ? driveFolderUrl(file.driveFileId, file.resourceKey) : driveOpenUrl(file.driveFileId, file.resourceKey)} target="_blank" rel="noreferrer" title={pick(locale, 'เปิดใน Google Drive', 'Open in Google Drive')}>
       <span className={`drive-file-icon ${kind.className}`} aria-hidden="true">{kind.label}</span>
       <div className="drive-file-copy"><strong>{file.nickname?.trim() || file.name}</strong>{file.nickname?.trim() && <small className="drive-original-name">{file.name}</small>}{file.description?.trim() && <p className="drive-file-description">{file.description}</p>}<span className="drive-file-meta">{formatFileSize(file.sizeBytes) && <small>{formatFileSize(file.sizeBytes)}</small>}{uploader && <small>{uploader}</small>}<small className={`drive-access-badge ${file.shareMode === 'link' ? 'external' : file.shareMode === 'unmanaged' ? 'unmanaged' : ''}`} title={file.shareMode === 'unmanaged' ? pick(locale, 'แนบด้วยลิงก์ SuperKanban ไม่ได้ให้สิทธิ์ใดๆ ขอสิทธิ์จากเจ้าของไฟล์ใน Google Drive', 'Attached by link. SuperKanban granted no access; ask the file owner in Google Drive.') : undefined}>{driveAccessLabel(file, locale)}</small></span></div>
       <span className="drive-open-mark" aria-hidden="true"><Icon name="open" /></span>

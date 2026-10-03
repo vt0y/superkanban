@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  batch: { set: vi.fn(), delete: vi.fn(), commit: vi.fn(() => Promise.resolve()) },
+  getDoc: vi.fn(),
   getDocs: vi.fn(),
   updateDoc: vi.fn(),
   syncDriveFileMembers: vi.fn(),
@@ -14,26 +16,27 @@ vi.mock('firebase/firestore', () => ({
   collection: vi.fn((...parts: unknown[]) => parts.join('/')),
   deleteDoc: vi.fn(),
   doc: vi.fn((...parts: unknown[]) => parts.join('/')),
-  getDoc: vi.fn(),
+  getDoc: mocks.getDoc,
   getDocs: mocks.getDocs,
   onSnapshot: vi.fn(),
   query: vi.fn((path: string, ...constraints: unknown[]) => ({ path, constraints })),
   serverTimestamp: vi.fn(() => 'server-time'),
   updateDoc: mocks.updateDoc,
   where: vi.fn((...args: unknown[]) => args),
-  writeBatch: vi.fn(),
+  writeBatch: vi.fn(() => mocks.batch),
 }));
 
 vi.mock('./helpers', () => ({ database: vi.fn(() => 'database'), activityData: vi.fn(), withId: vi.fn(), BATCH_CHUNK: 450 }));
 vi.mock('./work-items', () => ({ bulkDeleteWorkItems: vi.fn() }));
 vi.mock('./google-drive', async (importOriginal) => ({
   allowedDriveRoles: (await importOriginal<typeof import('./google-drive')>()).allowedDriveRoles,
+  isDriveFolder: (await importOriginal<typeof import('./google-drive')>()).isDriveFolder,
   syncDriveFileMembers: mocks.syncDriveFileMembers,
   removeDrivePermissions: mocks.removeDrivePermissions,
   updateManagedPermissionRoles: mocks.updateManagedPermissionRoles,
 }));
 
-import { syncProjectDrivePermissions, updateDriveProjectDocumentRole } from './drive-attachments';
+import { attachDriveProjectDocument, syncProjectDrivePermissions, updateDriveProjectDocumentRole } from './drive-attachments';
 
 const snapshot = (id: string, data: Record<string, unknown>) => ({ id, ref: `ref:${id}`, data: () => data });
 
@@ -42,6 +45,8 @@ describe('project Drive permission sync', () => {
     vi.clearAllMocks();
     mocks.updateDoc.mockResolvedValue(undefined);
     mocks.removeDrivePermissions.mockResolvedValue(undefined);
+    mocks.getDoc.mockResolvedValue({ exists: () => false });
+    mocks.batch.commit.mockResolvedValue(undefined);
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -59,6 +64,12 @@ describe('project Drive permission sync', () => {
     expect(result).toEqual({ total: 1, updated: 1, skipped: 0, failed: 0 });
     expect(mocks.syncDriveFileMembers).toHaveBeenCalledTimes(1);
     expect(mocks.updateDoc).toHaveBeenCalledWith('ref:doc-1', expect.objectContaining({ managedPermissionIds: { member: 'permission-1' } }));
+  });
+
+  it('always stores Drive folders as unmanaged without permission metadata', async () => {
+    await attachDriveProjectDocument('project-1', { driveFileId: 'folder-1', name: 'Research', mimeType: 'application/vnd.google-apps.folder', resourceKey: 'key_1' }, 'members', { sharedMemberIds: ['member'], managedPermissionIds: { member: 'permission' }, role: 'writer' }, { uid: 'user-1' } as never);
+    expect(mocks.batch.set).toHaveBeenCalledWith('database/projects/project-1/documents/drive_folder-1', expect.objectContaining({ shareMode: 'unmanaged', sharedMemberIds: [], resourceKey: 'key_1' }));
+    expect(mocks.batch.set.mock.calls[0]?.[1]).not.toHaveProperty('managedPermissionIds');
   });
 
   it('rolls back newly created permissions when metadata persistence fails', async () => {

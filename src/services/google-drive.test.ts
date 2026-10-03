@@ -12,6 +12,7 @@ import {
   getOrCreateProjectDriveFolder,
   LOCAL_DRIVE_FILE_MAX_BYTES,
   parseGoogleFileLink,
+  parseGoogleFolderLink,
   pickDriveFiles,
   projectDriveFolderStorageKey,
   shareDriveFile,
@@ -243,6 +244,13 @@ describe('Google Drive attachment helpers', () => {
     expect(parseGoogleFileLink('https://docs.google.com.evil.example/document/d/1AbCdEfGhIjK')).toBeNull();
     expect(parseGoogleFileLink('http://docs.google.com/document/d/1AbCdEfGhIjK')).toBeNull();
     expect(parseGoogleFileLink('not a url')).toBeNull();
+  });
+
+  it('parses Drive folder links and preserves only the resource key', () => {
+    expect(parseGoogleFolderLink('https://drive.google.com/drive/folders/1AbCdEfGhIjK?resourcekey=0-safe_Key&usp=sharing')).toEqual({ driveFileId: '1AbCdEfGhIjK', mimeType: 'application/vnd.google-apps.folder', resourceKey: '0-safe_Key' });
+    expect(parseGoogleFolderLink('https://drive.google.com/file/d/1AbCdEfGhIjK/view')).toBeNull();
+    expect(parseGoogleFolderLink('https://drive.google.com.evil.test/drive/folders/1AbCdEfGhIjK')).toBeNull();
+    expect(driveFolderUrl('folder id', 'key_1')).toBe('https://drive.google.com/drive/folders/folder%20id?resourcekey=key_1');
   });
 
   it('creates Google files inside the project upload folder', async () => {

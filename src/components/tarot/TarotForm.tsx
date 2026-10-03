@@ -51,7 +51,7 @@ export function TarotForm({ locale, category, question, error, onCategory, onQue
 
         {error && <p className="arc-error" role="alert"><Icon name="alert" /> {error}</p>}
         <button type="submit" className="arc-primary"><Icon name="shuffle" /> {pick(locale, 'เริ่มสับไพ่', 'Shuffle the deck')}</button>
-        <small className="arc-privacy"><Icon name="lock" /> {pick(locale, 'คำถามจะถูกส่งให้ KKU GenAI และบันทึกเป็นประวัติส่วนตัวของคุณเท่านั้น', 'Your question is processed by KKU GenAI and saved only to your private history.')}</small>
+        <small className="arc-privacy"><Icon name="lock" /> {pick(locale, 'คำถามจะถูกส่งให้ KKU IntelSphere, ผู้ให้บริการ model และ บันทึกเป็นประวัติส่วนตัวของคุณเท่านั้น ทั้งนี้ API Endpoint ของ KKU IntelSphere มีการบันทึกประวัติการใช้งาน API รวมถึง Prompt Input/Output อย่างละเอียด ไม่แนะนําให้กรอกข้อมูลส่วนบุคคลลงไป', 'Your question is sent only to KKU IntelSphere and the model provider, and saved to your private history. Note that the KKU IntelSphere API endpoint keeps detailed usage logs, including prompt input and output, so please avoid entering personal information.')}</small>
       </form>
     </section>
   );

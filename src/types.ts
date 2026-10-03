@@ -172,6 +172,8 @@ export interface ProjectUseCase {
 
 export interface StickyNote {
   id: string;
+  /** Missing on legacy records, which are still treated as notes. */
+  kind?: 'note';
   content: string;
   color: string;
   x: number;
@@ -182,6 +184,26 @@ export interface StickyNote {
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
+
+export interface DocumentCanvasCard {
+  id: string;
+  kind: 'document';
+  documentId: string;
+  x: number;
+  y: number;
+  /** Missing on legacy cards; an absent value means the card is movable. */
+  pinned?: boolean;
+  /** Missing on legacy cards; an absent value keeps the default card background. */
+  color?: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export type CanvasItem = StickyNote | DocumentCanvasCard;
+
+export const isDocumentCanvasCard = (item: CanvasItem): item is DocumentCanvasCard => item.kind === 'document';
+export const isStickyNote = (item: CanvasItem): item is StickyNote => item.kind !== 'document';
 
 /** Sharing the app applies when it can manage the file's Drive permissions. */
 export type DriveShareMode = 'members' | 'link';
@@ -197,6 +219,8 @@ export interface DriveFileRef {
   /** Project-local context; never writes to Google Drive metadata. */
   description?: string;
   mimeType: string;
+  /** Optional Drive link resource key; used only to rebuild a trusted URL. */
+  resourceKey?: string;
   sizeBytes?: number;
   shareMode: DriveAccessMode;
   /** Role of app-created grants; missing means `reader`. Never set for unmanaged references. */

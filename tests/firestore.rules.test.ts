@@ -11,6 +11,7 @@ beforeAll(async () => {
     projectId: 'project-space-test',
     firestore: { rules: readFileSync('firestore.rules', 'utf8') },
   });
+
 });
 beforeEach(async () => environment.clearFirestore());
 afterAll(async () => environment.cleanup());
@@ -922,5 +923,97 @@ describe('ProjectSpace Firestore rules', () => {
     await assertFails(setDoc(doc(context('newbie'), 'memberships', `${projectId}_newbie`), { ...joiner, githubUsername: 'torvalds' }));
     const provenDb = context('newbie', 'newbie@example.com', { firebase: { identities: { 'github.com': ['99'] } } });
     await assertSucceeds(setDoc(doc(provenDb, 'memberships', `${projectId}_newbie`), { ...joiner, githubUsername: 'newbie-gh' }));
+  });
+
+  it('document canvas cards accept legacy/new schema and active members may move, style, lock, and unpin', async () => {
+    await seedProject();
+    const memberDb = context('member');
+    await environment.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'projects', projectId, 'documents', 'doc-card'), {
+      schemaVersion: 2, title: 'Card', excerpt: '', contentBytes: 0, createdBy: 'owner', createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    }));
+    const card = doc(memberDb, 'projects', projectId, 'stickyNotes', 'document_doc-card');
+    await assertSucceeds(setDoc(card, { kind: 'document', documentId: 'doc-card', x: 10, y: 20, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(card, { x: 30, y: 40, updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(card, { pinned: true, color: '#fef3c7', updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(card, { pinned: false, color: '#ffffff', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(card, { pinned: 'yes', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(card, { color: '#000000', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(card, { documentId: 'other', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(card, { createdBy: 'owner', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(card, { createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(context('outsider'), card.path), { pinned: true, updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'stickyNotes', 'wrong'), { kind: 'document', documentId: 'doc-card', x: 0, y: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'stickyNotes', 'document_missing'), { kind: 'document', documentId: 'missing', x: 0, y: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertSucceeds(deleteDoc(card));
+    await assertFails(setDoc(doc(context('outsider'), 'projects', projectId, 'stickyNotes', 'document_doc-card'), { kind: 'document', documentId: 'doc-card', x: 0, y: 0, createdBy: 'outsider', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+
+    const styled = doc(memberDb, 'projects', projectId, 'stickyNotes', 'document_doc-card');
+    await assertSucceeds(setDoc(styled, { kind: 'document', documentId: 'doc-card', x: 0, y: 0, pinned: true, color: '#dbeafe', createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+  });
+
+  it('legacy sticky notes without kind can still be edited, moved, recolored, and deleted', async () => {
+    await seedProject();
+    const memberDb = context('member');
+    await environment.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'projects', projectId, 'stickyNotes', 'legacy-note'), {
+      content: 'old', color: '#fef3c7', x: 0, y: 0, taskId: '', pinned: false, createdBy: 'member', createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    }));
+    const note = doc(memberDb, 'projects', projectId, 'stickyNotes', 'legacy-note');
+    await assertSucceeds(updateDoc(note, { content: 'edited', color: '#dbeafe', taskId: '', updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(note, { x: 50, y: 60, updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(note, { pinned: true, updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(note, { color: '#dcfce7', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(note, { kind: 'document', updatedAt: serverTimestamp() }));
+    await assertSucceeds(deleteDoc(note));
+  });
+
+  it('Drive documents attached earlier can still save details', async () => {
+    await seedProject();
+    const memberDb = context('member');
+    const now = Timestamp.now();
+    const base = { kind: 'drive', shareMode: 'members', createdBy: 'member', createdAt: now, updatedAt: now };
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      // Shared with members before folders were restricted to unmanaged references.
+      await setDoc(doc(ctx.firestore(), 'projects', projectId, 'documents', 'drive_old-folder'), { ...base, title: 'Old folder', driveFileId: 'old-folder', name: 'Old folder', mimeType: 'application/vnd.google-apps.folder', sharedMemberIds: ['owner', 'member', 'admin'] });
+      // Member list drifted: someone joined the project after the file was attached.
+      await setDoc(doc(ctx.firestore(), 'projects', projectId, 'documents', 'drive_drifted'), { ...base, title: 'Drifted', driveFileId: 'drifted', name: 'Drifted', mimeType: 'application/pdf', sharedMemberIds: ['owner', 'member'] });
+    });
+    const details = { nickname: 'Nick', description: 'Desc', labelIds: ['l1'], taskIds: ['t1'], updatedAt: serverTimestamp() };
+    await assertSucceeds(updateDoc(doc(memberDb, 'projects', projectId, 'documents', 'drive_old-folder'), details));
+    await assertSucceeds(updateDoc(doc(memberDb, 'projects', projectId, 'documents', 'drive_drifted'), details));
+    // Writing a member list still has to match the project exactly.
+    await assertFails(updateDoc(doc(memberDb, 'projects', projectId, 'documents', 'drive_drifted'), { sharedMemberIds: ['owner'], permissionsSyncedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(memberDb, 'projects', projectId, 'documents', 'drive_drifted'), { sharedMemberIds: ['owner', 'member', 'admin'], permissionsSyncedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+  });
+
+  it('Drive folders are unmanaged references and resource keys are immutable', async () => {
+    await seedProject();
+    const memberDb = context('member');
+    const folder = doc(memberDb, 'projects', projectId, 'documents', 'drive_folder-1');
+    const base = { kind: 'drive', title: 'Research', driveFileId: 'folder-1', name: 'Research', mimeType: 'application/vnd.google-apps.folder', shareMode: 'unmanaged', sharedMemberIds: [], resourceKey: 'safe_Key-1', createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    await assertSucceeds(setDoc(folder, base));
+    await assertFails(updateDoc(folder, { resourceKey: 'changed', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'documents', 'drive_folder-2'), { ...base, driveFileId: 'folder-2', shareMode: 'members', sharedMemberIds: ['owner', 'member', 'admin'] }));
+    await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'documents', 'drive_folder-3'), { ...base, driveFileId: 'folder-3', resourceKey: 'bad key!' }));
+  });
+
+  it('deleting a document and its canvas card in one batch succeeds, while archived canvas is immutable', async () => {
+    await seedProject();
+    const memberDb = context('member');
+    const metadata = doc(memberDb, 'projects', projectId, 'documents', 'atomic-doc');
+    const body = doc(memberDb, 'projects', projectId, 'documentBodies', 'atomic-doc');
+    const card = doc(memberDb, 'projects', projectId, 'stickyNotes', 'document_atomic-doc');
+    const create = writeBatch(memberDb);
+    create.set(metadata, { kind: 'markdown', schemaVersion: 2, title: 'Atomic', excerpt: '', contentBytes: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    create.set(body, { content: '' });
+    create.set(card, { kind: 'document', documentId: 'atomic-doc', x: 0, y: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await assertSucceeds(create.commit());
+    await updateDoc(doc(context('owner'), 'projects', projectId), { archived: true });
+    await assertFails(updateDoc(card, { pinned: true, color: '#dcfce7', updatedAt: serverTimestamp() }));
+    await updateDoc(doc(context('owner'), 'projects', projectId), { archived: false });
+    const remove = writeBatch(memberDb);
+    remove.delete(card); remove.delete(body); remove.delete(metadata);
+    await assertSucceeds(remove.commit());
+    await updateDoc(doc(context('owner'), 'projects', projectId), { archived: true });
+    await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'stickyNotes', 'note-archived'), { kind: 'note', content: 'x', color: '#fff', x: 0, y: 0, taskId: '', pinned: false, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
   });
 });

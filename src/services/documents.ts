@@ -5,6 +5,7 @@ import {
   arrayUnion,
   deleteField,
   doc,
+  getDoc,
   onSnapshot,
   runTransaction,
   serverTimestamp,
@@ -113,8 +114,11 @@ export async function updateProjectDocumentLabels(projectId: string, documentId:
 
 export async function deleteProjectDocument(projectId: string, documentId: string): Promise<void> {
   const store = database();
+  const cardRef = doc(store, 'projects', projectId, 'stickyNotes', `document_${documentId}`);
+  const cardExists = (await getDoc(cardRef)).exists();
   const batch = writeBatch(store);
   batch.delete(doc(store, 'projects', projectId, 'documentBodies', documentId));
+  if (cardExists) batch.delete(cardRef);
   batch.delete(doc(store, 'projects', projectId, 'documents', documentId));
   await batch.commit();
 }

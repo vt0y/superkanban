@@ -3,6 +3,7 @@ import { googleCloudProjectNumber, googleDriveApiKey } from '@/config/features';
 import type { DriveRole, DriveShareMode, Membership, Project } from '@/types';
 
 export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+export const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 export const LOCAL_DRIVE_FILE_MAX_BYTES = 25 * 1024 * 1024;
 export const DEFAULT_DRIVE_SHARE_MODE: DriveShareMode = 'members';
 export const DRIVE_ROOT_FOLDER_NAME = 'SuperKanban';
@@ -15,6 +16,7 @@ export interface DriveFileCandidate {
   name: string;
   mimeType: string;
   sizeBytes?: number;
+  resourceKey?: string;
 }
 
 export interface DriveShareResult {
@@ -51,6 +53,7 @@ export function effectiveDriveRole(mode: DriveShareMode, mimeType: string, reque
 export interface GoogleFileLink {
   driveFileId: string;
   mimeType?: string;
+  resourceKey?: string;
 }
 
 const LINK_TYPES: Record<string, string> = {
@@ -67,12 +70,12 @@ export function parseGoogleFileLink(raw: string): GoogleFileLink | null {
   if (url.protocol !== 'https:') return null;
   if (url.hostname === 'docs.google.com') {
     const match = url.pathname.match(/^\/(document|spreadsheets|presentation)\/(?:u\/\d+\/)?d\/([^/]+)/);
-    return match && FILE_ID.test(match[2]) ? { driveFileId: match[2], mimeType: LINK_TYPES[match[1]] } : null;
+    return match && FILE_ID.test(match[2]) ? { driveFileId: match[2], mimeType: LINK_TYPES[match[1]], ...(url.searchParams.get('resourcekey') ? { resourceKey: url.searchParams.get('resourcekey')! } : {}) } : null;
   }
   if (url.hostname === 'drive.google.com') {
     const match = url.pathname.match(/^\/(?:u\/\d+\/)?file\/d\/([^/]+)/);
     const id = match?.[1] ?? (url.pathname === '/open' ? url.searchParams.get('id') : null);
-    return id && FILE_ID.test(id) ? { driveFileId: id } : null;
+    return id && FILE_ID.test(id) ? { driveFileId: id, ...(url.searchParams.get('resourcekey') ? { resourceKey: url.searchParams.get('resourcekey')! } : {}) } : null;
   }
   return null;
 }
@@ -85,13 +88,29 @@ export interface DriveMemberSyncResult extends DriveShareResult {
 interface CachedToken { userId: string; accessToken: string; expiresAt: number }
 let cachedToken: CachedToken | null = null;
 
-export function driveOpenUrl(fileId: string): string {
-  return `https://drive.google.com/open?id=${encodeURIComponent(fileId)}`;
+export interface GoogleFolderLink { driveFileId: string; mimeType: typeof DRIVE_FOLDER_MIME_TYPE; resourceKey?: string }
+
+export function parseGoogleFolderLink(raw: string): GoogleFolderLink | null {
+  let url: URL;
+  try { url = new URL(raw.trim()); } catch { return null; }
+  if (url.protocol !== 'https:' || url.hostname !== 'drive.google.com') return null;
+  const match = url.pathname.match(/^\/(?:u\/\d+\/)?drive\/folders\/([^/]+)/);
+  if (!match || !FILE_ID.test(match[1])) return null;
+  const resourceKey = url.searchParams.get('resourcekey');
+  return { driveFileId: match[1], mimeType: DRIVE_FOLDER_MIME_TYPE, ...(resourceKey ? { resourceKey } : {}) };
 }
 
-export function driveFolderUrl(folderId: string): string {
-  return `https://drive.google.com/drive/folders/${encodeURIComponent(folderId)}`;
+const withResourceKey = (url: string, resourceKey?: string) => resourceKey ? `${url}${url.includes('?') ? '&' : '?'}resourcekey=${encodeURIComponent(resourceKey)}` : url;
+
+export function driveOpenUrl(fileId: string, resourceKey?: string): string {
+  return withResourceKey(`https://drive.google.com/open?id=${encodeURIComponent(fileId)}`, resourceKey);
 }
+
+export function driveFolderUrl(folderId: string, resourceKey?: string): string {
+  return withResourceKey(`https://drive.google.com/drive/folders/${encodeURIComponent(folderId)}`, resourceKey);
+}
+
+export const isDriveFolder = (value: Pick<DriveFileCandidate, 'mimeType'>): boolean => value.mimeType === DRIVE_FOLDER_MIME_TYPE;
 
 export function projectDriveFolderStorageKey(userId: string, projectId: string): string {
   return `ps.drive.project-folder.${encodeURIComponent(JSON.stringify([userId, projectId]))}`;
@@ -234,9 +253,9 @@ export async function uploadFileToDrive(user: User, project: Pick<Project, 'id' 
   return uploaded;
 }
 
-function normalizeDriveFile(file: { id: string; name: string; mimeType: string; size?: string }): DriveFileCandidate {
+function normalizeDriveFile(file: { id: string; name: string; mimeType: string; size?: string; resourceKey?: string }): DriveFileCandidate {
   const parsed = file.size === undefined ? undefined : Number(file.size);
-  return { driveFileId: file.id, name: file.name, mimeType: file.mimeType, ...(Number.isFinite(parsed) ? { sizeBytes: parsed } : {}) };
+  return { driveFileId: file.id, name: file.name, mimeType: file.mimeType, ...(Number.isFinite(parsed) ? { sizeBytes: parsed } : {}), ...(file.resourceKey ? { resourceKey: file.resourceKey } : {}) };
 }
 
 /** Creates a blank Google Doc/Sheet/Slides file in the project upload folder; app-created files stay accessible under drive.file. */
@@ -255,7 +274,7 @@ export async function createGoogleWorkspaceFile(user: User, project: Pick<Projec
 }
 
 export async function getDriveFile(user: User, fileId: string): Promise<DriveFileCandidate> {
-  const file = await driveJson<{ id: string; name: string; mimeType: string; size?: string }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size`);
+  const file = await driveJson<{ id: string; name: string; mimeType: string; size?: string; resourceKey?: string }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,resourceKey`);
   return normalizeDriveFile(file);
 }
 
@@ -441,5 +460,36 @@ export async function pickDriveFiles(user: User): Promise<DriveFileCandidate[]> 
     } catch (error) {
       finish(error instanceof Error ? error : new Error('DRIVE_PICKER_LOAD_FAILED'));
     }
+  });
+}
+
+/** Opens a single-select folder picker. My Drive and shared drives remain visible. */
+export async function pickDriveFolder(user: User): Promise<DriveFileCandidate | null> {
+  const token = await requestDriveAccess(user);
+  await loadPicker();
+  const picker = window.google?.picker;
+  if (!picker) throw new Error('DRIVE_PICKER_LOAD_FAILED');
+  return new Promise((resolve, reject) => {
+    const view = new picker.DocsView().setIncludeFolders(true).setSelectFolderEnabled(true);
+    if (typeof view.setMimeTypes === 'function') view.setMimeTypes(DRIVE_FOLDER_MIME_TYPE);
+    try {
+      let builder = new picker.PickerBuilder().setAppId(googleCloudProjectNumber).setDeveloperKey(googleDriveApiKey).setOAuthToken(token)
+        .setOrigin(window.location.origin).addView(view);
+      if (picker.Feature?.SUPPORT_DRIVES) builder = builder.enableFeature(picker.Feature.SUPPORT_DRIVES);
+      let built: { setVisible(visible: boolean): void };
+      builder = builder.setCallback((data: any) => {
+          if (data?.action === picker.Action.CANCEL) { built.setVisible(false); resolve(null); }
+          else if (data?.action === picker.Action.PICKED) {
+            const selected = data.docs?.[0];
+            if (!selected?.id) { built.setVisible(false); reject(new Error('DRIVE_PICKER_RESULT_MISSING')); return; }
+            getDriveFile(user, selected.id).then((file) => {
+              built.setVisible(false);
+              if (!isDriveFolder(file)) reject(new Error('DRIVE_FOLDER_MIME_MISMATCH')); else resolve(file);
+            }, reject);
+          }
+        });
+      built = builder.build();
+      built.setVisible(true);
+    } catch (error) { reject(error); }
   });
 }

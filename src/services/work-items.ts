@@ -13,6 +13,7 @@ import {
   runTransaction,
   startAfter,
   serverTimestamp,
+  where,
   writeBatch,
   type DocumentData,
   type QueryConstraint,
@@ -58,6 +59,21 @@ export async function loadProjectCollectionPage<T>(
     nextCursor: docs.length ? { value: docs.at(-1)!.get(orderField) as Timestamp, id: docs.at(-1)!.id } : null,
     hasMore: snapshot.docs.length > pageSize,
   };
+}
+
+/** Live documents for a known id list, split below Firestore's 30-value `in` limit. */
+export function subscribeProjectDocsByIds<T>(projectId: string, name: string, ids: string[], callback: (items: T[]) => void): Unsubscribe {
+  const unique = [...new Set(ids)].sort();
+  if (!unique.length) { callback([]); return () => undefined; }
+  const chunks: string[][] = [];
+  for (let start = 0; start < unique.length; start += 30) chunks.push(unique.slice(start, start + 30));
+  const values = new Map<number, T[]>();
+  const emit = () => { if (values.size === chunks.length) callback([...values.values()].flat()); };
+  const stops = chunks.map((chunk, index) => onSnapshot(query(collection(database(), 'projects', projectId, name), where(documentId(), 'in', chunk)), (snapshot) => {
+    values.set(index, snapshot.docs.map((item) => withId<T>(item)));
+    emit();
+  }));
+  return () => stops.forEach((stop) => stop());
 }
 
 export function subscribeProjectCollection<T>(
