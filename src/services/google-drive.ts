@@ -62,6 +62,12 @@ const LINK_TYPES: Record<string, string> = {
   presentation: GOOGLE_WORKSPACE_MIME_TYPES.presentation,
 };
 const FILE_ID = /^[A-Za-z0-9_-]{10,200}$/;
+const RESOURCE_KEY = /^[A-Za-z0-9_-]{1,256}$/;
+
+const parsedResourceKey = (url: URL): string | undefined => {
+  const value = url.searchParams.get('resourcekey');
+  return value && RESOURCE_KEY.test(value) ? value : undefined;
+};
 
 /** Extracts a Drive file ID from a Google Docs/Sheets/Slides or Drive file URL. Folders and other hosts are rejected. */
 export function parseGoogleFileLink(raw: string): GoogleFileLink | null {
@@ -70,12 +76,16 @@ export function parseGoogleFileLink(raw: string): GoogleFileLink | null {
   if (url.protocol !== 'https:') return null;
   if (url.hostname === 'docs.google.com') {
     const match = url.pathname.match(/^\/(document|spreadsheets|presentation)\/(?:u\/\d+\/)?d\/([^/]+)/);
-    return match && FILE_ID.test(match[2]) ? { driveFileId: match[2], mimeType: LINK_TYPES[match[1]], ...(url.searchParams.get('resourcekey') ? { resourceKey: url.searchParams.get('resourcekey')! } : {}) } : null;
+    if (!match || !FILE_ID.test(match[2])) return null;
+    const resourceKey = parsedResourceKey(url);
+    return { driveFileId: match[2], mimeType: LINK_TYPES[match[1]], ...(resourceKey ? { resourceKey } : {}) };
   }
   if (url.hostname === 'drive.google.com') {
     const match = url.pathname.match(/^\/(?:u\/\d+\/)?file\/d\/([^/]+)/);
     const id = match?.[1] ?? (url.pathname === '/open' ? url.searchParams.get('id') : null);
-    return id && FILE_ID.test(id) ? { driveFileId: id, ...(url.searchParams.get('resourcekey') ? { resourceKey: url.searchParams.get('resourcekey')! } : {}) } : null;
+    if (!id || !FILE_ID.test(id)) return null;
+    const resourceKey = parsedResourceKey(url);
+    return { driveFileId: id, ...(resourceKey ? { resourceKey } : {}) };
   }
   return null;
 }
@@ -96,7 +106,7 @@ export function parseGoogleFolderLink(raw: string): GoogleFolderLink | null {
   if (url.protocol !== 'https:' || url.hostname !== 'drive.google.com') return null;
   const match = url.pathname.match(/^\/(?:u\/\d+\/)?drive\/folders\/([^/]+)/);
   if (!match || !FILE_ID.test(match[1])) return null;
-  const resourceKey = url.searchParams.get('resourcekey');
+  const resourceKey = parsedResourceKey(url);
   return { driveFileId: match[1], mimeType: DRIVE_FOLDER_MIME_TYPE, ...(resourceKey ? { resourceKey } : {}) };
 }
 
@@ -273,8 +283,9 @@ export async function createGoogleWorkspaceFile(user: User, project: Pick<Projec
   return normalizeDriveFile(created);
 }
 
-export async function getDriveFile(user: User, fileId: string): Promise<DriveFileCandidate> {
-  const file = await driveJson<{ id: string; name: string; mimeType: string; size?: string; resourceKey?: string }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,resourceKey`);
+export async function getDriveFile(user: User, fileId: string, resourceKey?: string): Promise<DriveFileCandidate> {
+  const headers = resourceKey && RESOURCE_KEY.test(resourceKey) ? { 'X-Goog-Drive-Resource-Keys': `${fileId}/${resourceKey}` } : undefined;
+  const file = await driveJson<{ id: string; name: string; mimeType: string; size?: string; resourceKey?: string }>(user, `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,resourceKey`, { headers });
   return normalizeDriveFile(file);
 }
 
@@ -450,6 +461,61 @@ export async function pickDriveFiles(user: User): Promise<DriveFileCandidate[]> 
               return;
             }
             Promise.all(docs.map((item: { id: string }) => getDriveFile(user, item.id))).then(finish, (error) => finish(error instanceof Error ? error : new Error('DRIVE_PICKER_FILE_FAILED')));
+          }
+        })
+        .build();
+      activePicker?.setVisible(false);
+      activePicker = built;
+      timeout = globalThis.setTimeout(() => finish(new Error('DRIVE_PICKER_CALLBACK_TIMEOUT')), PICKER_CALLBACK_TIMEOUT_MS) as unknown as number;
+      built.setVisible(true);
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error('DRIVE_PICKER_LOAD_FAILED'));
+    }
+  });
+}
+
+/** Opens Picker on exactly one pasted file so drive.file can grant access to it. */
+export async function pickDriveFileById(user: User, fileId: string, resourceKey?: string): Promise<DriveFileCandidate | null> {
+  if (!FILE_ID.test(fileId)) throw new Error('DRIVE_PICKER_FILE_ID_INVALID');
+  const token = await requestDriveAccess(user);
+  await loadPicker();
+  const picker = window.google?.picker;
+  if (!picker) throw new Error('DRIVE_PICKER_LOAD_FAILED');
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeout = 0;
+    const finish = (result: DriveFileCandidate | null | Error) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      activePicker?.setVisible(false);
+      activePicker = null;
+      if (result instanceof Error) reject(result);
+      else resolve(result);
+    };
+    const view = new picker.DocsView().setIncludeFolders(false).setSelectFolderEnabled(false).setFileIds(fileId);
+    try {
+      const built = new picker.PickerBuilder()
+        .setAppId(googleCloudProjectNumber)
+        .setDeveloperKey(googleDriveApiKey)
+        .setOAuthToken(token)
+        .setOrigin(window.location.origin)
+        .addView(view)
+        .setCallback((data: any) => {
+          const pickerError = data?.[picker.Response?.ERROR || 'error'] || data?.error;
+          if (pickerError || data?.action === picker.Action.ERROR) {
+            finish(new Error('DRIVE_PICKER_CALLBACK_FAILED'));
+          } else if (data?.action === picker.Action.CANCEL) {
+            finish(null);
+          } else if (data?.action === picker.Action.PICKED) {
+            const selected = data.docs?.[0];
+            if (!selected?.id) {
+              finish(new Error('DRIVE_PICKER_RESULT_MISSING'));
+            } else if (selected.id !== fileId) {
+              finish(new Error('DRIVE_PICKER_FILE_MISMATCH'));
+            } else {
+              getDriveFile(user, fileId, resourceKey).then(finish, (error) => finish(error instanceof Error ? error : new Error('DRIVE_PICKER_FILE_FAILED')));
+            }
           }
         })
         .build();

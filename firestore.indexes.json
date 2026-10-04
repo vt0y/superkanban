@@ -21,6 +21,9 @@
     { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "taskIds", "arrayConfig": "CONTAINS" }, { "fieldPath": "updatedAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
     ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "milestoneIds", "arrayConfig": "CONTAINS" }, { "fieldPath": "updatedAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
+    ]},
     { "collectionGroup": "siteFeedback", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "createdAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }
     ]},

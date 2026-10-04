@@ -137,7 +137,7 @@ All configuration variables and feature toggles must come strictly from `.env` f
 
 Drive UI remains hidden unless `CONNECTS_GOOGLE_DRIVE=true`, `VITE_GOOGLE_DRIVE_API_KEY`, and `VITE_GOOGLE_CLOUD_PROJECT_NUMBER` are all valid. New attachment batches default to **Current project members**; **Anyone with the link** remains an explicit external-access option. Membership changes require the uploader to run **Sync access for my files** from an upload panel or Project Settings.
 
-Google Docs, Sheets and Slides can be shared as Viewer, Commenter or Editor (Editor is members-only). Users can also create new Google files from SuperKanban, or attach a file by pasting its link when Google Picker is blocked by privacy-hardened browsers. None of this needs extra scopes beyond `drive.file`. See `note.md` for the access policy.
+Google Docs, Sheets and Slides can be shared as Viewer, Commenter or Editor (Editor is members-only). Users can also create new Google files from SuperKanban, or attach a file by pasting its link. When `drive.file` cannot initially read a pasted file's name, a Picker view focused on that exact file lets the user confirm access; cancelling keeps the manual display-name fallback available. None of this needs extra scopes beyond `drive.file`. See `note.md` for the access policy.
 
 #### Step 1: Select the Firebase Google Cloud project
 

@@ -16,6 +16,10 @@
 .compact-document-row { min-height: 58px; display: flex; flex-wrap: wrap; align-items: center; row-gap: 2px; gap: var(--sp-2); padding: 6px var(--sp-3); border-bottom: 1px solid var(--border); }
 .compact-document-row:last-child { border-bottom: 0; }
 .compact-document-row:hover { background: var(--surface-2); }
+.compact-document-row.selected { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
+.compact-document-row.select-mode { cursor: pointer; user-select: none; }
+.document-select-check { display: none; width: 15px; height: 15px; flex: 0 0 auto; margin: 0; cursor: pointer; }
+.compact-document-row:hover .document-select-check, .compact-document-row.select-mode .document-select-check, .compact-document-row.selected .document-select-check { display: block; }
 .compact-document-main { min-width: 0; flex: 1; display: flex; align-items: center; gap: var(--sp-3); padding: 4px; color: var(--text); border: 0; background: transparent; text-align: left; }
 .compact-document-main > .icon { width: 19px; flex: 0 0 auto; color: var(--accent); }
 .compact-document-main span { min-width: 0; display: grid; }
@@ -40,6 +44,7 @@
 .add-document-choices span { display: grid; gap: 3px; }
 .add-document-choices small { color: var(--muted); }
 .add-document-back { margin-bottom: var(--sp-3); }
+@media (hover: none) { .document-select-check { display: block; } }
 @media (max-width: 639px) { .compact-document-counts { display: none; } .compact-document-row { padding-inline: var(--sp-2); } }
 
 /* ── list ── */

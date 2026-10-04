@@ -31,7 +31,7 @@ describe('Canva documents', () => {
     mocks.getDoc.mockResolvedValue({ exists: () => false });
     await attachCanvaProjectDocument('project-a', link, '  Pitch deck ', user, ['task-1', 'task-1']);
     expect(mocks.batchSet).toHaveBeenCalledWith('database/projects/project-a/documents/canva_DAGdeck0001', {
-      kind: 'canva', title: 'Pitch deck', labelIds: [], taskIds: ['task-1'], canvaDesignId: 'DAGdeck0001', canvaEditToken: 'editTok1',
+      kind: 'canva', title: 'Pitch deck', labelIds: [], taskIds: ['task-1'], milestoneIds: [], canvaDesignId: 'DAGdeck0001', canvaEditToken: 'editTok1',
       createdBy: 'member', createdAt: 'server-time', updatedAt: 'server-time',
     });
     expect(mocks.commit).toHaveBeenCalled();
@@ -65,7 +65,7 @@ describe('Canva documents', () => {
   it('updates only project-local metadata', async () => {
     await updateCanvaProjectDocumentDetails('project-a', 'canva_DAGdeck0001', { nickname: ' Final ', description: '', labelIds: ['a', 'a'], taskIds: [] });
     expect(mocks.updateDoc).toHaveBeenCalledWith('database/projects/project-a/documents/canva_DAGdeck0001', {
-      nickname: 'Final', description: '', labelIds: ['a'], taskIds: [], updatedAt: 'server-time',
+      nickname: 'Final', description: '', labelIds: ['a'], taskIds: [], milestoneIds: [], updatedAt: 'server-time',
     });
   });
 });

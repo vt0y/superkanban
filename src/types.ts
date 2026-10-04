@@ -242,6 +242,7 @@ export interface MarkdownProjectDocument {
   title: string;
   labelIds?: string[];
   taskIds?: string[];
+  milestoneIds?: string[];
   /** Present only on legacy records until their first v2 migration. */
   content?: string;
   schemaVersion?: 2;
@@ -258,6 +259,7 @@ export interface DriveProjectDocument extends DriveFileRef {
   title: string;
   labelIds?: string[];
   taskIds?: string[];
+  milestoneIds?: string[];
 }
 
 /** A link-only Canva design. Stores IDs and share tokens; URLs are rebuilt, never trusted from storage. */
@@ -270,6 +272,7 @@ export interface CanvaProjectDocument {
   description?: string;
   labelIds?: string[];
   taskIds?: string[];
+  milestoneIds?: string[];
   canvaDesignId: string;
   /** Collaboration-link token from `/design/<id>/<token>/edit`; absent when editing relies on Canva team access. */
   canvaEditToken?: string;

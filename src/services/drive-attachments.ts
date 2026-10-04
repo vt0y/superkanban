@@ -50,19 +50,24 @@ export async function attachDriveProjectDocument(
   sharing: DriveShareResult,
   user: User,
   taskIds: string[] = [],
+  milestoneIds: string[] = [],
 ): Promise<void> {
   const store = database();
   const id = driveDocumentId(file.driveFileId);
   const ref = doc(store, 'projects', projectId, 'documents', id);
   if ((await getDoc(ref)).exists()) {
-    if (taskIds.length) await updateDoc(ref, { taskIds: arrayUnion(...taskIds.slice(0, 100)), updatedAt: serverTimestamp() });
+    if (taskIds.length || milestoneIds.length) await updateDoc(ref, {
+      ...(taskIds.length ? { taskIds: arrayUnion(...taskIds.slice(0, 100)) } : {}),
+      ...(milestoneIds.length ? { milestoneIds: arrayUnion(...milestoneIds.slice(0, 100)) } : {}),
+      updatedAt: serverTimestamp(),
+    });
     return;
   }
   const batch = writeBatch(store);
   const accessMode = isDriveFolder(file) ? 'unmanaged' : shareMode;
   const access = isDriveFolder(file) ? UNMANAGED_DRIVE_SHARING : sharing;
   batch.set(ref, {
-    kind: 'drive', title: file.name.slice(0, 200), labelIds: [], taskIds: [...new Set(taskIds)].slice(0, 100), ...fileData(file, accessMode, access, user),
+    kind: 'drive', title: file.name.slice(0, 200), labelIds: [], taskIds: [...new Set(taskIds)].slice(0, 100), milestoneIds: [...new Set(milestoneIds)].slice(0, 100), ...fileData(file, accessMode, access, user),
   });
   batch.set(doc(collection(store, 'projects', projectId, 'activities')), activityData(user, 'file_attached', `แนบไฟล์ “${file.name}”`, `attached file “${file.name}”`, id));
   await batch.commit();
@@ -71,13 +76,14 @@ export async function attachDriveProjectDocument(
 export async function updateDriveProjectDocumentDetails(
   projectId: string,
   documentId: string,
-  input: { nickname: string; description: string; labelIds: string[]; taskIds: string[] },
+  input: { nickname: string; description: string; labelIds: string[]; taskIds: string[]; milestoneIds?: string[] },
 ): Promise<void> {
   await updateDoc(doc(database(), 'projects', projectId, 'documents', documentId), {
     nickname: input.nickname.trim().slice(0, 200),
     description: input.description.trim().slice(0, 1000),
     labelIds: [...new Set(input.labelIds)].slice(0, 50),
     taskIds: [...new Set(input.taskIds)].slice(0, 100),
+    milestoneIds: [...new Set(input.milestoneIds || [])].slice(0, 100),
     updatedAt: serverTimestamp(),
   });
 }
@@ -102,6 +108,12 @@ export async function updateDriveProjectDocumentRole(projectId: string, item: Dr
 
 export function subscribeTaskDocuments(projectId: string, taskId: string, callback: (items: ProjectDocument[]) => void): Unsubscribe {
   return onSnapshot(query(collection(database(), 'projects', projectId, 'documents'), where('taskIds', 'array-contains', taskId)), (snapshot) => {
+    callback(snapshot.docs.map((item) => withId<ProjectDocument>(item)).sort((a, b) => (b.updatedAt?.toMillis() ?? 0) - (a.updatedAt?.toMillis() ?? 0)));
+  });
+}
+
+export function subscribeMilestoneDocuments(projectId: string, milestoneId: string, callback: (items: ProjectDocument[]) => void): Unsubscribe {
+  return onSnapshot(query(collection(database(), 'projects', projectId, 'documents'), where('milestoneIds', 'array-contains', milestoneId)), (snapshot) => {
     callback(snapshot.docs.map((item) => withId<ProjectDocument>(item)).sort((a, b) => (b.updatedAt?.toMillis() ?? 0) - (a.updatedAt?.toMillis() ?? 0)));
   });
 }
@@ -177,4 +189,15 @@ export async function deleteTasksAndUnlinkDocuments(projectId: string, taskIds: 
     }
   }
   await bulkDeleteWorkItems(projectId, 'tasks', taskIds);
+}
+
+export async function deleteMilestoneAndUnlinkDocuments(projectId: string, milestoneId: string): Promise<void> {
+  const store = database();
+  const snapshot = await getDocs(query(collection(store, 'projects', projectId, 'documents'), where('milestoneIds', 'array-contains', milestoneId)));
+  for (let start = 0; start < snapshot.docs.length; start += BATCH_CHUNK) {
+    const batch = writeBatch(store);
+    snapshot.docs.slice(start, start + BATCH_CHUNK).forEach((item) => batch.update(item.ref, { milestoneIds: arrayRemove(milestoneId), updatedAt: serverTimestamp() }));
+    await batch.commit();
+  }
+  await bulkDeleteWorkItems(projectId, 'milestones', [milestoneId]);
 }

@@ -210,6 +210,21 @@ describe('ProjectSpace Firestore rules', () => {
     await assertSucceeds(adminDelete.commit());
   });
 
+  it('document bulk links fit within the rules access-call budget', async () => {
+    await seedProject();
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      for (let index = 0; index < 4; index += 1) {
+        await setDoc(doc(db, 'projects', projectId, 'documents', `bulk-doc-${index}`), { schemaVersion: 2, title: `Doc ${index}`, excerpt: '', contentBytes: 1, createdBy: 'member', createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+        await setDoc(doc(db, 'projects', projectId, 'documentBodies', `bulk-doc-${index}`), { content: 'x' });
+      }
+    });
+    const memberDb = context('member');
+    const batch = writeBatch(memberDb);
+    for (let index = 0; index < 4; index += 1) batch.update(doc(memberDb, 'projects', projectId, 'documents', `bulk-doc-${index}`), { milestoneIds: ['milestone-1'], updatedAt: serverTimestamp() });
+    await assertSucceeds(batch.commit());
+  });
+
   it('legacy document ยังอ่านได้และย้าย body แบบ atomic ได้เฉพาะ project ที่ active', async () => {
     await seedProject();
     await environment.withSecurityRulesDisabled(async (ctx) => {
@@ -240,11 +255,13 @@ describe('ProjectSpace Firestore rules', () => {
     await assertSucceeds(getDoc(doc(context('owner'), driveDoc.path)));
     await assertFails(getDoc(doc(context('outsider'), driveDoc.path)));
     await assertSucceeds(updateDoc(doc(context('admin'), driveDoc.path), { labelIds: ['review'], updatedAt: serverTimestamp() }));
-    await assertSucceeds(updateDoc(doc(context('admin'), driveDoc.path), { nickname: 'Client review', description: 'Final approval copy', taskIds: ['task-1'], updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(context('admin'), driveDoc.path), { nickname: 'Client review', description: 'Final approval copy', taskIds: ['task-1'], milestoneIds: ['milestone-1'], updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { labelIds: Array.from({ length: 51 }, (_, index) => `label-${index}`), updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { nickname: 'x'.repeat(201), updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { description: 'x'.repeat(1001), updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { taskIds: Array.from({ length: 101 }, (_, index) => `task-${index}`), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { milestoneIds: Array.from({ length: 101 }, (_, index) => `milestone-${index}`), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(context('admin'), driveDoc.path), { milestoneIds: 'milestone-1', updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(driveDoc, { name: 'Changed.pdf' }));
     await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'documents', 'wrong-id'), {
       kind: 'drive', title: 'Wrong', driveFileId: 'file-2', name: 'Wrong', mimeType: 'text/plain',
@@ -275,7 +292,7 @@ describe('ProjectSpace Firestore rules', () => {
     const base = { kind: 'canva', title: 'Pitch deck', createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
     const canvaRef = (id: string, db = memberDb) => doc(db, 'projects', projectId, 'documents', `canva_${id}`);
 
-    await assertSucceeds(setDoc(canvaRef('DAGdeck0001'), { ...base, canvaDesignId: 'DAGdeck0001', canvaEditToken: 'edit-Token_1', labelIds: [], taskIds: ['task-1'] }));
+    await assertSucceeds(setDoc(canvaRef('DAGdeck0001'), { ...base, canvaDesignId: 'DAGdeck0001', canvaEditToken: 'edit-Token_1', labelIds: [], taskIds: ['task-1'], milestoneIds: ['milestone-1'] }));
     await assertSucceeds(setDoc(canvaRef('DAGplain001'), { ...base, canvaDesignId: 'DAGplain001' }));
     await assertFails(getDoc(doc(context('outsider'), canvaRef('DAGdeck0001').path)));
     await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'documents', 'canva_other'), { ...base, canvaDesignId: 'DAGwrong001' }));
@@ -285,7 +302,7 @@ describe('ProjectSpace Firestore rules', () => {
     await assertFails(setDoc(canvaRef('DAGnotitle1'), { ...base, title: '', canvaDesignId: 'DAGnotitle1' }));
     await assertFails(setDoc(canvaRef('DAGtime0001'), { ...base, canvaDesignId: 'DAGtime0001', createdAt: Timestamp.fromDate(new Date(2020, 0, 1)) }));
 
-    await assertSucceeds(updateDoc(canvaRef('DAGdeck0001', context('owner')), { nickname: 'Final deck', description: 'Client copy', labelIds: ['label-1'], taskIds: [], updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(canvaRef('DAGdeck0001', context('owner')), { nickname: 'Final deck', description: 'Client copy', labelIds: ['label-1'], taskIds: [], milestoneIds: [], updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(canvaRef('DAGdeck0001'), { title: 'Renamed', updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(canvaRef('DAGdeck0001'), { canvaEditToken: 'otherToken', updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(canvaRef('DAGdeck0001', context('admin')), { canvaEditToken: deleteField(), updatedAt: serverTimestamp() }));

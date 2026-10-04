@@ -87,15 +87,17 @@ export async function attachCanvaProjectDocument(
   user: User,
   taskIds: string[] = [],
   labelIds: string[] = [],
+  milestoneIds: string[] = [],
 ): Promise<void> {
   const store = database();
   const id = canvaDocumentId(link.designId);
   const ref = doc(store, 'projects', projectId, 'documents', id);
   if ((await getDoc(ref)).exists()) {
-    if (taskIds.length || labelIds.length) {
+    if (taskIds.length || labelIds.length || milestoneIds.length) {
       await updateDoc(ref, {
         ...(taskIds.length ? { taskIds: arrayUnion(...taskIds.slice(0, 100)) } : {}),
         ...(labelIds.length ? { labelIds: arrayUnion(...labelIds.slice(0, 50)) } : {}),
+        ...(milestoneIds.length ? { milestoneIds: arrayUnion(...milestoneIds.slice(0, 100)) } : {}),
         updatedAt: serverTimestamp(),
       });
     }
@@ -108,6 +110,7 @@ export async function attachCanvaProjectDocument(
     title: name,
     labelIds: [...new Set(labelIds)].slice(0, 50),
     taskIds: [...new Set(taskIds)].slice(0, 100),
+    milestoneIds: [...new Set(milestoneIds)].slice(0, 100),
     canvaDesignId: link.designId,
     ...(link.editToken ? { canvaEditToken: link.editToken } : {}),
     createdBy: user.uid,
@@ -121,13 +124,14 @@ export async function attachCanvaProjectDocument(
 export async function updateCanvaProjectDocumentDetails(
   projectId: string,
   documentId: string,
-  input: { nickname: string; description: string; labelIds: string[]; taskIds: string[] },
+  input: { nickname: string; description: string; labelIds: string[]; taskIds: string[]; milestoneIds?: string[] },
 ): Promise<void> {
   await updateDoc(doc(database(), 'projects', projectId, 'documents', documentId), {
     nickname: input.nickname.trim().slice(0, 200),
     description: input.description.trim().slice(0, 1000),
     labelIds: [...new Set(input.labelIds)].slice(0, 50),
     taskIds: [...new Set(input.taskIds)].slice(0, 100),
+    milestoneIds: [...new Set(input.milestoneIds || [])].slice(0, 100),
     updatedAt: serverTimestamp(),
   });
 }

@@ -122,6 +122,6 @@ export function TaskModal({ task, defaults = {}, projectId, projectName, members
       {task && <div className="comments-scrim" onClick={() => setCommentsOpen(false)} />}
       {task && <CommentThread projectId={projectId} targetType="task" targetId={task.id} context={context} role={role} readOnly={readOnly} onCount={setCommentCount} onClose={() => setCommentsOpen(false)} />}
     </div>
-    {task && documentPickerOpen && <DocumentPickerModal project={{ id: projectId, name: projectName }} taskId={task.id} members={members} user={user} locale={locale} linkedIds={new Set(documents.map((item) => item.id))} onClose={() => setDocumentPickerOpen(false)} />}
+    {task && documentPickerOpen && <DocumentPickerModal project={{ id: projectId, name: projectName }} target={{ type: 'task', id: task.id }} members={members} user={user} locale={locale} linkedIds={new Set(documents.map((item) => item.id))} onClose={() => setDocumentPickerOpen(false)} />}
   </Modal>;
 }

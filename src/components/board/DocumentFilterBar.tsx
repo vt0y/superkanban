@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import type { Label, Task } from '@/types';
+import type { Label, Milestone, Task } from '@/types';
 import { parseDocumentQuery } from '@/utils/document-filter';
 import { pick } from '@/utils/formatters';
 import { queryValue, toggleQueryTerm } from '@/utils/task-filter';
 import { Icon } from '@/components/common/Icon';
 
 /** Board-style query bar for documents: text, label/task terms and missing metadata. */
-export function DocumentFilterBar({ value, onChange, labels, tasks, locale }: { value: string; onChange: (value: string) => void; labels: Label[]; tasks: Task[]; locale: string }) {
+export function DocumentFilterBar({ value, onChange, labels, tasks, milestones, locale }: { value: string; onChange: (value: string) => void; labels: Label[]; tasks: Task[]; milestones: Milestone[]; locale: string }) {
   const [focused, setFocused] = useState(false);
   const [active, setActive] = useState(0);
   const lastToken = value.match(/(?:^|\s)(-?)([a-z]*)(?::("?[^"\s]*))?$/i);
@@ -16,13 +16,14 @@ export function DocumentFilterBar({ value, onChange, labels, tasks, locale }: { 
       return [
         { insert: `${neg}label:`, label: 'label:', hint: pick(locale, 'กรองตาม label', 'by label') },
         { insert: `${neg}task:`, label: 'task:', hint: pick(locale, 'กรองตามงาน', 'by task') },
+        { insert: `${neg}milestone:`, label: 'milestone:', hint: pick(locale, 'กรองตาม milestone', 'by milestone') },
         { insert: `${neg}no:`, label: 'no:', hint: pick(locale, 'รายการที่ไม่มี label', 'missing metadata') },
       ].filter((item) => item.label.startsWith(key.toLowerCase()));
     }
     const needle = typed.replace(/^"/, '').toLowerCase();
-    const values = key.toLowerCase() === 'label' ? labels.map((label) => label.name) : key.toLowerCase() === 'task' ? tasks.map((task) => task.title) : key.toLowerCase() === 'no' ? ['label', 'task'] : [];
+    const values = key.toLowerCase() === 'label' ? labels.map((label) => label.name) : key.toLowerCase() === 'task' ? tasks.map((task) => task.title) : key.toLowerCase() === 'milestone' ? milestones.map((milestone) => milestone.title) : key.toLowerCase() === 'no' ? ['label', 'task', 'milestone'] : [];
     return values.filter((item) => item.toLowerCase().includes(needle)).slice(0, 8).map((item) => ({ insert: `${neg}${key}:${queryValue(item)} `, label: item, hint: '' }));
-  }, [lastToken?.[0], labels, tasks, locale]);
+  }, [lastToken?.[0], labels, tasks, milestones, locale]);
   const open = focused && suggestions.length > 0;
   const apply = (insert: string) => {
     const token = lastToken?.[0].trimStart() || '';
@@ -32,6 +33,7 @@ export function DocumentFilterBar({ value, onChange, labels, tasks, locale }: { 
   const parsed = parseDocumentQuery(value);
   const hasNoLabel = parsed.terms.some((term) => term.key === 'no' && term.value === 'label' && !term.negated);
   const hasNoTask = parsed.terms.some((term) => term.key === 'no' && term.value === 'task' && !term.negated);
+  const hasNoMilestone = parsed.terms.some((term) => term.key === 'no' && term.value === 'milestone' && !term.negated);
 
   return <div className="filter-bar document-filter-bar">
     <label className="search filter-input"><span><Icon name="search" /></span>
@@ -61,6 +63,12 @@ export function DocumentFilterBar({ value, onChange, labels, tasks, locale }: { 
         return <button type="button" key={task.id} className={`document-task-filter ${selected ? 'active' : ''}`} onClick={() => onChange(toggleQueryTerm(value, term))}><Icon name="board" /> {task.title}</button>;
       })}
       <button type="button" className={hasNoTask ? 'active' : ''} onClick={() => onChange(toggleQueryTerm(value, 'no:task'))}>{pick(locale, 'ไม่มี Task', 'No task')}</button>
+      {[...milestones].sort((a, b) => a.title.localeCompare(b.title)).slice(0, 30).map((milestone) => {
+        const term = `milestone:${queryValue(milestone.title)}`;
+        const selected = parsed.terms.some((item) => item.key === 'milestone' && !item.negated && item.value === milestone.title.toLowerCase());
+        return <button type="button" key={milestone.id} className={`document-task-filter ${selected ? 'active' : ''}`} onClick={() => onChange(toggleQueryTerm(value, term))}><Icon name="milestone" /> {milestone.title}</button>;
+      })}
+      <button type="button" className={hasNoMilestone ? 'active' : ''} onClick={() => onChange(toggleQueryTerm(value, 'no:milestone'))}>{pick(locale, 'ไม่มี Milestone', 'No milestone')}</button>
     </div>
   </div>;
 }

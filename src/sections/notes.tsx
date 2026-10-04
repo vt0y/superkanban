@@ -1,14 +1,14 @@
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { documentId, limit, orderBy, where, type QueryConstraint } from 'firebase/firestore';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
-import { CanvaFileRow, CanvaLinkForm, CanvasControls, DriveAttachmentControl, DriveFileRow, driveRoleLabel, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
-import { useActiveTasks, useCanvasViewport, useItemDrag, useLinkedTasks, useProjectItems, useProjectItemsState } from '@/hooks';
+import { BulkBar, CanvaFileRow, CanvaLinkForm, CanvasControls, DriveAttachmentControl, DriveFileRow, driveRoleLabel, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
+import { useActiveTasks, useCanvasViewport, useItemDrag, useLinkedTasks, useProjectItems, useProjectItemsState, useSelection, type Selection } from '@/hooks';
 import { NOTE_COLORS } from '@/config/constants';
 import { parseContentWithLinks } from '@/utils/linkify';
 import { canDeleteItem } from '@/utils/permissions';
-import { allowedDriveRoles, attachCanvaProjectDocument, attachDriveProjectDocument, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, driveFolderUrl, driveOpenUrl, isCanvaProjectDocument, isDriveFolder, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, pinProjectDocuments, subscribePinnedDocumentMetadata, subscribeProjectDocument, subscribeProjectQuery, unpinProjectDocument, updateCanvaProjectDocumentDetails, updateDocumentCanvasCard, updateDriveProjectDocumentDetails, updateDriveProjectDocumentRole, updateProjectDocument, updateProjectDocumentLabels, updateWorkItem, type CollectionCursor } from '@/services';
-import type { CanvasItem, CanvaProjectDocument, DocumentCanvasCard, DriveProjectDocument, DriveRole, Label, LoadedProjectDocument, Membership, ProjectDocument, Role, StickyNote, Task } from '@/types';
+import { allowedDriveRoles, attachCanvaProjectDocument, attachDriveProjectDocument, bulkRemoveProjectDocuments, bulkUpdateProjectDocumentLinks, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, driveFolderUrl, driveOpenUrl, isCanvaProjectDocument, isDriveFolder, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, pinProjectDocuments, subscribePinnedDocumentMetadata, subscribeProjectDocument, subscribeProjectQuery, unpinProjectDocument, updateCanvaProjectDocumentDetails, updateDocumentCanvasCard, updateDriveProjectDocumentDetails, updateDriveProjectDocumentRole, updateProjectDocument, updateProjectDocumentLabels, updateWorkItem, type CollectionCursor, type ProjectDocumentLinkField } from '@/services';
+import type { CanvasItem, CanvaProjectDocument, DocumentCanvasCard, DriveProjectDocument, DriveRole, Label, LoadedProjectDocument, Membership, Milestone, ProjectDocument, Role, StickyNote, Task } from '@/types';
 import { isDocumentCanvasCard, isStickyNote } from '@/types';
 import { attempt, toast } from '@/components/toast';
 import { pick, relativeTime } from '@/utils/formatters';
@@ -58,12 +58,15 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   const liveDocumentIds = useRef<Set<string>>(new Set());
   const tasks = useActiveTasks(project.id);
   const { items: labels, loaded: labelsLoaded } = useProjectItemsState<Label>(project.id, 'labels');
+  const { items: milestones } = useProjectItemsState<Milestone>(project.id, 'milestones');
   const [noteModal, setNoteModal] = useState<StickyNote | { x: number; y: number } | null>(null);
   const [docModal, setDocModal] = useState<LoadedProjectDocument | 'new' | null>(null);
   const [driveModal, setDriveModal] = useState<DriveProjectDocument | CanvaProjectDocument | null>(null);
   const [addDocumentOpen, setAddDocumentOpen] = useState(false);
   const [pinPickerOpen, setPinPickerOpen] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
   // Active tasks are shared with the board; done tasks are fetched only when a loaded document links them.
   const linkedTaskIds = useMemo(() => [
     ...documents.flatMap((item) => item.taskIds || []),
@@ -77,14 +80,17 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   const parsedQuery = useMemo(() => parseDocumentQuery(query), [query]);
   const queryLabelNames = parsedQuery.terms.filter((term) => term.key === 'label' && !term.negated).map((term) => term.value);
   const queryTaskNames = parsedQuery.terms.filter((term) => term.key === 'task' && !term.negated).map((term) => term.value);
+  const queryMilestoneNames = parsedQuery.terms.filter((term) => term.key === 'milestone' && !term.negated).map((term) => term.value);
   const selectedLabelIds = [...new Set([
     ...(searchParams.get('labels') || '').split(',').filter(Boolean),
     ...labels.filter((label) => queryLabelNames.includes(label.name.toLowerCase())).map((label) => label.id),
   ])].filter((id) => labels.some((label) => label.id === id)).slice(0, 30);
   const selectedTaskIds = [...new Set(documentTasks.filter((task) => queryTaskNames.includes(task.title.toLowerCase())).map((task) => task.id))].slice(0, 30);
+  const selectedMilestoneIds = [...new Set(milestones.filter((milestone) => queryMilestoneNames.includes(milestone.title.toLowerCase())).map((milestone) => milestone.id))].slice(0, 30);
   const labelFilterKey = [...selectedLabelIds].sort().join(',');
   const taskFilterKey = [...selectedTaskIds].sort().join(',');
-  const documentFilters: QueryConstraint[] = selectedTaskIds.length ? [where('taskIds', 'array-contains-any', selectedTaskIds)] : selectedLabelIds.length ? [where('labelIds', 'array-contains-any', selectedLabelIds)] : [];
+  const milestoneFilterKey = [...selectedMilestoneIds].sort().join(',');
+  const documentFilters: QueryConstraint[] = selectedTaskIds.length ? [where('taskIds', 'array-contains-any', selectedTaskIds)] : selectedMilestoneIds.length ? [where('milestoneIds', 'array-contains-any', selectedMilestoneIds)] : selectedLabelIds.length ? [where('labelIds', 'array-contains-any', selectedLabelIds)] : [];
 
   useEffect(() => {
     if (mode !== 'documents' || !labelsLoaded || !searchParams.has('labels')) return;
@@ -109,6 +115,10 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
     }
     setSearchParams((current) => { const params = new URLSearchParams(current); const next = toggleQueryTerm(params.get('q') || '', term); if (next) params.set('q', next); else params.delete('q'); return params; }, { replace: true });
   };
+  const toggleMilestoneFilter = (milestone: Milestone) => {
+    const term = `milestone:${queryValue(milestone.title)}`;
+    setSearchParams((current) => { const params = new URLSearchParams(current); const next = toggleQueryTerm(params.get('q') || '', term); if (next) params.set('q', next); else params.delete('q'); return params; }, { replace: true });
+  };
 
   useEffect(() => {
     if (mode !== 'documents') return;
@@ -117,7 +127,7 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
     setDocuments([]);
     documentsPaged.current = false;
     liveDocumentIds.current = new Set();
-    return subscribeProjectQuery<ProjectDocument>(project.id, 'documents', `recent:50:labels:${labelFilterKey || '*'}:tasks:${taskFilterKey || '*'}`, [...documentFilters, orderBy('updatedAt', 'desc'), orderBy(documentId()), limit(50)], (items) => {
+    return subscribeProjectQuery<ProjectDocument>(project.id, 'documents', `recent:50:labels:${labelFilterKey || '*'}:tasks:${taskFilterKey || '*'}:milestones:${milestoneFilterKey || '*'}`, [...documentFilters, orderBy('updatedAt', 'desc'), orderBy(documentId()), limit(50)], (items) => {
       const previousLiveIds = liveDocumentIds.current;
       liveDocumentIds.current = new Set(items.map((item) => item.id));
       setDocuments((current) => [...items, ...current.filter((item) => !previousLiveIds.has(item.id) && !liveDocumentIds.current.has(item.id))]);
@@ -127,7 +137,7 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
         setDocumentsHaveMore(items.length === 50);
       }
     });
-  }, [mode, project.id, labelFilterKey, taskFilterKey]);
+  }, [mode, project.id, labelFilterKey, taskFilterKey, milestoneFilterKey]);
 
   const loadMoreDocuments = async () => {
     if (!documentCursor || loadingDocuments) return;
@@ -143,36 +153,76 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
 
   // Filter pills offer only labels/tasks that documents actually use. A server-side filter
   // narrows `documents`, so the last unfiltered set is remembered and kept in the union.
-  const unfilteredUsage = useRef<{ labelIds: Set<string>; taskIds: Set<string> }>({ labelIds: new Set(), taskIds: new Set() });
+  const unfilteredUsage = useRef<{ labelIds: Set<string>; taskIds: Set<string>; milestoneIds: Set<string> }>({ labelIds: new Set(), taskIds: new Set(), milestoneIds: new Set() });
   const documentUsage = useMemo(() => {
-    const usage = { labelIds: new Set(documents.flatMap((item) => item.labelIds || [])), taskIds: new Set(documents.flatMap((item) => item.taskIds || [])) };
-    if (!labelFilterKey && !taskFilterKey) { unfilteredUsage.current = usage; return usage; }
-    return { labelIds: new Set([...unfilteredUsage.current.labelIds, ...usage.labelIds, ...selectedLabelIds]), taskIds: new Set([...unfilteredUsage.current.taskIds, ...usage.taskIds, ...selectedTaskIds]) };
-  }, [documents, labelFilterKey, taskFilterKey]);
+    const usage = { labelIds: new Set(documents.flatMap((item) => item.labelIds || [])), taskIds: new Set(documents.flatMap((item) => item.taskIds || [])), milestoneIds: new Set(documents.flatMap((item) => item.milestoneIds || [])) };
+    if (!labelFilterKey && !taskFilterKey && !milestoneFilterKey) { unfilteredUsage.current = usage; return usage; }
+    return { labelIds: new Set([...unfilteredUsage.current.labelIds, ...usage.labelIds, ...selectedLabelIds]), taskIds: new Set([...unfilteredUsage.current.taskIds, ...usage.taskIds, ...selectedTaskIds]), milestoneIds: new Set([...unfilteredUsage.current.milestoneIds, ...usage.milestoneIds, ...selectedMilestoneIds]) };
+  }, [documents, labelFilterKey, taskFilterKey, milestoneFilterKey]);
   const filterLabels = useMemo(() => labels.filter((label) => documentUsage.labelIds.has(label.id) || queryLabelNames.includes(label.name.toLowerCase())), [labels, documentUsage, query]);
   const filterTasks = useMemo(() => documentTasks.filter((task) => documentUsage.taskIds.has(task.id) || queryTaskNames.includes(task.title.toLowerCase())), [documentTasks, documentUsage, query]);
+  const filterMilestones = useMemo(() => milestones.filter((milestone) => documentUsage.milestoneIds.has(milestone.id) || queryMilestoneNames.includes(milestone.title.toLowerCase())), [milestones, documentUsage, query]);
 
-  const visibleDocuments = useMemo(() => documents.filter((document) => matchDocument(document, parsedQuery, labels, documentTasks)), [documents, parsedQuery, labels, documentTasks]);
+  const visibleDocuments = useMemo(() => documents.filter((document) => matchDocument(document, parsedQuery, labels, documentTasks, milestones)), [documents, parsedQuery, labels, documentTasks, milestones]);
+  const selection = useSelection(visibleDocuments.map((document) => document.id));
+  const selectedDocumentIds = [...selection.selected];
   const setDocumentQuery = (value: string) => setSearchParams((current) => { const params = new URLSearchParams(current); if (value.trim()) params.set('q', value); else params.delete('q'); return params; }, { replace: true });
+
+  const bulkLink = async (field: ProjectDocumentLinkField, rawValue: string) => {
+    const separator = rawValue.indexOf(':');
+    if (separator < 0 || bulkBusy) return;
+    const operation = rawValue.slice(0, separator) as 'add' | 'remove';
+    const value = rawValue.slice(separator + 1);
+    if (!value) return;
+    setBulkBusy(true);
+    const done = await attempt(() => bulkUpdateProjectDocumentLinks(project.id, selectedDocumentIds, field, value, operation).then(() => true), pick(locale, 'อัปเดตเอกสารไม่สำเร็จ', 'Could not update documents'));
+    setBulkBusy(false);
+    if (done) toast(pick(locale, `อัปเดต ${selectedDocumentIds.length} เอกสารแล้ว`, `Updated ${selectedDocumentIds.length} documents`), 'success');
+  };
+
+  const bulkRemove = async () => {
+    if (bulkBusy) return;
+    const selectedDocuments = documents.filter((document) => selection.has(document.id));
+    const removable = selectedDocuments.filter((document) => canDeleteItem(role, document.createdBy, context.user.uid));
+    const skipped = selectedDocuments.length - removable.length;
+    if (!removable.length) { toast(pick(locale, 'ไม่มีสิทธิ์นำเอกสารที่เลือกออก', 'You cannot remove the selected documents'), 'error'); return; }
+    const message = pick(locale, `นำ ${removable.length} เอกสารออกจากคลัง? ไฟล์ต้นทางจะไม่ถูกลบ`, `Remove ${removable.length} documents from the library? Source files will not be deleted`)
+      + (skipped ? pick(locale, ` (ข้าม ${skipped} เอกสารที่ไม่มีสิทธิ์)`, ` (${skipped} skipped — no permission)`) : '');
+    if (!confirm(message)) return;
+    setBulkBusy(true);
+    const done = await attempt(() => bulkRemoveProjectDocuments(project.id, removable).then(() => true), pick(locale, 'นำเอกสารออกไม่สำเร็จ', 'Could not remove documents'));
+    setBulkBusy(false);
+    if (done) {
+      selection.clear();
+      setSelectMode(false);
+      toast(pick(locale, `นำ ${removable.length} เอกสารออกแล้ว`, `Removed ${removable.length} documents`), 'success');
+    }
+  };
 
   return <>
     <PageTitle eyebrow={mode === 'sticky' ? 'QUICK NOTES' : 'KNOWLEDGE SPACE'} title={mode === 'sticky' ? context.t('notes') : context.t('documents')}
       description={mode === 'sticky' ? pick(locale, 'แปะไอเดียและโน้ตสั้นบนพื้นที่อิสระ', 'Capture ideas and quick notes on a freeform canvas') : pick(locale, 'ค้นหา จัดหมวดหมู่ และแชร์เอกสารสำคัญของโปรเจกต์', 'Find, organize and share key project documents')}
       action={mode === 'sticky'
         ? (!readOnly && <div className="action-row"><button className="secondary" onClick={() => setPinPickerOpen(true)}><Icon name="pin" /> {pick(locale, 'ปักเอกสาร', 'Pin documents')}</button><button className="primary" onClick={() => setNoteModal({ x: NaN, y: NaN })}><Icon name="add" /> {context.t('sticky')}</button></div>)
-        : <div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}><Icon name="label" /> {pick(locale, 'จัดการ Labels', 'Manage labels')}</button>{!readOnly && <button className="primary" onClick={() => setAddDocumentOpen(true)}><Icon name="add" /> {pick(locale, 'เพิ่มเอกสาร', 'Add document')}</button>}</div>} />
+        : <div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}><Icon name="label" /> {pick(locale, 'จัดการ Labels', 'Manage labels')}</button>{!readOnly && <><button className={`secondary ${selectMode ? 'on' : ''}`} onClick={() => { setSelectMode(!selectMode); if (selectMode) selection.clear(); }}><Icon name="checklist" /> {pick(locale, 'เลือกหลายรายการ', 'Select')}</button><button className="primary" onClick={() => setAddDocumentOpen(true)}><Icon name="add" /> {pick(locale, 'เพิ่มเอกสาร', 'Add document')}</button></>}</div>} />
     {mode === 'sticky'
       ? <StickyCanvas notes={notes} documentCards={documentCards} tasks={tasks} context={context} projectId={project.id} role={role} readOnly={readOnly} onEdit={setNoteModal} onDetails={setDriveModal} />
-      : <><div className="board-toolbar document-toolbar"><DocumentFilterBar value={query} onChange={setDocumentQuery} labels={filterLabels} tasks={filterTasks} locale={locale} /></div>
+      : <><div className="board-toolbar document-toolbar"><DocumentFilterBar value={query} onChange={setDocumentQuery} labels={filterLabels} tasks={filterTasks} milestones={filterMilestones} locale={locale} /></div>
         {query && <p className="filter-summary">{pick(locale, `พบ ${visibleDocuments.length} จาก ${documents.length} เอกสารที่โหลดแล้ว`, `${visibleDocuments.length} of ${documents.length} loaded documents`)} · <button type="button" className="link-button" onClick={() => setDocumentQuery('')}>{pick(locale, 'ล้างตัวกรอง', 'Clear filter')}</button></p>}
-        <DocumentLibrary documents={visibleDocuments} labels={labels} tasks={documentTasks} filtered={!!query} projectId={project.id} context={context} role={role} readOnly={readOnly} userId={context.user.uid} onEditDrive={setDriveModal} onFilter={toggleLabelFilter} activeLabelNames={queryLabelNames} />
+        <DocumentLibrary documents={visibleDocuments} labels={labels} tasks={documentTasks} milestones={milestones} filtered={!!query} projectId={project.id} context={context} role={role} readOnly={readOnly} userId={context.user.uid} selection={selection} selectMode={selectMode} onEditDrive={setDriveModal} onFilter={toggleLabelFilter} onMilestoneFilter={toggleMilestoneFilter} activeLabelNames={queryLabelNames} />
         {documentsHaveMore && <div className="load-more-row"><button type="button" className="secondary" disabled={loadingDocuments} onClick={() => void loadMoreDocuments()}>{loadingDocuments ? pick(locale, 'กำลังโหลด…', 'Loading…') : pick(locale, 'โหลดเอกสารเพิ่มเติม', 'Load more documents')}</button></div>}</>}
+    {mode === 'documents' && !readOnly && <BulkBar count={selection.selected.size} locale={locale} onClear={selection.clear}>
+      {labels.length > 0 && <select value="" disabled={bulkBusy} onChange={(event) => { if (event.target.value) void bulkLink('labelIds', event.target.value); }} aria-label="Label"><option value="">Label…</option><optgroup label={pick(locale, 'เพิ่ม', 'Add')}>{labels.map((label) => <option key={label.id} value={`add:${label.id}`}>+ {label.name}</option>)}</optgroup><optgroup label={pick(locale, 'เอาออก', 'Remove')}>{labels.map((label) => <option key={label.id} value={`remove:${label.id}`}>− {label.name}</option>)}</optgroup></select>}
+      {documentTasks.length > 0 && <select value="" disabled={bulkBusy} onChange={(event) => { if (event.target.value) void bulkLink('taskIds', event.target.value); }} aria-label="Task"><option value="">Task…</option><optgroup label={pick(locale, 'เพิ่ม', 'Add')}>{documentTasks.map((task) => <option key={task.id} value={`add:${task.id}`}>+ {task.title}</option>)}</optgroup><optgroup label={pick(locale, 'เอาออก', 'Remove')}>{documentTasks.map((task) => <option key={task.id} value={`remove:${task.id}`}>− {task.title}</option>)}</optgroup></select>}
+      {milestones.length > 0 && <select value="" disabled={bulkBusy} onChange={(event) => { if (event.target.value) void bulkLink('milestoneIds', event.target.value); }} aria-label="Milestone"><option value="">Milestone…</option><optgroup label={pick(locale, 'เพิ่ม', 'Add')}>{milestones.map((milestone) => <option key={milestone.id} value={`add:${milestone.id}`}>+ {milestone.title}</option>)}</optgroup><optgroup label={pick(locale, 'เอาออก', 'Remove')}>{milestones.map((milestone) => <option key={milestone.id} value={`remove:${milestone.id}`}>− {milestone.title}</option>)}</optgroup></select>}
+      <button type="button" className="danger ghost" disabled={bulkBusy} onClick={() => void bulkRemove()}>{pick(locale, 'นำออก', 'Remove')}</button>
+    </BulkBar>}
     {noteModal && <StickyModal item={'id' in noteModal ? noteModal : null} position={'id' in noteModal ? undefined : noteModal} projectId={project.id} tasks={tasks} context={context} role={role} readOnly={readOnly} onClose={() => setNoteModal(null)} />}
-    {docModal && <DocumentModal item={docModal === 'new' ? null : docModal} labels={labels} tasks={documentTasks} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} onSaved={(id) => { setDocModal(null); navigate(`/p/${project.id}/docs/${id}`); }} />}
-    {driveModal && <DriveDocumentDetailsModal item={driveModal} labels={labels} tasks={documentTasks} projectId={project.id} context={context} readOnly={readOnly} onClose={() => setDriveModal(null)} />}
+    {docModal && <DocumentModal item={docModal === 'new' ? null : docModal} labels={labels} tasks={documentTasks} milestones={milestones} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} onSaved={(id) => { setDocModal(null); navigate(`/p/${project.id}/docs/${id}`); }} />}
+    {driveModal && <DriveDocumentDetailsModal item={driveModal} labels={labels} tasks={documentTasks} milestones={milestones} projectId={project.id} context={context} readOnly={readOnly} onClose={() => setDriveModal(null)} />}
     {labelsOpen && <LabelManager labels={labels} tasks={tasks} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setLabelsOpen(false)} onFilter={(label) => { toggleLabelFilter(label); setLabelsOpen(false); }} />}
     {addDocumentOpen && <AddDocumentModal project={project} members={members} documents={documents} labels={labels} tasks={documentTasks} context={context} onClose={() => setAddDocumentOpen(false)} onMarkdown={() => { setAddDocumentOpen(false); setDocModal('new'); }} />}
-    {pinPickerOpen && <CanvasDocumentPicker projectId={project.id} pinnedIds={new Set(documentCards.map((card) => card.documentId))} canvasItems={canvasItems} context={context} labels={labels} tasks={documentTasks} onClose={() => setPinPickerOpen(false)} />}
+    {pinPickerOpen && <CanvasDocumentPicker projectId={project.id} pinnedIds={new Set(documentCards.map((card) => card.documentId))} canvasItems={canvasItems} context={context} labels={labels} tasks={documentTasks} milestones={milestones} onClose={() => setPinPickerOpen(false)} />}
   </>;
 }
 
@@ -312,7 +362,7 @@ function DocumentLabelRow({ document, labels, projectId, context, readOnly, onFi
 
 const GROUP_ORDER: DocumentGroup[] = ['folder', 'markdown', 'drive', 'canva'];
 
-function DocumentLibrary({ documents, labels, tasks, filtered, projectId, context, role, readOnly, userId, onEditDrive, onFilter, activeLabelNames }: { documents: ProjectDocument[]; labels: Label[]; tasks: Task[]; filtered: boolean; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean; userId: string; onEditDrive: (item: DriveProjectDocument | CanvaProjectDocument) => void; onFilter: (label: Label) => void; activeLabelNames: string[] }) {
+function DocumentLibrary({ documents, labels, milestones, filtered, projectId, context, role, readOnly, userId, selection, selectMode, onEditDrive, onFilter, onMilestoneFilter, activeLabelNames }: { documents: ProjectDocument[]; labels: Label[]; tasks: Task[]; milestones: Milestone[]; filtered: boolean; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean; userId: string; selection: Selection; selectMode: boolean; onEditDrive: (item: DriveProjectDocument | CanvaProjectDocument) => void; onFilter: (label: Label) => void; onMilestoneFilter: (milestone: Milestone) => void; activeLabelNames: string[] }) {
   const { locale } = context;
   const storageKey = `ps.documents.sort.${projectId}`;
   const [sort, setSort] = useState<DocumentSort>(() => { try { return localStorage.getItem(storageKey) === 'name' ? 'name' : 'updated'; } catch { return 'updated'; } });
@@ -333,6 +383,13 @@ function DocumentLibrary({ documents, labels, tasks, filtered, projectId, contex
   const toggleTags = () => { const next = !showTags; setShowTags(next); try { localStorage.setItem(tagsKey, next ? 'on' : 'off'); } catch { /* preference is optional */ } };
   const labelsFor = (item: ProjectDocument) => labels.filter((label) => (item.labelIds || []).includes(label.id));
   const names: Record<DocumentGroup, string> = { folder: pick(locale, 'โฟลเดอร์ Google Drive', 'Google Drive folders'), markdown: 'Markdown', drive: pick(locale, 'ไฟล์ Drive', 'Drive files'), canva: 'Canva' };
+  const displayedIds = GROUP_ORDER.filter((group) => open.has(group)).flatMap((group) => sortDocuments(groups[group], sort).map((item) => item.id));
+  const selectDocument = (event: MouseEvent<HTMLElement>, item: ProjectDocument): boolean => {
+    if (readOnly) return false;
+    if (event.shiftKey) { event.preventDefault(); selection.range(item.id, displayedIds); return true; }
+    if (selectMode || event.ctrlKey || event.metaKey) { event.preventDefault(); selection.toggle(item.id); return true; }
+    return false;
+  };
   const detach = (item: ProjectDocument) => {
     if (!confirm(pick(locale, 'นำเอกสารออกจากคลังหรือไม่? ไฟล์ต้นทางจะไม่ถูกลบ', 'Remove this document from the library? The source file will not be deleted.'))) return;
     void attempt(() => (isDriveProjectDocument(item) || isCanvaProjectDocument(item) ? detachDriveProjectDocument(projectId, item.id) : deleteProjectDocument(projectId, item.id)), pick(locale, 'นำเอกสารออกไม่สำเร็จ', 'Could not remove document'));
@@ -344,13 +401,16 @@ function DocumentLibrary({ documents, labels, tasks, filtered, projectId, contex
       {open.has(group) && <div className="compact-document-list">{sortDocuments(groups[group], sort).map((item) => {
         const name = documentDisplayName(item);
         const selectedLabels = labelsFor(item);
+        const selectedMilestones = milestones.filter((milestone) => (item.milestoneIds || []).includes(milestone.id));
         const markdown = !isDriveProjectDocument(item) && !isCanvaProjectDocument(item);
         const type = group === 'folder' ? 'Folder' : isDriveProjectDocument(item) ? item.mimeType.split('/').pop()?.replace('vnd.google-apps.', '') || 'Drive' : group === 'canva' ? 'Canva' : 'Markdown';
         const openItem = () => { if (isDriveProjectDocument(item) || isCanvaProjectDocument(item)) onEditDrive(item); };
-        return <div className="compact-document-row" key={item.id}>
-          {markdown ? <Link className="compact-document-main" to={`/p/${projectId}/docs/${item.id}`}><Icon name="document" /><span><strong>{name}</strong><small>{type} · {relativeTime(item.updatedAt?.toDate(), locale)}</small></span></Link> : <button type="button" className="compact-document-main" onClick={openItem}><Icon name={group === 'folder' ? 'folder' : group === 'canva' ? 'canva' : 'cloud'} /><span><strong>{name}</strong><small>{type} · {relativeTime(item.updatedAt?.toDate(), locale)}</small></span></button>}
+        return <div className={`compact-document-row ${selection.has(item.id) ? 'selected' : ''} ${selectMode || selection.selected.size ? 'select-mode' : ''}`} key={item.id}>
+          {!readOnly && <input type="checkbox" className="document-select-check" checked={selection.has(item.id)} onChange={() => selection.toggle(item.id)} aria-label={pick(locale, `เลือก ${name}`, `Select ${name}`)} />}
+          {markdown ? <Link className="compact-document-main" to={`/p/${projectId}/docs/${item.id}`} onClick={(event) => { if (selectDocument(event, item)) event.preventDefault(); }}><Icon name="document" /><span><strong>{name}</strong><small>{type} · {relativeTime(item.updatedAt?.toDate(), locale)}</small></span></Link> : <button type="button" className="compact-document-main" onClick={(event) => { if (!selectDocument(event, item)) openItem(); }}><Icon name={group === 'folder' ? 'folder' : group === 'canva' ? 'canva' : 'cloud'} /><span><strong>{name}</strong><small>{type} · {relativeTime(item.updatedAt?.toDate(), locale)}</small></span></button>}
           {showTags && selectedLabels.length > 0 && <span className="compact-document-labels">{selectedLabels.map((label) => <LabelChip key={label.id} label={label} active={activeLabelNames.includes(label.name.toLowerCase())} onClick={() => onFilter(label)} />)}</span>}
-          <span className="compact-document-counts"><small>{(item.taskIds || []).length} Tasks</small></span>
+          {showTags && selectedMilestones.length > 0 && <span className="document-task-chips">{selectedMilestones.map((milestone) => <button type="button" key={milestone.id} onClick={() => onMilestoneFilter(milestone)}><Icon name="milestone" /> {milestone.title}</button>)}</span>}
+          <span className="compact-document-counts"><small>{(item.taskIds || []).length} Tasks</small><small>{(item.milestoneIds || []).length} Milestones</small></span>
           <a className="compact-document-open" href={documentOpenUrl(projectId, item)} target="_blank" rel="noreferrer" title={pick(locale, 'เปิดในแท็บใหม่', 'Open in new tab')} aria-label={pick(locale, 'เปิดในแท็บใหม่', 'Open in new tab')}><Icon name="open" /></a>
           {!readOnly && canDeleteItem(role, item.createdBy, userId) && <button type="button" className="compact-document-remove" onClick={() => detach(item)} title={pick(locale, 'นำออกจากคลัง', 'Remove from library')}><Icon name="close" /></button>}
         </div>;
@@ -375,7 +435,7 @@ function AddDocumentModal({ project, members, documents, labels, context, onClos
   </Modal>;
 }
 
-function CanvasDocumentPicker({ projectId, pinnedIds, canvasItems, context, labels, tasks, onClose }: { projectId: string; pinnedIds: Set<string>; canvasItems: CanvasItem[]; context: AppContextValue; labels: Label[]; tasks: Task[]; onClose: () => void }) {
+function CanvasDocumentPicker({ projectId, pinnedIds, canvasItems, context, labels, tasks, milestones, onClose }: { projectId: string; pinnedIds: Set<string>; canvasItems: CanvasItem[]; context: AppContextValue; labels: Label[]; tasks: Task[]; milestones: Milestone[]; onClose: () => void }) {
   const [items, setItems] = useState<ProjectDocument[]>([]);
   const [cursor, setCursor] = useState<CollectionCursor | null>(null);
   const [more, setMore] = useState(false);
@@ -383,7 +443,7 @@ function CanvasDocumentPicker({ projectId, pinnedIds, canvasItems, context, labe
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => subscribeProjectQuery<ProjectDocument>(projectId, 'documents', 'canvas-picker:50', [orderBy('updatedAt', 'desc'), orderBy(documentId()), limit(50)], (next) => { setItems(next); const last = next.at(-1); setCursor(last?.updatedAt ? { value: last.updatedAt, id: last.id } : null); setMore(next.length === 50); }), [projectId]);
-  const available = useMemo(() => items.filter((item) => !pinnedIds.has(item.id) && matchDocument(item, parseDocumentQuery(queryText), labels, tasks)), [items, pinnedIds, queryText, labels, tasks]);
+  const available = useMemo(() => items.filter((item) => !pinnedIds.has(item.id) && matchDocument(item, parseDocumentQuery(queryText), labels, tasks, milestones)), [items, pinnedIds, queryText, labels, tasks, milestones]);
   const loadMore = async () => { if (!cursor || busy) return; setBusy(true); try { const page = await loadProjectCollectionPage<ProjectDocument>(projectId, 'documents', cursor, 50); setItems((current) => [...current, ...page.items.filter((item) => !current.some((old) => old.id === item.id))]); setCursor(page.nextCursor); setMore(page.hasMore); } finally { setBusy(false); } };
   const pin = async () => {
     if (!selected.length || busy) return;
@@ -425,12 +485,13 @@ function DocumentMetadataRow({ document, labels, tasks, projectId, context, read
   return <div className="document-metadata-row"><div className="document-metadata-tags"><DocumentLabelRow document={document} labels={labels} projectId={projectId} context={context} readOnly={readOnly} onFilter={onFilter} /><div className="document-task-chips">{linkedTasks.map((task) => <button type="button" key={task.id} onClick={() => onTaskFilter(task)}><Icon name="board" /> {task.title}</button>)}</div></div>{onEdit && !readOnly && <button type="button" className="secondary document-details-button" onClick={onEdit}><span aria-hidden="true"><Icon name="edit" /></span>{pick(context.locale, 'แก้ไข', 'Edit')}</button>}</div>;
 }
 
-function DriveDocumentDetailsModal({ item, labels, tasks, projectId, context, readOnly, onClose }: { item: DriveProjectDocument | CanvaProjectDocument; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; readOnly: boolean; onClose: () => void }) {
+function DriveDocumentDetailsModal({ item, labels, tasks, milestones, projectId, context, readOnly, onClose }: { item: DriveProjectDocument | CanvaProjectDocument; labels: Label[]; tasks: Task[]; milestones: Milestone[]; projectId: string; context: AppContextValue; readOnly: boolean; onClose: () => void }) {
   const { locale } = context;
   const [nickname, setNickname] = useState(item.nickname || '');
   const [description, setDescription] = useState(item.description || '');
   const [labelIds, setLabelIds] = useState(item.labelIds || []);
   const [taskIds, setTaskIds] = useState(item.taskIds || []);
+  const [milestoneIds, setMilestoneIds] = useState(item.milestoneIds || []);
   const drive = isDriveProjectDocument(item) ? item : null;
   const currentRole = drive?.role || 'reader';
   const [role, setRole] = useState<DriveRole>(currentRole);
@@ -447,7 +508,7 @@ function DriveDocumentDetailsModal({ item, labels, tasks, projectId, context, re
       const roleOk = await attempt(() => updateDriveProjectDocumentRole(projectId, drive, role, context.user).then(() => true), pick(locale, 'เปลี่ยนสิทธิ์ใน Google Drive ไม่สำเร็จ (ต้องเป็นเจ้าของไฟล์)', 'Could not change Google Drive access (you must own the file)'));
       if (!roleOk) { setBusy(false); return; }
     }
-    const details = { nickname, description, labelIds, taskIds };
+    const details = { nickname, description, labelIds, taskIds, milestoneIds };
     const ok = await attempt(() => (drive ? updateDriveProjectDocumentDetails(projectId, item.id, details) : updateCanvaProjectDocumentDetails(projectId, item.id, details)).then(() => true), pick(locale, 'บันทึกรายละเอียดไม่สำเร็จ', 'Could not save document details'));
     setBusy(false);
     if (ok) onClose();
@@ -463,6 +524,7 @@ function DriveDocumentDetailsModal({ item, labels, tasks, projectId, context, re
     <section className="drive-details-section"><header><span>2</span><div><h3>{pick(locale, 'จัดหมวดหมู่และเชื่อมงาน', 'Organize and link work')}</h3><p>{pick(locale, 'เพิ่ม Labels และเลือก Tasks ที่ใช้เอกสารนี้', 'Add labels and select tasks that use this document')}</p></div></header>
       <div className="document-editor-labels"><span>Labels</span><LabelPicker labels={labels} value={labelIds} onChange={setLabelIds} projectId={projectId} context={context} readOnly={readOnly} /></div>
       <fieldset disabled={readOnly}><legend>{pick(locale, `Tasks ที่เชื่อม (${taskIds.length})`, `Linked tasks (${taskIds.length})`)}</legend><div className="document-task-picker">{tasks.map((task) => <label key={task.id} className={taskIds.includes(task.id) ? 'selected' : ''}><input type="checkbox" checked={taskIds.includes(task.id)} onChange={(event) => setTaskIds((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} /><span>{task.title}</span><small>{task.status.replace('_', ' ')}</small></label>)}</div>{!tasks.length && <p className="muted drive-details-no-tasks">{pick(locale, 'ยังไม่มี Task ในโปรเจกต์นี้', 'No tasks in this project yet')}</p>}</fieldset>
+      <fieldset disabled={readOnly}><legend>{pick(locale, `Milestones ที่เชื่อม (${milestoneIds.length})`, `Linked milestones (${milestoneIds.length})`)}</legend><div className="document-task-picker">{milestones.map((milestone) => <label key={milestone.id} className={milestoneIds.includes(milestone.id) ? 'selected' : ''}><input type="checkbox" checked={milestoneIds.includes(milestone.id)} onChange={(event) => setMilestoneIds((current) => event.target.checked ? [...current, milestone.id] : current.filter((id) => id !== milestone.id))} /><span>{milestone.title}</span><small>{milestone.status}</small></label>)}</div>{!milestones.length && <p className="muted drive-details-no-tasks">{pick(locale, 'ยังไม่มี Milestone ในโปรเจกต์นี้', 'No milestones in this project yet')}</p>}</fieldset>
     </section>
     {!drive && <section className="drive-details-section"><header><span>3</span><div><h3>{pick(locale, 'สิทธิ์ใน Canva', 'Canva access')}</h3><p>{pick(locale, 'สิทธิ์แก้ไขจัดการใน Canva SuperKanban เก็บแค่ลิงก์แก้ไข', 'Edit access is managed in Canva; SuperKanban only stores the edit link.')}</p></div></header>
     </section>}
@@ -488,6 +550,7 @@ function DocumentReader({ documentId, projectId, context, role, readOnly }: { do
   const labels = useProjectItems<Label>(projectId, 'labels');
   const activeTasks = useActiveTasks(projectId);
   const tasks = useLinkedTasks(projectId, activeTasks, item?.taskIds || []);
+  const milestones = useProjectItems<Milestone>(projectId, 'milestones');
 
   useEffect(() => {
     setItem(undefined);
@@ -512,13 +575,13 @@ function DocumentReader({ documentId, projectId, context, role, readOnly }: { do
       </header>
       <MarkdownRenderer content={item.content} locale={locale} className="document-reader-content" />
     </section>
-    {editing && <DocumentModal item={item} labels={labels} tasks={tasks} projectId={projectId} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} onDeleted={() => navigate(`/p/${projectId}/docs`)} />}
+    {editing && <DocumentModal item={item} labels={labels} tasks={tasks} milestones={milestones} projectId={projectId} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} onDeleted={() => navigate(`/p/${projectId}/docs`)} />}
   </>;
 }
 
-function DocumentModal({ item, labels, tasks, projectId, context, role, readOnly, onClose, onSaved, onDeleted }: { item: LoadedProjectDocument | null; labels: Label[]; tasks: Task[]; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void; onSaved: (id: string) => void; onDeleted?: () => void }) {
+function DocumentModal({ item, labels, tasks, milestones, projectId, context, role, readOnly, onClose, onSaved, onDeleted }: { item: LoadedProjectDocument | null; labels: Label[]; tasks: Task[]; milestones: Milestone[]; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void; onSaved: (id: string) => void; onDeleted?: () => void }) {
   const { user, t, locale } = context;
-  const [title, setTitle] = useState(item?.title || 'Untitled'); const [content, setContent] = useState(item?.content || '# New document\n'); const [labelIds, setLabelIds] = useState(item?.labelIds || []); const [taskIds, setTaskIds] = useState(item?.taskIds || []); const [preview, setPreview] = useState(readOnly);
+  const [title, setTitle] = useState(item?.title || 'Untitled'); const [content, setContent] = useState(item?.content || '# New document\n'); const [labelIds, setLabelIds] = useState(item?.labelIds || []); const [taskIds, setTaskIds] = useState(item?.taskIds || []); const [milestoneIds, setMilestoneIds] = useState(item?.milestoneIds || []); const [preview, setPreview] = useState(readOnly);
   const contentBytes = useMemo(() => documentContentBytes(content), [content]);
   const tooLarge = contentBytes > DOCUMENT_BODY_MAX_BYTES;
   const submit = async (e: FormEvent) => {
@@ -526,13 +589,13 @@ function DocumentModal({ item, labels, tasks, projectId, context, role, readOnly
     if (tooLarge) return;
     let savedId = item?.id || '';
     const ok = await attempt(async () => {
-      if (item) await updateProjectDocument(projectId, item.id, title, content, labelIds, taskIds);
-      else savedId = await createProjectDocument(projectId, title, content, labelIds, user, taskIds);
+      if (item) await updateProjectDocument(projectId, item.id, title, content, labelIds, taskIds, milestoneIds);
+      else savedId = await createProjectDocument(projectId, title, content, labelIds, user, taskIds, milestoneIds);
       return true;
     }, pick(locale, 'บันทึกไม่สำเร็จ', 'Save failed'));
     if (ok) onSaved(savedId);
   };
   const formId = useId();
   const sizeLabel = `${(contentBytes / 1024).toFixed(contentBytes < 10240 ? 1 : 0)} / ${DOCUMENT_BODY_MAX_BYTES / 1024} KB`;
-  return <Modal title={item ? (readOnly ? item.title : t('edit')) : t('documents')} onClose={onClose} wide actions={!readOnly && <button form={formId} className="primary" disabled={tooLarge}>{t('save')}</button>}><form id={formId} className="document-editor" onSubmit={submit}><div className="document-title-row"><input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={DOCUMENT_TITLE_MAX_LENGTH} disabled={readOnly} /><div>{!readOnly && <button type="button" className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>Edit</button>}<button type="button" className={preview ? 'active' : ''} onClick={() => setPreview(true)}>Preview</button></div></div><div className="document-editor-labels"><span>{pick(locale, 'Labels', 'Labels')}</span><LabelPicker labels={labels} value={labelIds} onChange={setLabelIds} projectId={projectId} context={context} readOnly={readOnly} /></div><fieldset className="document-task-field" disabled={readOnly}><legend>{pick(locale, 'เชื่อมกับ Tasks', 'Linked tasks')}</legend><div className="document-task-picker">{tasks.map((task) => <label key={task.id}><input type="checkbox" checked={taskIds.includes(task.id)} onChange={(event) => setTaskIds((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} /><span>{task.title}</span></label>)}</div></fieldset>{preview ? <MarkdownRenderer content={content} locale={locale} /> : <textarea value={content} onChange={(e) => setContent(e.target.value)} spellCheck disabled={readOnly} />}<div className={`document-size ${tooLarge ? 'over' : ''}`}><span>{tooLarge ? pick(locale, 'เอกสารใหญ่เกินขีดจำกัด 900 KB', 'Document exceeds the 900 KB limit') : pick(locale, 'ขนาด UTF-8', 'UTF-8 size')}</span><b>{sizeLabel}</b></div><div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(`${t('delete')}?`)) { const ok = await attempt(() => deleteProjectDocument(projectId, item.id).then(() => true), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); if (ok) { onClose(); onDeleted?.(); } } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary" disabled={tooLarge}>{t('save')}</button>}</div></form></Modal>;
+  return <Modal title={item ? (readOnly ? item.title : t('edit')) : t('documents')} onClose={onClose} wide actions={!readOnly && <button form={formId} className="primary" disabled={tooLarge}>{t('save')}</button>}><form id={formId} className="document-editor" onSubmit={submit}><div className="document-title-row"><input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={DOCUMENT_TITLE_MAX_LENGTH} disabled={readOnly} /><div>{!readOnly && <button type="button" className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>Edit</button>}<button type="button" className={preview ? 'active' : ''} onClick={() => setPreview(true)}>Preview</button></div></div><div className="document-editor-labels"><span>{pick(locale, 'Labels', 'Labels')}</span><LabelPicker labels={labels} value={labelIds} onChange={setLabelIds} projectId={projectId} context={context} readOnly={readOnly} /></div><fieldset className="document-task-field" disabled={readOnly}><legend>{pick(locale, 'เชื่อมกับ Tasks', 'Linked tasks')}</legend><div className="document-task-picker">{tasks.map((task) => <label key={task.id}><input type="checkbox" checked={taskIds.includes(task.id)} onChange={(event) => setTaskIds((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} /><span>{task.title}</span></label>)}</div></fieldset><fieldset className="document-task-field" disabled={readOnly}><legend>{pick(locale, 'เชื่อมกับ Milestones', 'Linked milestones')}</legend><div className="document-task-picker">{milestones.map((milestone) => <label key={milestone.id}><input type="checkbox" checked={milestoneIds.includes(milestone.id)} onChange={(event) => setMilestoneIds((current) => event.target.checked ? [...current, milestone.id] : current.filter((id) => id !== milestone.id))} /><span>{milestone.title}</span></label>)}</div></fieldset>{preview ? <MarkdownRenderer content={content} locale={locale} /> : <textarea value={content} onChange={(e) => setContent(e.target.value)} spellCheck disabled={readOnly} />}<div className={`document-size ${tooLarge ? 'over' : ''}`}><span>{tooLarge ? pick(locale, 'เอกสารใหญ่เกินขีดจำกัด 900 KB', 'Document exceeds the 900 KB limit') : pick(locale, 'ขนาด UTF-8', 'UTF-8 size')}</span><b>{sizeLabel}</b></div><div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(`${t('delete')}?`)) { const ok = await attempt(() => deleteProjectDocument(projectId, item.id).then(() => true), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); if (ok) { onClose(); onDeleted?.(); } } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary" disabled={tooLarge}>{t('save')}</button>}</div></form></Modal>;
 }

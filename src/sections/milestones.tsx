@@ -1,11 +1,11 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
-import { Empty, Modal, PageTitle, TimeField } from '@/components/common';
+import { CanvaFileRow, DocumentPickerModal, DriveFileRow, Empty, Modal, PageTitle, TimeField } from '@/components/common';
 import { blockingMilestones, topoOrder, wouldCreateCycle } from '@/utils/milestone-deps';
 import { canDeleteItem } from '@/utils/permissions';
-import { createWorkItem, deleteWorkItem, updateWorkItem } from '@/services';
-import type { Milestone, Role, Task } from '@/types';
+import { createWorkItem, deleteMilestoneAndUnlinkDocuments, isCanvaProjectDocument, isDriveProjectDocument, subscribeMilestoneDocuments, unlinkProjectDocumentFromMilestone, updateWorkItem } from '@/services';
+import type { Membership, Milestone, ProjectDocument, Role, Task } from '@/types';
 import { attempt } from '@/components/toast';
 import { formatDue, pick } from '@/utils/formatters';
 import { useProjectItemsState, useProjectSummary } from '@/hooks';
@@ -17,7 +17,7 @@ import { Icon } from '@/components/common/Icon';
 
 const STATUS_COLOR = new Map(TASK_COLUMNS.map((column) => [column.id, column.color]));
 
-export function Milestones({ context, project, role, readOnly }: SectionProps) {
+export function Milestones({ context, project, members, role, readOnly }: SectionProps) {
   const { items, loaded: milestonesLoaded } = useProjectItemsState<Milestone>(project.id, 'milestones');
   const { summary, loaded: summaryLoaded, failed: summaryFailed } = useProjectSummary(project);
   const tasks = summary ? summaryTasks(summary) : [];
@@ -72,11 +72,11 @@ export function Milestones({ context, project, role, readOnly }: SectionProps) {
       </article>;
     })}</div>
     {!items.length && <Empty icon="milestone" title={context.t('noData')} description={pick(locale, 'สร้าง milestone แรกของโปรเจกต์', 'Create the first milestone for this project')} />}
-    {editing && <MilestoneModal item={editing === 'new' ? null : editing} all={items} tasks={tasks} taskCount={editing === 'new' ? undefined : counts[editing.id]} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(null)} />}
+    {editing && <MilestoneModal item={editing === 'new' ? null : editing} all={items} tasks={tasks} taskCount={editing === 'new' ? undefined : counts[editing.id]} project={{ id: project.id, name: project.name }} members={members} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(null)} />}
   </>;
 }
 
-function MilestoneModal({ item, all, tasks, taskCount, projectId, context, role, readOnly, onClose }: { item: Milestone | null; all: Milestone[]; tasks: Task[]; taskCount?: { total: number; done: number }; projectId: string; context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void }) {
+function MilestoneModal({ item, all, tasks, taskCount, project, members, context, role, readOnly, onClose }: { item: Milestone | null; all: Milestone[]; tasks: Task[]; taskCount?: { total: number; done: number }; project: { id: string; name: string }; members: Membership[]; context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void }) {
   const { user, t, locale } = context;
   const [form, setForm] = useState({ title: item?.title || '', description: item?.description || '', dueDate: item?.dueDate || '', dueTime: item?.dueTime || '', status: item?.status || 'active', dependsOn: item?.dependsOn || [] as string[] });
   const selfId = item?.id || '__new__';
@@ -88,22 +88,25 @@ function MilestoneModal({ item, all, tasks, taskCount, projectId, context, role,
   const others = all.filter((other) => other.id !== item?.id);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentCount, setCommentCount] = useState(0);
+  const [documents, setDocuments] = useState<ProjectDocument[]>([]);
+  const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
   const formId = useId();
+  useEffect(() => item ? subscribeMilestoneDocuments(project.id, item.id, setDocuments) : undefined, [project.id, item?.id]);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (isCompleting && !completion.canComplete) return;
     if (isCompleting && completion.taskCount === 0 && !confirm(pick(locale, 'Milestone นี้ยังไม่มี Task ต้องการปิดเลยหรือไม่?', 'This milestone has no tasks. Complete it anyway?'))) return;
     const values = { ...form };
     const ok = await attempt(() => (item
-      ? updateWorkItem(projectId, 'milestones', item.id, values)
-      : createWorkItem(projectId, 'milestones', values, user, { type: 'milestone_created', th: `เพิ่ม milestone “${form.title}”`, en: `created milestone “${form.title}”` })).then(() => true), pick(locale, 'บันทึกไม่สำเร็จ', 'Save failed'));
+      ? updateWorkItem(project.id, 'milestones', item.id, values)
+      : createWorkItem(project.id, 'milestones', values, user, { type: 'milestone_created', th: `เพิ่ม milestone “${form.title}”`, en: `created milestone “${form.title}”` })).then(() => true), pick(locale, 'บันทึกไม่สำเร็จ', 'Save failed'));
     if (ok) onClose();
   };
   const actions = <>
     {item && <button type="button" className="comment-toggle" onClick={() => setCommentsOpen(true)} aria-label={pick(locale, 'ความคิดเห็น', 'Comments')}><Icon name="comment" /> {commentCount}</button>}
     {!readOnly && <button form={formId} className="primary">{t('save')}</button>}
   </>;
-  return <Modal title={item ? t('edit') : t('addMilestone')} onClose={commentsOpen ? () => setCommentsOpen(false) : onClose} wide={!!item} actions={actions}>
+  return <Modal title={item ? t('edit') : t('addMilestone')} onClose={documentPickerOpen ? () => setDocumentPickerOpen(false) : commentsOpen ? () => setCommentsOpen(false) : onClose} wide={!!item} actions={actions}>
     <div className={item ? `modal-split ${commentsOpen ? 'comments-open' : ''}` : ''}>
       <form id={formId} className="stack-form edit-form" onSubmit={submit}>
         <fieldset className="read-only-fields" disabled={readOnly}>
@@ -127,10 +130,18 @@ function MilestoneModal({ item, all, tasks, taskCount, projectId, context, role,
           ? pick(locale, 'ยังปิด milestone นี้ไม่ได้จนกว่า milestone ที่ต้องรอจะเสร็จ', 'Can’t be completed until its prerequisites are completed')
           : pick(locale, `ยังมี ${completion.incompleteTaskCount} Task ที่ต้องทำให้เสร็จ`, `${completion.incompleteTaskCount} task(s) must be completed first`)}</p>}
         </fieldset>
-        <div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(`${t('delete')}?`)) { await attempt(() => deleteWorkItem(projectId, 'milestones', item.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary">{t('save')}</button>}</div>
+        {item && <section className="task-attachments">
+          <div className="task-documents-head"><h3><Icon name="document" /> {pick(locale, 'เอกสาร', 'Documents')} <b>{documents.length}</b></h3>{!readOnly && <button type="button" className="secondary small" onClick={() => setDocumentPickerOpen(true)}><Icon name="add" /> {pick(locale, 'เพิ่มเอกสาร', 'Add documents')}</button>}</div>
+          {documents.length > 0 && <div className="drive-file-list">{documents.map((document) => isDriveProjectDocument(document) ? <DriveFileRow key={document.id} file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName} canDetach={!readOnly} iconOnlyDetach detachLabel={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onDetach={() => attempt(() => unlinkProjectDocumentFromMilestone(project.id, document.id, item.id).then(() => true), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document')).then((ok) => ok === true)} />
+            : isCanvaProjectDocument(document) ? <CanvaFileRow key={document.id} file={document} locale={locale} uploader={members.find((member) => member.userId === document.createdBy)?.displayName} canDetach={!readOnly} iconOnlyDetach detachLabel={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onDetach={() => attempt(() => unlinkProjectDocumentFromMilestone(project.id, document.id, item.id).then(() => true), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document')).then((ok) => ok === true)} />
+            : <div className="task-document-row" key={document.id}><a href={`/p/${project.id}/docs/${document.id}`}><span><Icon name="document" /></span><span><strong>{document.title}</strong><small>{document.excerpt || pick(locale, 'เอกสาร Markdown', 'Markdown document')}</small></span><b><Icon name="open" /></b></a>{!readOnly && <button type="button" className="drive-detach icon-only" aria-label={pick(locale, 'ยกเลิกการเชื่อม', 'Unlink')} onClick={() => void attempt(() => unlinkProjectDocumentFromMilestone(project.id, document.id, item.id), pick(locale, 'ยกเลิกการเชื่อมไม่สำเร็จ', 'Could not unlink document'))}><Icon name="close" /></button>}</div>)}</div>}
+          {!documents.length && <p className="muted task-documents-empty">{pick(locale, 'ยังไม่มีเอกสารที่เชื่อมกับ Milestone นี้', 'No documents linked to this milestone')}</p>}
+        </section>}
+        <div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(`${t('delete')}?`)) { await attempt(() => deleteMilestoneAndUnlinkDocuments(project.id, item.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary">{t('save')}</button>}</div>
       </form>
       {item && <div className="comments-scrim" onClick={() => setCommentsOpen(false)} />}
-      {item && <CommentThread projectId={projectId} targetType="milestone" targetId={item.id} context={context} role={role} readOnly={readOnly} onCount={setCommentCount} onClose={() => setCommentsOpen(false)} />}
+      {item && <CommentThread projectId={project.id} targetType="milestone" targetId={item.id} context={context} role={role} readOnly={readOnly} onCount={setCommentCount} onClose={() => setCommentsOpen(false)} />}
     </div>
+    {item && documentPickerOpen && <DocumentPickerModal project={project} target={{ type: 'milestone', id: item.id }} members={members} user={user} locale={locale} linkedIds={new Set(documents.map((document) => document.id))} onClose={() => setDocumentPickerOpen(false)} />}
   </Modal>;
 }

@@ -59,11 +59,11 @@ No code yet. Researched options, from cheapest to most expensive:
 
 Canva documents are for **editing**, not viewing. The first view/embed version (title from embed code, inline `?embed` preview, optional edit-link opt-in) was removed on 2026-10-01.
 
-- `kind: 'canva'`, ID `canva_<designId>` (re-attaching only adds task links). Fields: `title`, `nickname`, `description`, `labelIds`, `taskIds`, `canvaDesignId`, optional `canvaEditToken`.
+- `kind: 'canva'`, ID `canva_<designId>` (re-attaching only adds work links). Fields: `title`, `nickname`, `description`, `labelIds`, `taskIds`, `milestoneIds`, `canvaDesignId`, optional `canvaEditToken`.
 - Only edit links are accepted: `https://www.canva.com/design/<id>/<token>/edit` (collaboration link: Share → Anyone with the link → Can edit) or tokenless `…/design/<id>/edit` for designs shared through Canva teams. View links, embed HTML and `canva.link` short links are rejected.
 - The edit URL is rebuilt from the stored ID and token; rows open the Canva editor in a new tab. No preview.
 - Edit links contain no title, so the title is optional and defaults to `Canva · <designId>`; members can set a nickname later.
-- Rules (`validCanvaDocument()`): strict allowlist, `itemId == 'canva_' + canvaDesignId`, `matches()` on the ID and token. Only `nickname`, `description`, `labelIds`, `taskIds` and `updatedAt` can change, so the token cannot be added, swapped or removed after creation (detach and re-attach instead).
+- Rules (`validCanvaDocument()`): strict allowlist, `itemId == 'canva_' + canvaDesignId`, `matches()` on the ID and token. Only `nickname`, `description`, `labelIds`, `taskIds`, `milestoneIds` and `updatedAt` can change, so the token cannot be added, swapped or removed after creation (detach and re-attach instead).
 - Code: `src/utils/canva-link.ts`, `src/services/canva.ts`, `src/components/common/CanvaLinkControl.tsx`.
 - Limits: SuperKanban cannot grant or revoke Canva access. Anyone holding a collaboration link can edit; resetting that link in Canva is the only revocation.
 - `canva.link` short links are expanded by the tarot Worker route `POST /v1/links/canva/resolve` (`src/utils/canva-short-link.ts`). Input must be exactly `https://canva.link/<slug>` (no query, hash, port, userinfo; wrappers like `google.com/url?q=` are rejected); the Worker rebuilds that URL from the slug, makes one request with redirects disabled, and returns the `Location` only if it is an `https://www.canva.com/design/...` path — the Location itself is never fetched. Order of checks: origin → Firebase token/domain → per-user rate limit (10/min) → slug validation → cache → one fetch.
@@ -96,13 +96,15 @@ Documents is a standalone workspace section rather than a Notes tab. It displays
 
 Deleting a label removes its ID from every task and document before deleting the shared label record. Legacy Markdown migration and Drive permission synchronization must preserve document labels.
 
-# Unified documents and task links
+# Unified documents and work links
 
 Documents is the single source of truth for Markdown and Google Drive records. A document may store up to 100 `taskIds`; Task Editor links or unlinks these records instead of creating a second task attachment. Removing a link or deleting a task never deletes the document or its Google Drive file. New uploads started from Task Editor create a normal Drive document and link it to that task. Legacy `taskAttachments` records are not migrated or rendered by the new UI.
 
+Documents may also store up to 100 `milestoneIds`. Document editors and Milestone details manage the same relationship from either side. Deleting a milestone removes its ID from linked documents first and never deletes a document or its external source. Missing `milestoneIds` means no milestone links, so existing records require no migration.
+
 Drive documents support project-local `nickname` and `description` fields. They do not rename the Google Drive file or alter Drive metadata. The UI displays the nickname when present and falls back to the original Drive filename. Active project members may edit document metadata and links; archived projects remain read-only.
 
-Document search includes Drive nickname, custom description, original filename, linked task titles, and the existing document fields. Task filters use `task:"Task name"`, `-task:"Task name"`, and `no:task`. Positive task filters narrow the Firestore query; when label and task filters are combined, remaining conditions are applied to the loaded task-matched candidates because Firestore cannot use two array membership filters in one query.
+Document search includes Drive nickname, custom description, original filename, linked task and milestone titles, and the existing document fields. Work filters use `task:"Task name"`, `milestone:"Milestone name"`, their negated forms, and `no:task` / `no:milestone`. Server-side narrowing uses task, then milestone, then label links; remaining conditions are applied to loaded candidates because Firestore cannot use multiple array-membership filters in one query.
 
 # Workspace navigation order
 
@@ -127,3 +129,20 @@ If offline task editing or transaction latency becomes more important, switch to
 - A stale client can calculate the wrong delta, so counters may drift until the version/7-day rebuild repairs them.
 
 Prefer this alternative only when offline editing is a product requirement or measured transaction latency is unacceptable. Keep the current transaction strategy for stronger concurrent correctness.
+
+# Multiple sticky cards for the same document — feasibility
+
+This is feasible, but it is intentionally deferred. Today a document card uses the deterministic sticky-note ID `document_<documentId>`, so Firestore, the picker, unpinning, and document deletion all assume exactly one canvas card per document.
+
+## Recommended design
+
+- Give every new document card its own generated sticky-note ID and keep `documentId` as an immutable reference. Existing deterministic cards remain valid, so no migration is required.
+- Let each card own its position, color, pinned/locked state, creator, and timestamps. Editing or deleting one copy must not affect the presentation of another copy or the source document.
+- Keep the document picker available after a document is already pinned and show its current copy count. A card action can also offer **Pin another copy**.
+- Unpin by card ID rather than document ID. Deleting a library document must query every sticky-note card with that `documentId` and remove all copies before deleting the document metadata.
+- Update Firestore rules to allow generated card IDs while requiring an existing document on create and preventing `documentId`, ownership, and creation time from changing later.
+- Add a `stickyNotes.documentId` query/index if cleanup queries require it. Cleanup must be chunked to stay below Firestore batch limits.
+
+## Limits and tradeoffs
+
+Duplicate cards add only small metadata reads, writes, and index storage; Markdown bodies are still not loaded by the canvas. The main risk is canvas clutter rather than backend cost. Start with a visible per-document copy count and a client-side confirmation when adding many copies. A strict server-enforced per-document limit would require a counter or transaction because Firestore rules cannot count sibling query results.

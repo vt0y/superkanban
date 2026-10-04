@@ -16,6 +16,7 @@ import {
   LOCAL_DRIVE_FILE_MAX_BYTES,
   parseGoogleFileLink,
   parseGoogleFolderLink,
+  pickDriveFileById,
   pickDriveFolder,
   pickDriveFiles,
   shareDriveFile,
@@ -261,7 +262,7 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
     setLinkError('');
     let item: UploadQueueItem;
     try {
-      const candidate = await getDriveFile(user, parsed.driveFileId);
+      const candidate = await getDriveFile(user, parsed.driveFileId, parsed.resourceKey);
       if (parsed.mimeType === DRIVE_FOLDER_MIME_TYPE && candidate.mimeType !== DRIVE_FOLDER_MIME_TYPE) throw new Error('DRIVE_FOLDER_MIME_MISMATCH');
       item = { key: `link:${crypto.randomUUID()}`, name: candidate.name, source: parsed.mimeType === DRIVE_FOLDER_MIME_TYPE ? 'folder' : 'link', state: 'queued', mode: parsed.mimeType === DRIVE_FOLDER_MIME_TYPE ? 'unmanaged' : mode, role, progress: 1, candidate: { ...candidate, resourceKey: parsed.resourceKey || candidate.resourceKey } };
     } catch (error) {
@@ -271,10 +272,27 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
         setItems((current) => [...current, { key: `link:${crypto.randomUUID()}`, name: linkUrl, source: 'link', state: 'error', mode, role, progress: 0, ...errorDetails(error, locale) }]);
         return;
       }
-      // drive.file cannot read files that were never picked or created here, so keep a link-only reference.
       const folder = parsed.mimeType === DRIVE_FOLDER_MIME_TYPE;
-      const name = linkName.trim() || pick(locale, folder ? 'โฟลเดอร์ Google Drive' : 'ไฟล์ Google Drive', folder ? 'Google Drive folder' : 'Google Drive file');
-      item = { key: `link:${crypto.randomUUID()}`, name, source: folder ? 'folder' : 'link', state: 'queued', mode: 'unmanaged', role: 'reader', progress: 1, candidate: { driveFileId: parsed.driveFileId, name, mimeType: parsed.mimeType || 'application/octet-stream', ...(parsed.resourceKey ? { resourceKey: parsed.resourceKey } : {}) } };
+      // A focused Picker confirmation grants drive.file access to this exact pasted file, allowing its real name to be read.
+      if (!folder && !linkName.trim()) {
+        try {
+          const candidate = await pickDriveFileById(user, parsed.driveFileId, parsed.resourceKey);
+          if (!candidate) {
+            stopBusy();
+            setLinkError(pick(locale, 'ยกเลิกการยืนยันใน Google Drive หากต้องการแนบโดยไม่ยืนยัน ให้กรอกชื่อที่ใช้แสดง', 'Google Drive confirmation was cancelled. Enter a display name to attach without confirming.'));
+            return;
+          }
+          item = { key: `link:${crypto.randomUUID()}`, name: candidate.name, source: 'link', state: 'queued', mode: 'unmanaged', role: 'reader', progress: 1, candidate: { ...candidate, resourceKey: parsed.resourceKey || candidate.resourceKey } };
+        } catch {
+          stopBusy();
+          setLinkError(pick(locale, 'Google Drive เปิดไฟล์นี้ไม่ได้ ให้ตรวจสอบบัญชีที่เลือก หรือกรอกชื่อที่ใช้แสดงเพื่อแนบเป็นลิงก์', 'Google Drive could not open this file. Check the selected account, or enter a display name to attach it as a link.'));
+          return;
+        }
+      } else {
+        // Folders and explicitly named files remain link-only when drive.file cannot read them.
+        const name = linkName.trim() || pick(locale, folder ? 'โฟลเดอร์ Google Drive' : 'ไฟล์ Google Drive', folder ? 'Google Drive folder' : 'Google Drive file');
+        item = { key: `link:${crypto.randomUUID()}`, name, source: folder ? 'folder' : 'link', state: 'queued', mode: 'unmanaged', role: 'reader', progress: 1, candidate: { driveFileId: parsed.driveFileId, name, mimeType: parsed.mimeType || 'application/octet-stream', ...(parsed.resourceKey ? { resourceKey: parsed.resourceKey } : {}) } };
+      }
     }
     stopBusy();
     setLinkUrl('');
@@ -403,7 +421,7 @@ export function DriveAttachmentControl({ project, members, user, locale, existin
       <div className="drive-sharing-panel">
         <div><strong>{pick(locale, 'แนบด้วยลิงก์ Google', 'Attach by Google link')}</strong><small>{pick(locale, 'ไม่ต้องใช้ตัวเลือก Drive ถ้า SuperKanban ยังไม่เคยเข้าถึงไฟล์นี้ ระบบจะเก็บเป็นลิงก์ และสิทธิ์จะจัดการใน Google Drive เท่านั้น', 'No picker needed. If SuperKanban has never accessed this file, it is saved as a link and access stays managed in Google Drive.')}</small></div>
         <label className="drive-inline-field"><span>{pick(locale, 'ลิงก์ไฟล์', 'File link')}</span><input type="url" required value={linkUrl} onChange={(event) => { setLinkUrl(event.target.value); setLinkError(''); }} placeholder="https://docs.google.com/document/d/…" autoFocus /></label>
-        <label className="drive-inline-field"><span>{pick(locale, 'ชื่อที่ใช้แสดง', 'Display name')} <i>{pick(locale, 'ใช้เมื่ออ่านชื่อไฟล์จาก Drive ไม่ได้', 'Used when Drive cannot read the file name')}</i></span><input value={linkName} onChange={(event) => setLinkName(event.target.value)} maxLength={200} placeholder={pick(locale, 'เช่น Requirement v2', 'For example: Requirements v2')} /></label>
+        <label className="drive-inline-field"><span>{pick(locale, 'ชื่อที่ใช้แสดง', 'Display name')} <i>{pick(locale, 'ใช้เมื่ออ่านชื่อไฟล์จาก Drive ไม่ได้', 'Used when Drive cannot read the file name')}</i></span><input value={linkName} onChange={(event) => { setLinkName(event.target.value); setLinkError(''); }} maxLength={200} placeholder={pick(locale, 'เช่น Requirement v2', 'For example: Requirements v2')} /></label>
         {linkError && <small className="drive-folder-error" role="alert">{linkError}</small>}
         <div className="drive-inline-actions"><button type="button" className="secondary small" onClick={() => setPanel(null)}>{pick(locale, 'ยกเลิก', 'Cancel')}</button><button className="primary small" disabled={busy || !linkUrl.trim()}>{pick(locale, 'แนบลิงก์', 'Attach link')}</button></div>
       </div>

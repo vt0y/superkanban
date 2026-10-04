@@ -111,7 +111,8 @@ service cloud.firestore {
         return !('labelIds' in request.resource.data) || (request.resource.data.labelIds is list && request.resource.data.labelIds.size() <= 50);
       }
       function validDocumentLinks() {
-        return !('taskIds' in request.resource.data) || (request.resource.data.taskIds is list && request.resource.data.taskIds.size() <= 100);
+        return (!('taskIds' in request.resource.data) || (request.resource.data.taskIds is list && request.resource.data.taskIds.size() <= 100))
+          && (!('milestoneIds' in request.resource.data) || (request.resource.data.milestoneIds is list && request.resource.data.milestoneIds.size() <= 100));
       }
       function validTaskLists() {
         return validLabelIds()
@@ -228,13 +229,13 @@ service cloud.firestore {
       }
       match /documents/{itemId} {
         function validLegacyDocument() {
-          return request.resource.data.keys().hasOnly(['title','content','labelIds','taskIds','createdBy','createdAt','updatedAt'])
+          return request.resource.data.keys().hasOnly(['title','content','labelIds','taskIds','milestoneIds','createdBy','createdAt','updatedAt'])
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
             && request.resource.data.content is string && request.resource.data.content.toUtf8().size() <= 921600
             && validLabelIds() && validDocumentLinks();
         }
         function validV2Document() {
-          return request.resource.data.keys().hasOnly(['kind','schemaVersion','title','labelIds','taskIds','excerpt','contentBytes','createdBy','createdAt','updatedAt'])
+          return request.resource.data.keys().hasOnly(['kind','schemaVersion','title','labelIds','taskIds','milestoneIds','excerpt','contentBytes','createdBy','createdAt','updatedAt'])
             && (!('kind' in request.resource.data) || request.resource.data.kind == 'markdown')
             && request.resource.data.schemaVersion == 2
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
@@ -246,7 +247,7 @@ service cloud.firestore {
         }
         function validDriveDocument() {
           return request.resource.data.keys().hasAll(['kind','title','driveFileId','name','mimeType','shareMode','sharedMemberIds','createdBy','createdAt','updatedAt'])
-            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','driveFileId','name','mimeType','sizeBytes','resourceKey','shareMode','role','sharedMemberIds','managedPermissionIds','linkPermissionId','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
+            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','milestoneIds','driveFileId','name','mimeType','sizeBytes','resourceKey','shareMode','role','sharedMemberIds','managedPermissionIds','linkPermissionId','permissionsSyncedAt','createdBy','createdAt','updatedAt'])
             && request.resource.data.kind == 'drive'
             && itemId == 'drive_' + request.resource.data.driveFileId
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
@@ -258,7 +259,7 @@ service cloud.firestore {
         // Link-only Canva designs: design ID and edit-link token only, so stored URLs can never point elsewhere.
         function validCanvaDocument() {
           return request.resource.data.keys().hasAll(['kind','title','canvaDesignId','createdBy','createdAt','updatedAt'])
-            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','canvaDesignId','canvaEditToken','createdBy','createdAt','updatedAt'])
+            && request.resource.data.keys().hasOnly(['kind','title','nickname','description','labelIds','taskIds','milestoneIds','canvaDesignId','canvaEditToken','createdBy','createdAt','updatedAt'])
             && request.resource.data.kind == 'canva'
             && request.resource.data.canvaDesignId is string && request.resource.data.canvaDesignId.matches('^[A-Za-z0-9_-]{8,64}$')
             && itemId == 'canva_' + request.resource.data.canvaDesignId
@@ -278,10 +279,10 @@ service cloud.firestore {
           // Dispatch on the stored kind first: evaluating every schema in turn exceeds the 1000-expression limit.
           && ((!(resource.data.get('kind', 'markdown') in ['drive', 'canva']) && (validLegacyDocument() || validV2Document()))
             || (resource.data.get('kind', 'markdown') == 'canva' && request.resource.data.updatedAt == request.time
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname','description','labelIds','taskIds','updatedAt'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname','description','labelIds','taskIds','milestoneIds','updatedAt'])
               && validCanvaDocument())
             || (resource.data.get('kind', 'markdown') == 'drive' && request.resource.data.updatedAt == request.time
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname','description','labelIds','taskIds','role','updatedAt'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname','description','labelIds','taskIds','milestoneIds','role','updatedAt'])
               && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']) || resource.data.createdBy == request.auth.uid)
               && validDriveDocument())
             || (resource.data.get('kind', 'markdown') == 'drive'

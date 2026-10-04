@@ -9,10 +9,12 @@ import {
   driveFolderUrl,
   driveOpenUrl,
   effectiveDriveRole,
+  getDriveFile,
   getOrCreateProjectDriveFolder,
   LOCAL_DRIVE_FILE_MAX_BYTES,
   parseGoogleFileLink,
   parseGoogleFolderLink,
+  pickDriveFileById,
   pickDriveFiles,
   projectDriveFolderStorageKey,
   shareDriveFile,
@@ -104,6 +106,88 @@ describe('Google Drive attachment helpers', () => {
 
     await expect(selected).resolves.toEqual([{ driveFileId: 'file-1', name: 'plan.pdf', mimeType: 'application/pdf', sizeBytes: 42 }]);
     expect(setVisible).toHaveBeenLastCalledWith(false);
+  });
+
+  it('focuses Picker on one pasted file and reads its name after exact-ID confirmation', async () => {
+    let callback: ((data: Record<string, unknown>) => void) | undefined;
+    const setFileIds = vi.fn();
+    const setVisible = vi.fn();
+    class DocsView {
+      setIncludeFolders() { return this; }
+      setSelectFolderEnabled() { return this; }
+      setFileIds(fileId: string) { setFileIds(fileId); return this; }
+    }
+    class PickerBuilder {
+      setAppId() { return this; }
+      setDeveloperKey() { return this; }
+      setOAuthToken() { return this; }
+      setOrigin() { return this; }
+      addView() { return this; }
+      setCallback(next: (data: Record<string, unknown>) => void) { callback = next; return this; }
+      build() { return { setVisible }; }
+    }
+    vi.stubGlobal('window', {
+      location: { origin: 'https://app.example.com' },
+      google: { picker: {
+        DocsView,
+        PickerBuilder,
+        Action: { CANCEL: 'cancel', ERROR: 'error', PICKED: 'picked' },
+        Response: { ERROR: 'error' },
+      } },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: '1AbCdEfGhIjK', name: 'Public roadmap', mimeType: 'application/vnd.google-apps.document' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const selected = pickDriveFileById({ uid: 'user-1' } as never, '1AbCdEfGhIjK', '0-safe_Key');
+    await vi.waitFor(() => expect(setFileIds).toHaveBeenCalledWith('1AbCdEfGhIjK'));
+    callback?.({ action: 'picked', docs: [{ id: '1AbCdEfGhIjK' }] });
+
+    await expect(selected).resolves.toEqual({ driveFileId: '1AbCdEfGhIjK', name: 'Public roadmap', mimeType: 'application/vnd.google-apps.document' });
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('X-Goog-Drive-Resource-Keys')).toBe('1AbCdEfGhIjK/0-safe_Key');
+    expect(setVisible).toHaveBeenLastCalledWith(false);
+  });
+
+  it('rejects a different file returned by focused Picker and treats cancellation as no selection', async () => {
+    const callbacks: Array<(data: Record<string, unknown>) => void> = [];
+    class DocsView {
+      setIncludeFolders() { return this; }
+      setSelectFolderEnabled() { return this; }
+      setFileIds() { return this; }
+    }
+    class PickerBuilder {
+      setAppId() { return this; }
+      setDeveloperKey() { return this; }
+      setOAuthToken() { return this; }
+      setOrigin() { return this; }
+      addView() { return this; }
+      setCallback(next: (data: Record<string, unknown>) => void) { callbacks.push(next); return this; }
+      build() { return { setVisible: vi.fn() }; }
+    }
+    vi.stubGlobal('window', {
+      location: { origin: 'https://app.example.com' },
+      google: { picker: { DocsView, PickerBuilder, Action: { CANCEL: 'cancel', ERROR: 'error', PICKED: 'picked' }, Response: { ERROR: 'error' } } },
+    });
+
+    const mismatch = pickDriveFileById({ uid: 'user-1' } as never, '1AbCdEfGhIjK');
+    await vi.waitFor(() => expect(callbacks).toHaveLength(1));
+    callbacks[0]({ action: 'picked', docs: [{ id: 'DifferentFile99' }] });
+    await expect(mismatch).rejects.toThrow('DRIVE_PICKER_FILE_MISMATCH');
+
+    const cancelled = pickDriveFileById({ uid: 'user-1' } as never, '1AbCdEfGhIjK');
+    await vi.waitFor(() => expect(callbacks).toHaveLength(2));
+    callbacks[1]({ action: 'cancel' });
+    await expect(cancelled).resolves.toBeNull();
+  });
+
+  it('adds valid resource keys to metadata requests and ignores unsafe values', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ id: '1AbCdEfGhIjK', name: 'Spec', mimeType: 'application/vnd.google-apps.document' }), { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getDriveFile({ uid: 'user-1' } as never, '1AbCdEfGhIjK', '0-safe_Key');
+    await getDriveFile({ uid: 'user-1' } as never, '1AbCdEfGhIjK', 'unsafe/key');
+
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('X-Goog-Drive-Resource-Keys')).toBe('1AbCdEfGhIjK/0-safe_Key');
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).has('X-Goog-Drive-Resource-Keys')).toBe(false);
   });
 
   it('reuses and renames the existing marker-backed root instead of creating another root', async () => {
@@ -244,6 +328,8 @@ describe('Google Drive attachment helpers', () => {
     expect(parseGoogleFileLink('https://docs.google.com.evil.example/document/d/1AbCdEfGhIjK')).toBeNull();
     expect(parseGoogleFileLink('http://docs.google.com/document/d/1AbCdEfGhIjK')).toBeNull();
     expect(parseGoogleFileLink('not a url')).toBeNull();
+    expect(parseGoogleFileLink('https://docs.google.com/document/d/1AbCdEfGhIjK/edit?resourcekey=0-safe_Key')).toMatchObject({ resourceKey: '0-safe_Key' });
+    expect(parseGoogleFileLink('https://docs.google.com/document/d/1AbCdEfGhIjK/edit?resourcekey=unsafe%2Fkey')).not.toHaveProperty('resourceKey');
   });
 
   it('parses Drive folder links and preserves only the resource key', () => {

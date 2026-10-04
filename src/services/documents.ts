@@ -30,6 +30,10 @@ function assertDocumentSize(content: string) {
   if (bytes > DOCUMENT_BODY_MAX_BYTES) throw new Error('DOCUMENT_TOO_LARGE');
 }
 
+// Document rules read the project/membership and, for Markdown, the separate body.
+// Keep atomic batches small enough for Firestore's 20 document-access-call limit.
+const DOCUMENT_RULES_BATCH_SIZE = 4;
+
 export function subscribeProjectDocument(
   projectId: string,
   documentId: string,
@@ -61,21 +65,21 @@ export function subscribeProjectDocument(
   return () => { stopMetadata(); stopBody(); };
 }
 
-export async function createProjectDocument(projectId: string, title: string, content: string, labelIds: string[], user: User, taskIds: string[] = []): Promise<string> {
+export async function createProjectDocument(projectId: string, title: string, content: string, labelIds: string[], user: User, taskIds: string[] = [], milestoneIds: string[] = []): Promise<string> {
   assertDocumentSize(content);
   const store = database();
   const itemRef = doc(collection(store, 'projects', projectId, 'documents'));
   const itemBodyRef = doc(store, 'projects', projectId, 'documentBodies', itemRef.id);
   const activityRef = doc(collection(store, 'projects', projectId, 'activities'));
   const batch = writeBatch(store);
-  batch.set(itemRef, { kind: 'markdown', title, labelIds: [...new Set(labelIds)].slice(0, 50), taskIds: [...new Set(taskIds)].slice(0, 100), ...documentMetadata(content), createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  batch.set(itemRef, { kind: 'markdown', title, labelIds: [...new Set(labelIds)].slice(0, 50), taskIds: [...new Set(taskIds)].slice(0, 100), milestoneIds: [...new Set(milestoneIds)].slice(0, 100), ...documentMetadata(content), createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   batch.set(itemBodyRef, { content });
   batch.set(activityRef, activityData(user, 'document_created', `สร้างเอกสาร “${title}”`, `created document “${title}”`, itemRef.id));
   await batch.commit();
   return itemRef.id;
 }
 
-export async function updateProjectDocument(projectId: string, documentId: string, title: string, content: string, labelIds: string[], taskIds: string[] = []): Promise<void> {
+export async function updateProjectDocument(projectId: string, documentId: string, title: string, content: string, labelIds: string[], taskIds: string[] = [], milestoneIds: string[] = []): Promise<void> {
   assertDocumentSize(content);
   const store = database();
   const batch = writeBatch(store);
@@ -83,6 +87,7 @@ export async function updateProjectDocument(projectId: string, documentId: strin
     title,
     labelIds: [...new Set(labelIds)].slice(0, 50),
     taskIds: [...new Set(taskIds)].slice(0, 100),
+    milestoneIds: [...new Set(milestoneIds)].slice(0, 100),
     ...documentMetadata(content),
     content: deleteField(),
     updatedAt: serverTimestamp(),
@@ -92,16 +97,40 @@ export async function updateProjectDocument(projectId: string, documentId: strin
 }
 
 export async function linkProjectDocumentsToTask(projectId: string, documentIds: string[], taskId: string): Promise<void> {
-  const ids = [...new Set(documentIds)];
-  for (let start = 0; start < ids.length; start += 450) {
-    const batch = writeBatch(database());
-    ids.slice(start, start + 450).forEach((id) => batch.update(metadataRef(projectId, id), { taskIds: arrayUnion(taskId), updatedAt: serverTimestamp() }));
-    await batch.commit();
-  }
+  await bulkUpdateProjectDocumentLinks(projectId, documentIds, 'taskIds', taskId, 'add');
 }
 
 export async function unlinkProjectDocumentFromTask(projectId: string, documentId: string, taskId: string): Promise<void> {
   await updateDoc(metadataRef(projectId, documentId), { taskIds: arrayRemove(taskId), updatedAt: serverTimestamp() });
+}
+
+export async function linkProjectDocumentsToMilestone(projectId: string, documentIds: string[], milestoneId: string): Promise<void> {
+  await bulkUpdateProjectDocumentLinks(projectId, documentIds, 'milestoneIds', milestoneId, 'add');
+}
+
+export type ProjectDocumentLinkField = 'labelIds' | 'taskIds' | 'milestoneIds';
+
+/** Atomically adds or removes one relationship across document metadata records. */
+export async function bulkUpdateProjectDocumentLinks(
+  projectId: string,
+  documentIds: string[],
+  field: ProjectDocumentLinkField,
+  value: string,
+  operation: 'add' | 'remove',
+): Promise<void> {
+  const ids = [...new Set(documentIds)];
+  for (let start = 0; start < ids.length; start += DOCUMENT_RULES_BATCH_SIZE) {
+    const batch = writeBatch(database());
+    ids.slice(start, start + DOCUMENT_RULES_BATCH_SIZE).forEach((id) => batch.update(metadataRef(projectId, id), {
+      [field]: operation === 'add' ? arrayUnion(value) : arrayRemove(value),
+      updatedAt: serverTimestamp(),
+    }));
+    await batch.commit();
+  }
+}
+
+export async function unlinkProjectDocumentFromMilestone(projectId: string, documentId: string, milestoneId: string): Promise<void> {
+  await updateDoc(metadataRef(projectId, documentId), { milestoneIds: arrayRemove(milestoneId), updatedAt: serverTimestamp() });
 }
 
 /** Updates lightweight document metadata without touching a Markdown body or Drive permissions. */
@@ -121,6 +150,23 @@ export async function deleteProjectDocument(projectId: string, documentId: strin
   if (cardExists) batch.delete(cardRef);
   batch.delete(doc(store, 'projects', projectId, 'documents', documentId));
   await batch.commit();
+}
+
+/** Removes library records and their app-owned body/card data; external source files are untouched. */
+export async function bulkRemoveProjectDocuments(projectId: string, documents: ProjectDocument[]): Promise<void> {
+  const items = [...new Map(documents.map((item) => [item.id, item])).values()];
+  for (let start = 0; start < items.length; start += DOCUMENT_RULES_BATCH_SIZE) {
+    const chunk = items.slice(start, start + DOCUMENT_RULES_BATCH_SIZE);
+    const cardRefs = chunk.map((item) => doc(database(), 'projects', projectId, 'stickyNotes', `document_${item.id}`));
+    const cardSnapshots = await Promise.all(cardRefs.map((ref) => getDoc(ref)));
+    const batch = writeBatch(database());
+    chunk.forEach((item, index) => {
+      batch.delete(metadataRef(projectId, item.id));
+      if (item.kind !== 'drive' && item.kind !== 'canva') batch.delete(bodyRef(projectId, item.id));
+      if (cardSnapshots[index].exists()) batch.delete(cardRefs[index]);
+    });
+    await batch.commit();
+  }
 }
 
 /** Idempotently moves an embedded legacy body without changing the document's visible timestamp. */
