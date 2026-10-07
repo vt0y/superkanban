@@ -36,6 +36,16 @@ ProjectSpace operates as a high-performance Single Page Application (SPA) design
 
 ## 2. Feature Matrix
 
+### Dynamic invitation links
+
+Team → Create invitation link supports a name, Member (default) or Admin role, 1/7/30-day expiry or Never, and One-time, Custom maximum, or Unlimited usage. Defaults are Member, seven days, and unlimited uses. Owners can grant Admin; admins manage Member links and can pause/resume/revoke any link. Admin-link settings require the owner. Editing keeps the same `/invite/:inviteId` URL and role changes apply only to future joins.
+
+The list defaults to usable links; choose All for paused, expired, exhausted, and permanently revoked links. Extend expired links or raise exhausted limits through Edit. Lowering a limit to or below its current usage prevents new joins. Revoke cannot be undone. Usage counts include successful joins since this update; older joins are excluded. Current-member names are attributed through membership `inviteId`, with no separate personal join history.
+
+Joining is immediate after Google sign-in under the existing email-domain policy. Transactions read current settings, create membership, add the project member, and increment usage atomically. Existing members open the project without another use or role change; leaving and rejoining consumes another use. The invite page follows live changes and expiry deadlines. Joining grants no external GitHub or Drive permissions.
+
+Existing links need no migration: URLs, expiry and roles stay intact; missing limits/counts mean unlimited/zero. **Deploy rules and the new client together** (`npm run build`, then `firebase deploy --only firestore:rules,hosting`). Once these rules are deployed, older clients cannot join because they omit the usage increment; users must refresh. Run `npm test` and `npm run test:rules` before deployment, and confirm `sync:rules` has restored your configured email domains after emulator testing.
+
 ### A. Realtime Kanban Board
 - 5 workflow states: Backlog, Todo, In Progress, Review, Done.
 - Drag-and-drop task movement with automatic order persistence.

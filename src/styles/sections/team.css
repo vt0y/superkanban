@@ -42,7 +42,7 @@
 .invite-list > div { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
 .invite-list > div > div { min-width: 0; display: flex; flex: 1 1 200px; flex-direction: column; }
 .invite-list strong { font-size: var(--fs-sm); font-weight: 500; }
-.invite-list small { color: var(--muted); }
+.invite-list small { color: var(--muted); overflow-wrap: anywhere; }
 .invite-list button:not(.primary, .secondary, .danger) {
   min-height: var(--h-control-sm);
   padding: 0 10px;
@@ -155,3 +155,77 @@
 .gh-repo-summary strong { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 600; word-break: break-all; }
 .gh-repo-summary small { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .team-row.gh-row-flash { outline: 2px solid var(--success); outline-offset: -2px; } }
+
+/* Invitation links: shared status, filters, and creation dialog. */
+.team-invites { margin-top: var(--sp-4); }
+.invite-heading { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--sp-3); }
+.invite-heading-icon { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; background: var(--primary-soft); color: var(--primary); border-radius: var(--r-lg); }
+.invite-heading > div { flex: 1; min-width: 180px; }
+.invite-heading > button { flex-shrink: 0; }
+.invite-heading h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
+.invite-heading p { margin: var(--sp-1) 0 0; color: var(--muted); font-size: var(--fs-sm); }
+.invite-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-3); margin: var(--sp-5) 0 var(--sp-4); }
+.invite-filters { display: flex; padding: 3px; gap: var(--sp-1); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.invite-filters button { display: flex; align-items: center; gap: var(--sp-2); min-height: 36px; padding: 0 var(--sp-3); border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font-size: var(--fs-sm); }
+.invite-filters button.selected { background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); font-weight: 600; }
+.invite-filters button span { min-width: 20px; padding: 0 var(--sp-1); border-radius: var(--r-full); background: var(--surface-3); font-size: var(--fs-xs); }
+.invite-status { display: inline-flex; align-items: center; gap: 6px; padding: 3px var(--sp-2); border-radius: var(--r-full); background: var(--surface-2); color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
+.invite-status > span { width: 6px; height: 6px; border-radius: var(--r-full); background: currentColor; }
+.invite-status.active { background: var(--success-bg); color: var(--success-fg); }
+.invite-status.paused, .invite-status.expired, .invite-status.exhausted { background: var(--warning-bg); color: var(--warning-fg); }
+.invite-status.revoked { background: var(--danger-bg); color: var(--danger-fg); }
+.invite-share { display: flex; align-items: stretch; gap: var(--sp-2); min-width: 0; }
+.invite-url { display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0; padding: 0 var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); color: var(--muted); }
+.invite-url > .icon { width: 16px; height: 16px; flex-shrink: 0; }
+.invite-url input { min-width: 0; width: 100%; padding: var(--sp-2) 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-xs); text-overflow: ellipsis; }
+.invite-url:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.invite-url input:focus { outline: none; box-shadow: none; }
+.invite-share > button { flex-shrink: 0; }
+.invite-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); border: 1px dashed var(--border-strong); border-radius: var(--r-lg); text-align: center; }
+.invite-empty > .icon { width: 28px; height: 28px; margin-bottom: var(--sp-1); color: var(--dim); }
+.invite-empty strong { font-size: var(--fs-base); font-weight: 500; }
+.invite-empty p { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.invite-footnote { margin: var(--sp-4) 0 0; color: var(--muted); font-size: var(--fs-xs); }
+.stack-form .invite-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); min-width: 0; }
+.invite-form-grid label { min-width: 0; }
+.invite-name-field { grid-column: 1 / -1; }
+.invite-created { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); padding: var(--sp-4) 0; text-align: center; }
+.invite-created-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--r-full); background: var(--success-bg); color: var(--success-fg); }
+.invite-created h3, .invite-created p { margin: 0; }
+.invite-created .invite-share { width: 100%; text-align: left; }
+@media (max-width: 639px) {
+  .invite-share { flex-direction: column; }
+  .invite-share > button { min-height: 40px; justify-content: center; }
+  .stack-form .invite-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Compact invitation management; expanded content stays in the same row. */
+.invite-search { width: min(100%, 260px); }
+.invite-entries { display: grid; gap: var(--sp-2); }
+.invite-entry { min-width: 0; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-md); }
+.invite-entry-main { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(280px, 1.4fr) auto; align-items: center; gap: var(--sp-4); }
+.invite-entry-name { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.invite-entry-name h3 { margin: 0; overflow-wrap: anywhere; font-size: var(--fs-sm); font-weight: 600; }
+.invite-entry-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); margin: 0; }
+.invite-entry-facts dt { color: var(--muted); font-size: var(--fs-xs); margin-bottom: var(--sp-1); }
+.invite-entry-facts dd { margin: 0; overflow-wrap: anywhere; font-size: var(--fs-sm); }
+.invite-entry-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); }
+.invite-entry-actions > button, .invite-entry-actions .popover-anchor > button { min-height: 36px; }
+.invite-entry-actions .icon, .invite-share button .icon { width: 15px; height: 15px; }
+.invite-entry-note { margin: var(--sp-2) 0 0; color: var(--muted); font-size: var(--fs-xs); }
+.invite-entry-details { padding-top: var(--sp-3); margin-top: var(--sp-3); border-top: 1px solid var(--border); font-size: var(--fs-sm); }
+.invite-entry-details > strong { display: block; margin-top: var(--sp-3); font-weight: 500; }
+.invite-entry-details ul { margin: var(--sp-2) 0 0; padding-left: var(--sp-4); overflow-wrap: anywhere; }
+.invite-entry .menu-item:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 1100px) {
+  .invite-entry-main { grid-template-columns: minmax(120px, 1fr) minmax(240px, 1.4fr); }
+  .invite-entry-actions { grid-column: 1 / -1; }
+}
+@media (max-width: 639px) {
+  .invite-toolbar { align-items: stretch; }
+  .invite-filters { width: 100%; }
+  .invite-filters button { flex: 1; min-width: 0; flex-direction: column; justify-content: center; gap: var(--sp-1); padding: var(--sp-2) var(--sp-1); }
+  .invite-search { width: 100%; }
+  .invite-entry-main { grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+  .invite-entry-actions > button, .invite-entry-actions .popover-anchor > button { min-height: 40px; }
+}

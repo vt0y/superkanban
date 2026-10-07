@@ -7,6 +7,12 @@ describe('inviteErrorMessage', () => {
   it('maps the accept transaction codes', () => {
     expect(inviteErrorMessage(new Error('INVITE_REVOKED'), 'en')).toMatch(/revoked/);
     expect(inviteErrorMessage(new Error('INVITE_NOT_FOUND'), 'en')).toMatch(/no longer exists/);
+    expect(inviteErrorMessage(new Error('INVITE_PAUSED'), 'en')).toMatch(/paused/);
+    expect(inviteErrorMessage(new Error('INVITE_EXPIRED'), 'en')).toMatch(/expired/);
+    expect(inviteErrorMessage(new Error('INVITE_EXHAUSTED'), 'en')).toMatch(/usage limit/);
+    for (const code of ['PAUSED', 'EXPIRED', 'EXHAUSTED']) {
+      expect(inviteErrorMessage(new Error(`INVITE_${code}`), 'th')).not.toBe(inviteErrorMessage(new Error(`INVITE_${code}`), 'en'));
+    }
   });
 
   it('explains a rules rejection instead of showing the raw Firebase text', () => {

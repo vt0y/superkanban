@@ -174,6 +174,7 @@ export interface StickyNote {
   id: string;
   /** Missing on legacy records, which are still treated as notes. */
   kind?: 'note';
+  documentIds?: string[];
   content: string;
   color: string;
   x: number;
@@ -357,12 +358,23 @@ export interface Invite {
   projectId: string;
   projectName: string;
   role: Exclude<Role, 'owner'>;
-  status: 'active' | 'revoked';
+  status: 'active' | 'paused' | 'revoked';
   createdBy: string;
   /** Inviter's display name; missing on invites created before it was recorded. */
   createdByName?: string;
   createdAt?: Timestamp;
-  expiresAt: Timestamp;
+  expiresAt: Timestamp | null;
+  name?: string;
+  maxUses?: number | null;
+  usesCount?: number;
+  updatedAt?: Timestamp;
+}
+
+export interface InviteSettings {
+  name: string;
+  role: Exclude<Role, 'owner'>;
+  expiresAt: Timestamp | null;
+  maxUses: number | null;
 }
 
 export interface PollOption { id: string; label: string }

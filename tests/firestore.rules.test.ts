@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { Timestamp, arrayRemove, collection, deleteDoc, deleteField, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 let environment: RulesTestEnvironment;
@@ -425,6 +425,7 @@ describe('ProjectSpace Firestore rules', () => {
     const batch = writeBatch(db);
     batch.set(doc(db, 'memberships', `${projectId}_guest`), { projectId, userId: 'guest', displayName: 'Guest', email: 'guest@example.com', photoURL: '', role: 'member', inviteId: 'token' });
     batch.update(doc(db, 'projects', projectId), { memberIds: ['owner', 'member', 'admin', 'guest'], updatedAt: serverTimestamp() });
+    batch.update(doc(db, 'invites', 'token'), { usesCount: 1, updatedAt: serverTimestamp() });
     await assertSucceeds(batch.commit());
   });
 
@@ -476,6 +477,7 @@ describe('ProjectSpace Firestore rules', () => {
       const batch = writeBatch(guestDb);
       batch.set(doc(guestDb, 'memberships', `${projectId}_guest`), { projectId, userId: 'guest', displayName: 'Guest', email: 'guest@example.com', photoURL: '', role: 'member', inviteId: 'archived-token' });
       batch.update(doc(guestDb, 'projects', projectId), { memberIds: ['owner', 'member', 'admin', 'guest'], updatedAt: serverTimestamp() });
+      batch.update(doc(guestDb, 'invites', 'archived-token'), { usesCount: 1, updatedAt: serverTimestamp() });
       return batch.commit();
     };
     await assertFails(join());
@@ -937,9 +939,78 @@ describe('ProjectSpace Firestore rules', () => {
       await setDoc(doc(ctx.firestore(), 'invites', 'join'), { projectId, projectName: 'Alpha', role: 'member', status: 'active', createdBy: 'owner', expiresAt: Timestamp.fromDate(new Date(Date.now() + 86400000)) });
     });
     const joiner = { projectId, userId: 'newbie', displayName: 'newbie', email: 'newbie@example.com', photoURL: '', role: 'member', inviteId: 'join' };
-    await assertFails(setDoc(doc(context('newbie'), 'memberships', `${projectId}_newbie`), { ...joiner, githubUsername: 'torvalds' }));
+    const unprovenDb = context('newbie');
+    const unprovenJoin = writeBatch(unprovenDb);
+    unprovenJoin.set(doc(unprovenDb, 'memberships', `${projectId}_newbie`), { ...joiner, githubUsername: 'torvalds' });
+    unprovenJoin.update(doc(unprovenDb, 'invites', 'join'), { usesCount: 1, updatedAt: serverTimestamp() });
+    unprovenJoin.update(doc(unprovenDb, 'projects', projectId), { memberIds: ['owner', 'member', 'admin', 'newbie'] });
+    await assertFails(unprovenJoin.commit());
     const provenDb = context('newbie', 'newbie@example.com', { firebase: { identities: { 'github.com': ['99'] } } });
-    await assertSucceeds(setDoc(doc(provenDb, 'memberships', `${projectId}_newbie`), { ...joiner, githubUsername: 'newbie-gh' }));
+    const provenJoin = writeBatch(provenDb);
+    provenJoin.set(doc(provenDb, 'memberships', `${projectId}_newbie`), { ...joiner, githubUsername: 'newbie-gh' });
+    provenJoin.update(doc(provenDb, 'invites', 'join'), { usesCount: 1, updatedAt: serverTimestamp() });
+    provenJoin.update(doc(provenDb, 'projects', projectId), { memberIds: ['owner', 'member', 'admin', 'newbie'] });
+    await assertSucceeds(provenJoin.commit());
+  });
+
+  it('validates note attachments, immutable fields, and shared editing with restricted deletion', async () => {
+    await seedProject();
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      for (const id of ['md', 'drive', 'canva', 'four', 'five', 'six']) await setDoc(doc(db, 'projects', projectId, 'documents', id), { title: id, createdBy: 'owner' });
+      await setDoc(doc(db, 'projects', 'other-project', 'documents', 'foreign'), { title: 'Foreign' });
+    });
+    const db = context('member');
+    const ref = doc(db, 'projects', projectId, 'stickyNotes', 'attachments');
+    const base = { kind: 'note', content: '', color: '#fef3c7', x: 2, y: 3, pinned: true, taskId: '', createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    await assertSucceeds(setDoc(ref, { ...base, content: 'Text only' }));
+    await assertSucceeds(updateDoc(ref, { content: '', documentIds: ['md', 'drive', 'canva'] }));
+    await assertSucceeds(updateDoc(doc(context('admin'), ref.path), { content: 'Combined note' }));
+    await assertFails(updateDoc(ref, { documentIds: ['md', 'md'] }));
+    await assertFails(updateDoc(ref, { documentIds: ['foreign'] }));
+    await assertFails(updateDoc(ref, { documentIds: ['missing'] }));
+    await assertFails(updateDoc(ref, { documentIds: [42] }));
+    await assertSucceeds(updateDoc(ref, { documentIds: ['md', 'drive', 'canva', 'four', 'five'] }));
+    await assertFails(updateDoc(ref, { documentIds: ['md', 'drive', 'canva', 'four', 'five', 'six'] }));
+    await assertFails(updateDoc(ref, { content: 'x'.repeat(801) }));
+    await assertFails(updateDoc(ref, { createdBy: 'owner' }));
+    await assertFails(updateDoc(ref, { createdAt: serverTimestamp() }));
+    await environment.withSecurityRulesDisabled(async (ctx) => deleteDoc(doc(ctx.firestore(), 'projects', projectId, 'documents', 'md')));
+    await assertSucceeds(updateDoc(ref, { content: 'Still editable with missing attachment' }));
+    await assertSucceeds(updateDoc(ref, { documentIds: arrayRemove('md') }));
+    expect((await getDoc(ref)).data()?.content).toBe('Still editable with missing attachment');
+    await assertFails(updateDoc(ref, { documentIds: ['md'] }));
+    await assertFails(deleteDoc(doc(context('outsider'), ref.path)));
+    // A second regular member may edit but cannot delete someone else's note.
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'memberships', `${projectId}_peer`), { projectId, userId: 'peer', role: 'member', status: 'active' });
+    });
+    await assertSucceeds(updateDoc(doc(context('peer'), ref.path), { content: 'Peer edit' }));
+    await assertFails(deleteDoc(doc(context('peer'), ref.path)));
+    await assertSucceeds(deleteDoc(ref));
+    expect((await getDoc(doc(db, 'projects', projectId, 'documents', 'drive'))).exists()).toBe(true);
+  });
+
+  it('converts legacy cards one way, preserves ownership and presentation, and unlinks orphan attachments', async () => {
+    await seedProject();
+    const now = Timestamp.now();
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'projects', projectId, 'stickyNotes', 'legacy'), { kind: 'document', documentId: 'missing', x: 42, y: 84, pinned: true, color: '#dbeafe', createdBy: 'owner', createdAt: now });
+    });
+    const ref = doc(context('member'), 'projects', projectId, 'stickyNotes', 'legacy');
+    const conversion = { kind: 'note', content: 'Added text', taskId: '', documentId: deleteField(), documentIds: ['missing'], updatedAt: serverTimestamp() };
+    await assertFails(updateDoc(ref, { ...conversion, createdAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(ref, conversion));
+    expect((await getDoc(ref)).data()).toMatchObject({ x: 42, y: 84, pinned: true, color: '#dbeafe', createdBy: 'owner', createdAt: now });
+    await assertFails(updateDoc(ref, { kind: 'document', documentId: 'missing', content: deleteField(), taskId: deleteField(), documentIds: deleteField() }));
+    await assertFails(deleteDoc(ref));
+    await assertSucceeds(updateDoc(ref, { documentIds: arrayRemove('missing') }));
+    expect((await getDoc(ref)).data()?.content).toBe('Added text');
+    await environment.withSecurityRulesDisabled(async (ctx) => updateDoc(doc(ctx.firestore(), 'projects', projectId), { archived: true }));
+    await assertSucceeds(getDoc(ref));
+    await assertFails(updateDoc(ref, { content: 'Archived edit' }));
+    await assertFails(deleteDoc(doc(context('owner'), ref.path)));
   });
 
   it('document canvas cards accept legacy/new schema and active members may move, style, lock, and unpin', async () => {
@@ -991,7 +1062,7 @@ describe('ProjectSpace Firestore rules', () => {
     await assertFails(setDoc(doc(db, 'projects', projectId, 'stickyNotes', 'late-copy'), { kind: 'document', documentId: 'spec', x: 0, y: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
     const cards = await assertSucceeds(getDocs(query(collection(db, 'projects', projectId, 'stickyNotes'), where('documentId', '==', 'spec'), limit(450))));
     const batch = writeBatch(db);
-    cards.docs.forEach((card) => batch.delete(card.ref));
+    cards.docs.forEach((card) => batch.update(card.ref, { kind: 'note', content: '', taskId: '', documentId: deleteField(), documentIds: [], updatedAt: serverTimestamp() }));
     await assertSucceeds(batch.commit());
     expect((await getDocs(query(collection(db, 'projects', projectId, 'stickyNotes'), where('documentId', '==', 'spec')))).empty).toBe(true);
   });

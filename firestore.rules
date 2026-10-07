@@ -18,6 +18,28 @@ service cloud.firestore {
     function projectActive(projectId) {
       return get(/databases/$(database)/documents/projects/$(projectId)).data.archived == false;
     }
+    function inviteAvailable(data) {
+      return data.status == 'active'
+        && (data.expiresAt == null || request.time < data.expiresAt)
+        && (data.get('maxUses', null) == null || data.get('usesCount', 0) < data.maxUses);
+    }
+    function validInviteSettings(data) {
+      return data.role in ['admin', 'member'] && data.status in ['active', 'paused', 'revoked']
+        && (data.expiresAt == null || data.expiresAt is timestamp)
+        && (data.get('name', '') is string && data.get('name', '').size() <= 120)
+        && (data.get('maxUses', null) == null || (data.maxUses is int && data.maxUses > 0))
+        && data.get('usesCount', 0) is int && data.get('usesCount', 0) >= 0;
+    }
+    function validInviteJoin(data) {
+      let path = /databases/$(database)/documents/invites/$(data.inviteId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return inviteAvailable(before) && before.projectId == data.projectId && before.role == data.role
+        && after.diff(before).affectedKeys().hasOnly(['usesCount', 'updatedAt'])
+        && after.usesCount == before.get('usesCount', 0) + 1
+        && after.updatedAt == request.time
+        && request.auth.uid in getAfter(/databases/$(database)/documents/projects/$(data.projectId)).data.memberIds;
+    }
     function validRole(role) { return role in ['owner', 'admin', 'member']; }
     function hasGitHubIdentity() {
       return 'firebase' in request.auth.token && 'identities' in request.auth.token.firebase && 'github.com' in request.auth.token.firebase.identities;
@@ -100,8 +122,12 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','description','color','memberIds','updatedAt']))
         || (resource.data.archived == false && signedIn()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
-        && request.auth.uid in request.resource.data.memberIds
-        && getAfter(membershipPath(projectId, request.auth.uid)).data.userId == request.auth.uid);
+        && request.resource.data.memberIds.toSet() == resource.data.memberIds.toSet().union([request.auth.uid].toSet())
+        && getAfter(membershipPath(projectId, request.auth.uid)).data.userId == request.auth.uid)
+        || (resource.data.archived == false && isMember(projectId) && membership(projectId).data.role != 'owner'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
+          && request.resource.data.memberIds.toSet() == resource.data.memberIds.toSet().difference([request.auth.uid].toSet())
+          && !existsAfter(membershipPath(projectId, request.auth.uid)));
       allow delete: if false;
 
       function validTime(key) {
@@ -198,9 +224,27 @@ service cloud.firestore {
       }
       match /stickyNotes/{itemId} {
         function validNote() {
-          return request.resource.data.keys().hasOnly(['kind','content','color','x','y','taskId','pinned','createdBy','createdAt','updatedAt'])
+          return request.resource.data.keys().hasOnly(['kind','content','color','x','y','taskId','pinned','documentIds','createdBy','createdAt','updatedAt'])
             && (!('kind' in request.resource.data) || request.resource.data.kind == 'note')
-            && request.resource.data.content is string;
+            && request.resource.data.content is string && request.resource.data.content.size() <= 800
+            && request.resource.data.x is number && request.resource.data.y is number
+            && (!('pinned' in request.resource.data) || request.resource.data.pinned is bool)
+            && (!('color' in request.resource.data) || request.resource.data.color in ['#ffffff','#fef3c7','#dbeafe','#dcfce7','#fce7f3','#ede9fe'])
+            && request.resource.data.get('documentIds', []) is list
+            && request.resource.data.get('documentIds', []).size() <= 5
+            && request.resource.data.get('documentIds', []).toSet().size() == request.resource.data.get('documentIds', []).size();
+        }
+        function validAttachment(ids, previous, index) {
+          return ids.size() <= index || (ids[index] is string && ids[index].size() > 0 && ids[index].size() <= 220
+            && (ids[index] in previous || existsAfter(projectDocumentPath(projectId, ids[index]))));
+        }
+        function validAttachments(previous) {
+          let ids = request.resource.data.get('documentIds', []);
+          return validAttachment(ids, previous, 0) && validAttachment(ids, previous, 1)
+            && validAttachment(ids, previous, 2) && validAttachment(ids, previous, 3) && validAttachment(ids, previous, 4);
+        }
+        function previousAttachments() {
+          return resource.data.get('kind', 'note') == 'document' ? [resource.data.documentId] : resource.data.get('documentIds', []);
         }
         function validDocumentCard() {
           return request.resource.data.keys().hasOnly(['kind','documentId','x','y','pinned','color','createdBy','createdAt','updatedAt'])
@@ -212,7 +256,7 @@ service cloud.firestore {
             && (!('color' in request.resource.data) || request.resource.data.color in ['#ffffff','#fef3c7','#dbeafe','#dcfce7','#fce7f3','#ede9fe']);
         }
         allow read: if isMember(projectId);
-        allow create: if validWorkCreate(projectId) && ((validNote())
+        allow create: if validWorkCreate(projectId) && ((validNote() && validAttachments([]))
           || (validDocumentCard() && request.resource.data.createdAt == request.time
             && request.resource.data.updatedAt == request.time
             && existsAfter(projectDocumentPath(projectId, request.resource.data.documentId))));
@@ -223,8 +267,10 @@ service cloud.firestore {
               && request.resource.data.createdAt == resource.data.createdAt
               && request.resource.data.updatedAt == request.time
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['x','y','pinned','color','updatedAt']))
-            || (resource.data.get('kind', 'note') != 'document' && request.resource.data.createdBy == resource.data.createdBy && validNote()));
-        allow delete: if projectActive(projectId) && ((resource.data.get('kind', 'note') == 'document' && isMember(projectId)) || canDeleteWork(projectId));
+            || (request.resource.data.createdBy == resource.data.createdBy
+              && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null)
+              && validNote() && validAttachments(previousAttachments())));
+        allow delete: if canDeleteWork(projectId);
       }
       match /documents/{itemId} {
         function validLegacyDocument() {
@@ -488,7 +534,9 @@ service cloud.firestore {
     }
 
     match /memberships/{membershipId} {
-      allow read: if isMember(resource.data.projectId);
+      allow get: if signedIn() && (!exists(/databases/$(database)/documents/memberships/$(membershipId))
+        || resource.data.userId == request.auth.uid || isMember(resource.data.projectId));
+      allow list: if isMember(resource.data.projectId);
       allow create: if signedIn() && validRole(request.resource.data.role) && githubHandleProven() && (
         (request.resource.data.userId == request.auth.uid
           && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.ownerId == request.auth.uid
@@ -500,10 +548,8 @@ service cloud.firestore {
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.inviteId is string
           && projectActive(request.resource.data.projectId)
-          && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.status == 'active'
-          && request.time < get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.expiresAt
-          && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.projectId == request.resource.data.projectId
-          && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.role == request.resource.data.role)
+          && !('githubPermission' in request.resource.data)
+          && validInviteJoin(request.resource.data))
       );
       allow update: if (projectActive(resource.data.projectId) && isOwner(resource.data.projectId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'githubPermission'])
@@ -519,12 +565,26 @@ service cloud.firestore {
     match /invites/{inviteId} {
       allow get: if signedIn();
       allow list: if isAdmin(resource.data.projectId);
-      allow create: if projectActive(request.resource.data.projectId) && isAdmin(request.resource.data.projectId) && request.resource.data.status == 'active'
-        && request.resource.data.createdBy == request.auth.uid && request.resource.data.role in ['admin','member']
+      allow create: if projectActive(request.resource.data.projectId) && isAdmin(request.resource.data.projectId)
+        && validInviteSettings(request.resource.data) && request.resource.data.status == 'active'
+        && request.resource.data.createdBy == request.auth.uid && request.resource.data.get('usesCount', 0) == 0
         && (request.resource.data.role == 'member' || isOwner(request.resource.data.projectId));
-      allow update: if (projectActive(resource.data.projectId) && isAdmin(resource.data.projectId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-        && resource.data.status == 'active' && request.resource.data.status == 'revoked');
+      allow update: if projectActive(resource.data.projectId) && signedIn() && (
+        (isAdmin(resource.data.projectId) && resource.data.status != 'revoked'
+          && validInviteSettings(request.resource.data)
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','role','expiresAt','maxUses','status','updatedAt'])
+          && (isOwner(resource.data.projectId)
+            || (resource.data.role == 'member' && request.resource.data.role == 'member')
+            || (resource.data.role == 'admin' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt']))))
+        || (inviteAvailable(resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usesCount','updatedAt'])
+          && request.resource.data.usesCount == resource.data.get('usesCount', 0) + 1
+          && request.resource.data.updatedAt == request.time
+          && !exists(membershipPath(resource.data.projectId, request.auth.uid))
+          && getAfter(membershipPath(resource.data.projectId, request.auth.uid)).data.userId == request.auth.uid
+          && getAfter(membershipPath(resource.data.projectId, request.auth.uid)).data.inviteId == inviteId)
+      );
       allow delete: if false;
     }
   }

@@ -1,8 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   test: {
-    include: ['tests/firestore.rules.test.ts'],
+    include: ['tests/*.rules.test.ts'],
     fileParallelism: false,
   },
 });

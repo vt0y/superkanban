@@ -10,6 +10,8 @@ export function Modal({
   wide = false,
   actions,
   className = '',
+  onBack,
+  backLabel = 'Back',
 }: {
   title: string;
   children: ReactNode;
@@ -18,6 +20,9 @@ export function Modal({
   /** Header buttons (e.g. a `form=` submit); shown on mobile, where the footer Cancel/Save are hidden. */
   actions?: ReactNode;
   className?: string;
+  /** Return to a parent view inside this dialog without remounting its shell. */
+  onBack?: () => void;
+  backLabel?: string;
 }) {
   // Lock once per open modal (not per parent render, since onClose is often a fresh arrow).
   useEffect(() => lockBodyScroll(), []);
@@ -32,8 +37,8 @@ export function Modal({
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <section className={`modal ${wide ? 'wide' : ''} ${actions ? 'has-actions' : ''} ${className}`} role="dialog" aria-modal="true" aria-label={title}>
         <header>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
-            <Icon name="close" />
+          <button type="button" className={`modal-close ${onBack ? 'modal-back' : ''}`} onClick={onBack ?? onClose} aria-label={onBack ? backLabel : 'Close'}>
+            <Icon name={onBack ? 'arrowLeft' : 'close'} />
           </button>
           <h2>{title}</h2>
           {actions && <div className="modal-header-actions">{actions}</div>}

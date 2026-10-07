@@ -1,6 +1,7 @@
 import type { User } from 'firebase/auth';
-import { collection, doc, getDocsFromServer, limit, query, serverTimestamp, updateDoc, where, writeBatch, type Unsubscribe } from 'firebase/firestore';
-import type { DocumentCanvasCard, ProjectDocument } from '@/types';
+import { arrayRemove, deleteField, runTransaction, collection, doc, getDocsFromServer, limit, query, serverTimestamp, updateDoc, where, writeBatch, type Unsubscribe } from 'firebase/firestore';
+import type { CanvasItem, StickyNote, DocumentCanvasCard, ProjectDocument } from '@/types';
+import { normalizeCanvasNote } from '@/utils/canvas-items';
 import { BATCH_CHUNK, database } from './helpers';
 import { subscribeProjectDocsByIds } from './work-items';
 
@@ -14,7 +15,7 @@ export async function pinProjectDocuments(projectId: string, documentIds: string
     ids.slice(start, start + chunkSize).forEach((documentIdValue, offset) => {
       const position = positions[start + offset];
       batch.set(doc(collection(database(), 'projects', projectId, 'stickyNotes')), {
-        kind: 'document', documentId: documentIdValue, x: position.x, y: position.y,
+        kind: 'note', content: '', taskId: '', color: '#fef3c7', pinned: false, documentIds: [documentIdValue], x: position.x, y: position.y,
         createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
       });
     });
@@ -30,19 +31,32 @@ export async function unpinProjectDocument(projectId: string, cardId: string): P
 
 /** Call after deleting source metadata: rules then prevent concurrent creation of new copies. */
 export async function removeDocumentCanvasCards(projectId: string, documentId: string): Promise<void> {
-  for (;;) {
-    // A cache-only result could leave copies behind, so cleanup requires a server read.
-    const snapshot = await getDocsFromServer(query(collection(database(), 'projects', projectId, 'stickyNotes'), where('documentId', '==', documentId), limit(BATCH_CHUNK)));
-    if (!snapshot.docs.length) return;
-    const batch = writeBatch(database());
-    snapshot.docs.forEach((card) => batch.delete(card.ref));
-    await batch.commit();
+  for (const [field, operator] of [['documentId', '=='], ['documentIds', 'array-contains']] as const) {
+    for (;;) {
+      const snapshot = await getDocsFromServer(query(collection(database(), 'projects', projectId, 'stickyNotes'), where(field, operator, documentId), limit(BATCH_CHUNK)));
+      if (!snapshot.docs.length) break;
+      if (field === 'documentId') {
+        await runTransaction(database(), async (transaction) => {
+          const current = await Promise.all(snapshot.docs.map((card) => transaction.get(card.ref)));
+          current.forEach((card) => {
+            if (!card.exists()) return;
+            transaction.update(card.ref, card.data().kind === 'document'
+              ? { kind: 'note', content: '', taskId: '', documentId: deleteField(), documentIds: [], updatedAt: serverTimestamp() }
+              : { documentIds: arrayRemove(documentId), updatedAt: serverTimestamp() });
+          });
+        });
+      } else {
+        const batch = writeBatch(database());
+        snapshot.docs.forEach((card) => batch.update(card.ref, { documentIds: arrayRemove(documentId), updatedAt: serverTimestamp() }));
+        await batch.commit();
+      }
+    }
   }
 }
 
 export class DocumentCardCleanupError extends Error {
   constructor(public readonly retry: () => Promise<void>, cause: unknown) {
-    super('Document removed; canvas card cleanup is incomplete.', { cause });
+    super('Document removed; note attachment cleanup is incomplete.', { cause });
   }
 }
 
@@ -70,3 +84,19 @@ export function subscribePinnedDocumentMetadata(projectId: string, ids: string[]
 }
 
 export const canvasDocumentCards = (items: DocumentCanvasCard[]) => items;
+
+/** Reads current data so conversion never overwrites concurrent text or presentation edits. */
+export async function updateCanvasNote(projectId: string, id: string, patch: Partial<StickyNote>): Promise<void> {
+  const store = database();
+  await runTransaction(store, async (transaction) => {
+    const ref = doc(store, 'projects', projectId, 'stickyNotes', id);
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) throw new Error('NOTE_UNAVAILABLE');
+    const current = { ...snapshot.data(), id } as CanvasItem;
+    const conversion = current.kind === 'document' ? {
+      kind: 'note', content: '', taskId: '', color: current.color || '#fef3c7', pinned: current.pinned || false,
+      documentIds: normalizeCanvasNote(current).documentIds, documentId: deleteField(),
+    } : {};
+    transaction.update(ref, { ...conversion, ...patch, updatedAt: serverTimestamp() });
+  });
+}

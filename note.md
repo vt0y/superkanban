@@ -130,7 +130,9 @@ If offline task editing or transaction latency becomes more important, switch to
 
 Prefer this alternative only when offline editing is a product requirement or measured transaction latency is unacceptable. Keep the current transaction strategy for stronger concurrent correctness.
 
-# Multiple sticky cards for the same document — implemented
+# Multiple sticky cards for the same document — historical implementation
+
+Superseded by “Sticky notes with document attachments” below. This section records the earlier card behavior.
 
 Each new document card has a generated sticky-note ID and an immutable `documentId` reference. Existing `document_<documentId>` cards remain valid without migration.
 
@@ -151,4 +153,30 @@ Duplicate cards add small metadata reads, writes, and index storage. Copies rema
 
 Select mode supports sticky notes and document cards with checkboxes, selected outlines, Select all, and Clear. Selected items can be recolored, locked/unlocked, or removed together. Item dragging and opening are disabled in Select mode; canvas pan/zoom remain available. Group dragging and marquee selection are deferred.
 
-Bulk removal deletes sticky notes and removes document cards without deleting library documents. Active members may remove document cards; sticky-note deletion keeps the creator/admin/owner policy. Unauthorized notes are skipped and counted in the confirmation and result. Archived projects remain read-only.
+Bulk removal deletes selected notes without deleting library documents. Legacy document cards display as notes and follow the same creator/admin/owner deletion policy. Unauthorized notes are skipped and counted in the confirmation and result. Archived projects remain read-only.
+
+
+# Dynamic invitation links — implemented
+
+Invite records now accept optional `name`, `maxUses`, `usesCount`, and `updatedAt`, a `paused` status, and `expiresAt: null` for Never. New links default to Member, seven days, and unlimited uses. A missing limit is unlimited; a missing count is zero. Existing records preserve URLs, roles, and deadlines without migration. Legacy usage excludes joins made before this release; current-member attribution still uses existing membership `inviteId` values.
+
+Owners manage every setting and can grant Admin. Admins manage Member-link settings and may pause, resume, or permanently revoke any link; only owners edit Admin-link settings. Names are bounded to 120 characters. Editing keeps the URL. Role changes affect future joins only. Expired links can be extended, exhausted limits raised, and limits lowered below usage to block future joins. Revoked links are immutable. The default list shows usable links; All exposes history, usage, expiry, state, and current attributed members. No separate personal join history is stored.
+
+Acceptance takes an invite ID, reads the current invite and membership in a Firestore transaction, returns `{ projectId, alreadyMember }`, and reads the user's existing GitHub identity fields for new membership creation. Existing members return without consuming uses or changing their role, including when a link is unavailable. A rejoin after leaving consumes a new use. Successful new joins atomically create membership, add the UID to project `memberIds`, and increment the invite count by exactly one. Concurrent last-slot joins and management writes are revalidated through transaction retries. Optimistic commits may return permission-denied before the SDK reports a retryable conflict; acceptance retries up to four additional transactions only if fresh server reads confirm the invite or membership changed. Unchanged permission failures are returned immediately. Rules deny standalone counters, tampering, stale roles, exhausted links, archived projects, and unauthorized settings edits. Missing membership records may be fetched by allowed-domain authenticated users; existing records remain restricted to the user or project members, and membership listing remains project-scoped.
+
+The `/invite/:inviteId` destination survives Google popup sign-in. The page resets on ID changes, waits for the project list, subscribes to live role/expiry/status/limit changes, updates at expiry deadlines, and offers retry after subscription failures. English/Thai availability, offline, and archived-project/rules rejection messages are provided. Creation/editing/status changes show saving/error feedback; copying catches clipboard failures and leaves the URL available for manual copying. Joining does not grant GitHub or Drive permissions.
+
+Deployment must coordinate rules and client hosting. After `npm run build`, deploy `firebase deploy --only firestore:rules,hosting`; users of older clients must refresh because their join transactions do not increment usage. Emulator tests temporarily generate rules for `example.com`; rebuild/sync rules afterward to restore the configured production email-domain policy. No approval queue, email delivery, rotation, backend service, or permanent personal join log was added.
+
+Verification includes availability/legacy unit tests and emulator tests using the actual accept service: duplicate clicks, existing members, rejoins, stale and concurrently changed roles, simultaneous last-slot joins, concurrent pause/revoke/limit updates, atomic enforcement, privilege boundaries, missing membership reads, listing restrictions, archived projects, immutable revocation, expiry extension, Never/unlimited settings, and lowering limits below usage.
+
+
+# Sticky notes with document attachments — implemented
+
+Notes support text (up to 800 characters), up to five unique library document references in optional `documentIds`, or both. Empty notes are allowed. The editor offers the searchable, paginated library picker for Markdown, Drive, and Canva attachments, with individual removal controls. Removing an attachment or deleting a note keeps its library documents. Canvas attachment rows open documents independently; the note body supports ordinary dragging and modal editing. Metadata subscriptions deduplicate document IDs across notes; picker counts count referencing notes.
+
+Legacy `kind: 'document'` cards normalize into notes for display without writes, including archived projects. The first explicit edit converts the stored record one way to `kind: 'note'`, removes `documentId`, and adds `documentIds`, preserving ID, ownership, creation time, position, color, and lock state. Conversion uses a transaction against current data; independent copies remain independent. Pin documents creates a separate attachment-only note for each selected library document. Active members may edit; deletion uses the creator/admin/owner policy for all notes, including legacy cards.
+
+Library deletion removes metadata first, then queries both legacy `documentId == id` and modern `documentIds array-contains id` in bounded server-read batches. Modern cleanup atomically removes only the ID. Legacy cleanup reads current records in a transaction before conversion, so a concurrent conversion/text edit cannot be overwritten. Cleanup leaves empty notes after their last attachment is removed and retains the retry action. Missing attachments render as unavailable and remain removable. Firestore rules validate only newly added references in the current project, reject duplicates and more than five attachments, and preserve ownership and creation time. Default single-field indexes suffice; no eager migration or composite index is needed.
+
+Release order: deploy compatible Firestore rules before publishing the frontend. Direct uploads, inline editing, and group dragging remain outside this feature.

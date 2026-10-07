@@ -1,3 +1,4 @@
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { documentId, limit, orderBy, where, type QueryConstraint } from 'firebase/firestore';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -7,9 +8,10 @@ import { useActiveTasks, useCanvasViewport, useItemDrag, useLinkedTasks, useProj
 import { NOTE_COLORS } from '@/config/constants';
 import { parseContentWithLinks } from '@/utils/linkify';
 import { canDeleteItem } from '@/utils/permissions';
-import { allowedDriveRoles, attachCanvaProjectDocument, attachDriveProjectDocument, bulkRemoveProjectDocuments, bulkUpdateProjectDocumentLinks, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, driveFolderUrl, driveOpenUrl, isCanvaProjectDocument, isDriveFolder, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, pinProjectDocuments, subscribePinnedDocumentMetadata, subscribeProjectDocument, subscribeProjectQuery, unpinProjectDocument, updateCanvaProjectDocumentDetails, updateDocumentCanvasCard, updateDriveProjectDocumentDetails, updateDriveProjectDocumentRole, updateProjectDocument, updateProjectDocumentLabels, updateWorkItem, type CollectionCursor, type ProjectDocumentLinkField } from '@/services';
-import type { CanvasItem, CanvaProjectDocument, DocumentCanvasCard, DriveProjectDocument, DriveRole, Label, LoadedProjectDocument, Membership, Milestone, ProjectDocument, Role, StickyNote, Task } from '@/types';
-import { isDocumentCanvasCard, isStickyNote } from '@/types';
+import { allowedDriveRoles, attachCanvaProjectDocument, attachDriveProjectDocument, bulkRemoveProjectDocuments, bulkUpdateProjectDocumentLinks, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, driveFolderUrl, driveOpenUrl, isCanvaProjectDocument, isDriveFolder, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, pinProjectDocuments, subscribePinnedDocumentMetadata, subscribeProjectDocument, subscribeProjectQuery, updateCanvaProjectDocumentDetails, updateDriveProjectDocumentDetails, updateDriveProjectDocumentRole, updateProjectDocument, updateProjectDocumentLabels, type CollectionCursor, type ProjectDocumentLinkField } from '@/services';
+import type { CanvasItem, CanvaProjectDocument, DriveProjectDocument, DriveRole, Label, LoadedProjectDocument, Membership, Milestone, ProjectDocument, Role, StickyNote, Task } from '@/types';
+import { normalizeCanvasNote, MAX_NOTE_ATTACHMENTS } from '@/utils/canvas-items';
+import { updateCanvasNote } from '@/services/canvas-documents';
 import { attempt, toast } from '@/components/toast';
 import { pick, relativeTime } from '@/utils/formatters';
 import { DOCUMENT_BODY_MAX_BYTES, DOCUMENT_TITLE_MAX_LENGTH, documentContentBytes } from '@/utils/documents';
@@ -48,8 +50,7 @@ export function Documents({ context, project, members, role, readOnly, documentI
 
 function NotesOverview({ context, project, members, role, readOnly, mode }: SectionProps & { mode: 'sticky' | 'documents' }) {
   const canvasItems = useProjectItems<CanvasItem>(project.id, 'stickyNotes', mode === 'sticky');
-  const notes = canvasItems.filter(isStickyNote);
-  const documentCards = canvasItems.filter(isDocumentCanvasCard);
+  const notes = canvasItems.map(normalizeCanvasNote);
   const [searchParams, setSearchParams] = useSearchParams();
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
   const [documentCursor, setDocumentCursor] = useState<CollectionCursor | null>(null);
@@ -207,7 +208,7 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
         ? (!readOnly && <div className="action-row"><button className="secondary" onClick={() => setPinPickerOpen(true)}><Icon name="pin" /> {pick(locale, 'ปักเอกสาร', 'Pin documents')}</button><button className="primary" onClick={() => setNoteModal({ x: NaN, y: NaN })}><Icon name="add" /> {context.t('sticky')}</button></div>)
         : <div className="action-row"><button className="secondary" onClick={() => setLabelsOpen(true)}><Icon name="label" /> {pick(locale, 'จัดการ Labels', 'Manage labels')}</button>{!readOnly && <><button className={`secondary ${selectMode ? 'on' : ''}`} onClick={() => { setSelectMode(!selectMode); if (selectMode) selection.clear(); }}><Icon name="checklist" /> {pick(locale, 'เลือกหลายรายการ', 'Select')}</button><button className="primary" onClick={() => setAddDocumentOpen(true)}><Icon name="add" /> {pick(locale, 'เพิ่มเอกสาร', 'Add document')}</button></>}</div>} />
     {mode === 'sticky'
-      ? <StickyCanvas notes={notes} documentCards={documentCards} tasks={tasks} context={context} projectId={project.id} role={role} readOnly={readOnly} onEdit={setNoteModal} onDetails={setDriveModal} />
+      ? <StickyCanvas notes={notes} tasks={tasks} context={context} projectId={project.id} role={role} readOnly={readOnly} onEdit={setNoteModal} />
       : <><div className="board-toolbar document-toolbar"><DocumentFilterBar value={query} onChange={setDocumentQuery} labels={filterLabels} tasks={filterTasks} milestones={filterMilestones} locale={locale} /></div>
         {query && <p className="filter-summary">{pick(locale, `พบ ${visibleDocuments.length} จาก ${documents.length} เอกสารที่โหลดแล้ว`, `${visibleDocuments.length} of ${documents.length} loaded documents`)} · <button type="button" className="link-button" onClick={() => setDocumentQuery('')}>{pick(locale, 'ล้างตัวกรอง', 'Clear filter')}</button></p>}
         <DocumentLibrary documents={visibleDocuments} labels={labels} tasks={documentTasks} milestones={milestones} filtered={!!query} projectId={project.id} context={context} role={role} readOnly={readOnly} userId={context.user.uid} selection={selection} selectMode={selectMode} onEditDrive={setDriveModal} onFilter={toggleLabelFilter} onMilestoneFilter={toggleMilestoneFilter} activeLabelNames={queryLabelNames} />
@@ -227,27 +228,26 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   </>;
 }
 
-function StickyCanvas({ notes, documentCards, tasks, context, projectId, role, readOnly, onEdit, onDetails }: { notes: StickyNote[]; documentCards: DocumentCanvasCard[]; tasks: Task[]; context: AppContextValue; projectId: string; role: Role | null; readOnly: boolean; onEdit: (value: StickyNote | { x: number; y: number }) => void; onDetails: (item: DriveProjectDocument | CanvaProjectDocument) => void }) {
+function StickyCanvas({ notes, tasks, context, projectId, role, readOnly, onEdit }: { notes: StickyNote[]; tasks: Task[]; context: AppContextValue; projectId: string; role: Role | null; readOnly: boolean; onEdit: (value: StickyNote | { x: number; y: number }) => void; }) {
   const { locale, user } = context;
-  const navigate = useNavigate();
   const canvas = useCanvasViewport(`ps.notes.view.${projectId}`);
   const { openTask } = useTaskModal();
   const [stack, setStack] = useState<string[]>([]);
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
   const [colorPickerId, setColorPickerId] = useState<string | null>(null);
   const justDragged = useRef(false);
-  const documentIdsKey = [...new Set(documentCards.map((card) => card.documentId))].sort().join('|');
-  useEffect(() => subscribePinnedDocumentMetadata(projectId, documentIdsKey ? documentIdsKey.split('|') : [], setDocuments), [projectId, documentIdsKey]);
+  const documentIdsKey = JSON.stringify([...new Set(notes.flatMap((note) => note.documentIds || []))].sort());
+  useEffect(() => subscribePinnedDocumentMetadata(projectId, JSON.parse(documentIdsKey), setDocuments), [projectId, documentIdsKey]);
   const documentById = useMemo(() => new Map(documents.map((item) => [item.id, item])), [documents]);
   const [selectMode, setSelectMode] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const items: CanvasItem[] = [...notes, ...documentCards];
+  const items: CanvasItem[] = notes;
   const selection = useSelection(items.map((item) => item.id));
   useEffect(() => { setSelectMode(false); selection.clear(); }, [projectId, readOnly]);
   const bulkUpdate = async (values: { color?: string; pinned?: boolean }) => {
     if (readOnly || bulkBusy || !selection.selected.size) return;
     setBulkBusy(true);
-    await attempt(() => bulkUpdateWorkItems(projectId, 'stickyNotes', [...selection.selected], values), pick(locale, 'อัปเดตรายการที่เลือกไม่สำเร็จ', 'Could not update selected items'));
+    await attempt(() => Promise.all([...selection.selected].map((id) => updateCanvasNote(projectId, id, values))), pick(locale, 'อัปเดตรายการที่เลือกไม่สำเร็จ', 'Could not update selected items'));
     setBulkBusy(false);
   };
   const bulkRemove = async () => {
@@ -272,17 +272,17 @@ function StickyCanvas({ notes, documentCards, tasks, context, projectId, role, r
   const selectionCheck = (id: string, name: string) => <input type="checkbox" className="canvas-select-check" checked={selection.has(id)} disabled={bulkBusy} onChange={() => selection.toggle(id)} aria-label={pick(locale, `เลือก ${name}`, `Select ${name}`)} />;
   const drag = useItemDrag(canvas.toWorld, (positions) => {
     const ids = [...positions.keys()];
-    void attempt(() => bulkUpdateWorkItems(projectId, 'stickyNotes', ids, (id) => positions.get(id)!), pick(locale, 'ย้ายโน้ตไม่สำเร็จ', 'Could not move note'));
+    void attempt(() => Promise.all(ids.map((id) => updateCanvasNote(projectId, id, positions.get(id)!))), pick(locale, 'ย้ายโน้ตไม่สำเร็จ', 'Could not move note'));
   });
   // Fit all notes the first time a board with notes is opened without a saved view.
   const [needsFit, setNeedsFit] = useState(() => { try { return !localStorage.getItem(`ps.notes.view.${projectId}`); } catch { return true; } });
   useEffect(() => {
-    if (!needsFit || (!notes.length && !documentCards.length)) return;
+    if (!needsFit || !notes.length) return;
     setNeedsFit(false);
-    canvas.fit([...notes.map((note) => ({ x: note.x, y: note.y, w: NOTE_W, h: NOTE_H })), ...documentCards.map((card) => ({ x: card.x, y: card.y, w: NOTE_W, h: NOTE_H }))]);
-  }, [notes, documentCards, needsFit, canvas]);
+    canvas.fit([...notes.map((note) => ({ x: note.x, y: note.y, w: NOTE_W, h: NOTE_H }))]);
+  }, [notes, needsFit, canvas]);
 
-  const rects = () => [...notes.map((note) => ({ x: note.x, y: note.y, w: NOTE_W, h: NOTE_H })), ...documentCards.map((card) => ({ x: card.x, y: card.y, w: NOTE_W, h: NOTE_H }))];
+  const rects = () => [...notes.map((note) => ({ x: note.x, y: note.y, w: NOTE_W, h: NOTE_H }))];
   const order = (id: string) => { const index = stack.indexOf(id); return index < 0 ? 0 : index + 1; };
 
   const onNotePointerDown = (event: ReactPointerEvent, note: StickyNote) => {
@@ -294,12 +294,8 @@ function StickyCanvas({ notes, documentCards, tasks, context, projectId, role, r
     drag.start(event, new Map([[note.id, { x: note.x, y: note.y }]]));
   };
 
-  const togglePin = (note: StickyNote) => void attempt(() => updateWorkItem(projectId, 'stickyNotes', note.id, { pinned: !note.pinned }), pick(locale, 'อัปเดตไม่สำเร็จ', 'Update failed'));
-  const updateCard = (card: DocumentCanvasCard, settings: { pinned?: boolean; color?: string }) => void attempt(() => updateDocumentCanvasCard(projectId, card.id, settings), pick(locale, 'อัปเดตการ์ดไม่สำเร็จ', 'Could not update card'));
+  const togglePin = (note: StickyNote) => void attempt(() => updateCanvasNote(projectId, note.id, { pinned: !note.pinned }), pick(locale, 'อัปเดตไม่สำเร็จ', 'Update failed'));
   const removeNote = (note: StickyNote) => { if (confirm(pick(locale, 'ลบ Sticky Note นี้หรือไม่?', 'Delete this sticky note?'))) void attempt(() => deleteWorkItem(projectId, 'stickyNotes', note.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); };
-  const removeCard = (card: DocumentCanvasCard) => {
-    if (confirm(pick(locale, 'ถอนการ์ดนี้จาก Notes หรือไม่? เอกสารต้นฉบับจะไม่ถูกลบ', 'Remove this card from Notes? The original document will not be deleted.'))) void attempt(() => unpinProjectDocument(projectId, card.id), pick(locale, 'ถอนไม่สำเร็จ', 'Could not unpin document'));
-  };
 
   const colorPicker = (id: string, current: string, onPick: (color: string) => void) => colorPickerId === id && !readOnly && <div className="sticky-color-picker" role="group" aria-label={pick(locale, 'สีโน้ต', 'Note color')}>{NOTE_COLORS.map((color) => <button type="button" key={color} className={current === color ? 'selected' : ''} style={{ background: color }} aria-label={color} onClick={() => { setColorPickerId(null); onPick(color); }} />)}</div>;
   const colorButton = (id: string) => <button type="button" className={`sticky-action-btn ${colorPickerId === id ? 'active' : ''}`} title={pick(locale, 'เลือกสี', 'Choose color')} aria-expanded={colorPickerId === id} onClick={() => setColorPickerId((current) => current === id ? null : id)}><Icon name="color" /></button>;
@@ -324,47 +320,18 @@ function StickyCanvas({ notes, documentCards, tasks, context, projectId, role, r
             {!readOnly && <button type="button" className="sticky-action-btn" title={note.pinned ? pick(locale, 'ถอนหมุด', 'Unpin') : pick(locale, 'ปักหมุด (ล็อกตำแหน่ง)', 'Pin (lock position)')} onClick={() => togglePin(note)}><Icon name={note.pinned ? 'pin' : 'drag'} /></button>}
             <div className="sticky-header-actions">{!readOnly && colorButton(note.id)}<button type="button" className="sticky-action-btn" title={readOnly ? context.t('readOnly') : context.t('edit')} onClick={() => onEdit(note)}><Icon name={readOnly ? 'eye' : 'edit'} /></button>{!readOnly && canDeleteItem(role, note.createdBy, user.uid) && <button type="button" className="sticky-action-btn danger" title={context.t('delete')} onClick={() => removeNote(note)}><Icon name="close" /></button>}</div>
           </header>}
-          {colorPicker(note.id, note.color, (color) => void attempt(() => updateWorkItem(projectId, 'stickyNotes', note.id, { color }), pick(locale, 'เปลี่ยนสีไม่สำเร็จ', 'Could not change color')))}
-          <p>{parseContentWithLinks(note.content)}</p>
+          {colorPicker(note.id, note.color, (color) => void attempt(() => updateCanvasNote(projectId, note.id, { color }), pick(locale, 'เปลี่ยนสีไม่สำเร็จ', 'Could not change color')))}
+          {note.content && <p>{parseContentWithLinks(note.content)}</p>}
+          <div className="note-attachments">{(note.documentIds || []).map((id) => {
+            const attached = documentById.get(id);
+            return attached ? <a key={id} className="note-attachment" href={documentOpenUrl(projectId, attached)} target={attached.kind === 'drive' || attached.kind === 'canva' ? '_blank' : undefined} rel="noreferrer"><Icon name={attached.kind === 'drive' ? 'cloud' : attached.kind === 'canva' ? 'canva' : 'document'} /><span>{documentDisplayName(attached)}</span><Icon name="open" /></a> : <span key={id} className="note-attachment unavailable">{pick(locale, 'เอกสารไม่พร้อมใช้งาน', 'Document unavailable')}</span>;
+          })}</div>
           {note.taskId && <button type="button" className="sticky-task-link" onClick={() => openTask(note.taskId)}><Icon name="open" /> {tasks.find((task) => task.id === note.taskId)?.title || 'Task'}</button>}
         </article>;
       })}
-      {documentCards.map((card) => {
-        const item = documentById.get(card.documentId);
-        if (!item && !selectMode) return null;
-        if (!item) return <article key={card.id} className={`sticky-note sticky-document ${selection.has(card.id) ? 'selected' : ''}`} style={{ transform: `translate3d(${card.x}px, ${card.y}px, 0)` }} onClickCapture={(event) => selectClick(event, card.id)}><header>{selectionCheck(card.id, card.documentId)}</header><p>{pick(locale, 'เอกสารไม่พร้อมใช้งาน', 'Document unavailable')}</p></article>;
-        const position = drag.overrides.get(card.id) || card;
-        const dragging = drag.overrides.has(card.id);
-        const group = documentGroup(item);
-        const details = () => { if (isDriveProjectDocument(item) || isCanvaProjectDocument(item)) onDetails(item); else navigate(`/p/${projectId}/docs/${item.id}`); };
-        return <article key={card.id} className={`sticky-note sticky-document ${selection.has(card.id) ? 'selected' : ''} ${card.pinned ? 'pinned' : ''} ${dragging ? 'dragging' : ''}`}
-          style={{ background: card.color || NOTE_COLORS[0], transform: `translate3d(${position.x}px, ${position.y}px, 0)`, zIndex: dragging ? 9999 : order(card.id) }}
-          onClickCapture={(event) => selectClick(event, card.id)}
-          onPointerDown={(event) => { if ((event.target as HTMLElement).closest('button,a,input')) return; if (canvas.handlePointerDown(event, false)) return; event.stopPropagation(); setStack((current) => [...current.filter((id) => id !== card.id), card.id]); if (!readOnly && !selectMode && !card.pinned && event.button === 0) drag.start(event, new Map([[card.id, { x: card.x, y: card.y }]])); }}
-          onClick={(event) => {
-            if (selectMode || justDragged.current || (event.target as HTMLElement).closest('button,a,input,.sticky-color-picker')) return;
-            if (isDriveProjectDocument(item) || isCanvaProjectDocument(item)) window.open(documentOpenUrl(projectId, item), '_blank', 'noopener,noreferrer');
-            else navigate(`/p/${projectId}/docs/${item.id}`);
-          }}
-          onDoubleClick={(event) => event.stopPropagation()}>
-          {selectMode ? <header>{selectionCheck(card.id, documentDisplayName(item))}</header> : <header>
-            {!readOnly ? <button type="button" className="sticky-action-btn" title={card.pinned ? pick(locale, 'ถอนหมุด', 'Unpin') : pick(locale, 'ปักหมุด (ล็อกตำแหน่ง)', 'Pin (lock position)')} onClick={() => updateCard(card, { pinned: !card.pinned })}><Icon name={card.pinned ? 'pin' : 'drag'} /></button> : <span />}
-            <div className="sticky-header-actions">
-              <a className="sticky-action-btn" href={documentOpenUrl(projectId, item)} target="_blank" rel="noreferrer" title={pick(locale, 'เปิดในแท็บใหม่', 'Open in new tab')}><Icon name="open" /></a>
-              <button type="button" className="sticky-action-btn" title={pick(locale, 'ดูรายละเอียด', 'View details')} onClick={details}><Icon name={readOnly ? 'eye' : 'edit'} /></button>
-              {!readOnly && colorButton(card.id)}
-              {!readOnly && <button type="button" className="sticky-action-btn danger" title={pick(locale, 'ถอนจาก Notes', 'Remove from Notes')} onClick={() => removeCard(card)}><Icon name="close" /></button>}
-            </div>
-          </header>}
-          {colorPicker(card.id, card.color || NOTE_COLORS[0], (color) => updateCard(card, { color }))}
-          <span className="sticky-document-type"><Icon name={group === 'folder' ? 'folder' : group === 'drive' ? 'cloud' : group === 'canva' ? 'canva' : 'document'} />{group === 'folder' ? 'Google Drive Folder' : group === 'drive' ? 'Google Drive' : group === 'canva' ? 'Canva' : 'Markdown'}</span>
-          <h3>{documentDisplayName(item)}</h3>
-          <p>{item.kind === 'drive' || item.kind === 'canva' ? item.description || item.title : item.excerpt || pick(locale, 'เอกสาร Markdown', 'Markdown document')}</p>
-          <small><span>{(item.taskIds || []).length} Tasks</span><span>{relativeTime(item.updatedAt?.toDate(), locale)}</span></small>
-        </article>;
-      })}
+
     </div>
-    {!notes.length && !documentCards.length && <div className="canvas-empty"><Empty icon="note" title={pick(locale, 'กระดานยังว่าง', 'The board is empty')} description={pick(locale, 'เพิ่ม Sticky Note หรือปักเอกสารจากคลัง', 'Add a sticky note or pin a library document')} /></div>}
+    {!notes.length && <div className="canvas-empty"><Empty icon="note" title={pick(locale, 'กระดานยังว่าง', 'The board is empty')} description={pick(locale, 'เพิ่ม Sticky Note หรือปักเอกสารจากคลัง', 'Add a sticky note or pin a library document')} /></div>}
     <div className="canvas-hint">{pick(locale, 'ลากที่ว่างเพื่อเลื่อน · Ctrl/⌘ + scroll เพื่อซูม · ดับเบิลคลิกเพื่อเพิ่มโน้ต', 'Drag empty space to pan · Ctrl/⌘ + scroll to zoom · double-click to add')}</div>
     <CanvasControls zoom={canvas.view.zoom} onZoomIn={() => canvas.zoomBy(1.2)} onZoomOut={() => canvas.zoomBy(1 / 1.2)} onReset={canvas.reset} onFit={() => canvas.fit(rects())} fitLabel={pick(locale, 'แสดงทั้งหมด', 'Fit all')} />
   </div>{!readOnly && <BulkBar count={selection.selected.size} locale={locale} disabled={bulkBusy} onClear={selection.clear}>
@@ -377,17 +344,61 @@ function StickyCanvas({ notes, documentCards, tasks, context, projectId, role, r
 
 function StickyModal({ item, position, projectId, tasks, context, role, readOnly, onClose }: { item: StickyNote | null; position?: { x: number; y: number }; projectId: string; tasks: Task[]; context: AppContextValue; role: Role | null; readOnly: boolean; onClose: () => void }) {
   const { user, t, locale } = context;
-  const [form, setForm] = useState({ content: item?.content || '', color: item?.color || NOTE_COLORS[0], taskId: item?.taskId || '', pinned: item?.pinned || false });
+  const desktop = useMediaQuery('(min-width: 640px)');
+  const [form, setForm] = useState({ content: item?.content || '', color: item?.color || NOTE_COLORS[0], taskId: item?.taskId || '', pinned: item?.pinned || false, documentIds: item?.documentIds || [] });
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
+  const [attachments, setAttachments] = useState<ProjectDocument[]>([]);
+  const attachButton = useRef<HTMLButtonElement>(null);
+  const attachmentsKey = JSON.stringify(form.documentIds);
+  useEffect(() => subscribePinnedDocumentMetadata(projectId, JSON.parse(attachmentsKey), setAttachments), [projectId, attachmentsKey]);
+  const returnToNote = () => setAttachmentsOpen(false);
+  // Restore the entry point, without reopening the keyboard or losing the note's scroll position.
+  const previousPanel = useRef(false);
+  useEffect(() => {
+    if (previousPanel.current && !attachmentsOpen) {
+      const entry = attachButton.current;
+      const target = entry?.disabled ? entry.closest('.modal')?.querySelector<HTMLButtonElement>('.modal-close') : entry;
+      target?.focus({ preventScroll: true });
+    }
+    previousPanel.current = attachmentsOpen;
+  }, [attachmentsOpen]);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (attachmentsOpen) return;
     // NaN position = "add" button: drop the note near the origin with a little scatter.
     const x = position && Number.isFinite(position.x) ? position.x : 24 + Math.random() * 180;
     const y = position && Number.isFinite(position.y) ? position.y : 24 + Math.random() * 100;
-    const ok = await attempt(() => (item ? updateWorkItem(projectId, 'stickyNotes', item.id, form) : createWorkItem(projectId, 'stickyNotes', { kind: 'note', ...form, x, y }, user, { type: 'note_created', th: 'เพิ่ม Sticky Note', en: 'added a sticky note' })).then(() => true), pick(locale, 'บันทึกไม่สำเร็จ', 'Save failed'));
+    const ok = await attempt(() => (item ? updateCanvasNote(projectId, item.id, form) : createWorkItem(projectId, 'stickyNotes', { kind: 'note', ...form, x, y }, user, { type: 'note_created', th: 'เพิ่ม Sticky Note', en: 'added a sticky note' })).then(() => true), pick(locale, 'บันทึกไม่สำเร็จ', 'Save failed'));
     if (ok) onClose();
   };
   const formId = useId();
-  return <Modal title={item ? (readOnly ? t('sticky') : t('edit')) : t('sticky')} onClose={onClose} actions={!readOnly && <button form={formId} className="primary">{t('save')}</button>}><form id={formId} className="stack-form" onSubmit={submit}><fieldset className="read-only-fields" disabled={readOnly}><label>{pick(locale, 'ข้อความ', 'Text')}<textarea autoFocus rows={6} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} required maxLength={800} /></label><fieldset><legend>{pick(locale, 'สี', 'Color')}</legend><div className="color-picker light">{NOTE_COLORS.map((color) => <button type="button" key={color} className={form.color === color ? 'selected' : ''} style={{ background: color }} onClick={() => setForm({ ...form, color })} aria-label={color} />)}</div></fieldset><label>{pick(locale, 'ผูกกับ Task', 'Linked task')}<select value={form.taskId} onChange={(e) => setForm({ ...form, taskId: e.target.value })}><option value="">—</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label><label className="simple-check"><input type="checkbox" checked={form.pinned} onChange={(e) => setForm({ ...form, pinned: e.target.checked })} /> {pick(locale, 'ปักหมุด (ล็อกตำแหน่ง)', 'Pinned (lock position)')}</label></fieldset><div className="form-actions">{!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(t('delete') + '?')) { await attempt(() => deleteWorkItem(projectId, 'stickyNotes', item.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary">{t('save')}</button>}</div></form></Modal>;
+  return <Modal
+    title={attachmentsOpen ? pick(locale, 'แนบเอกสาร', 'Attach documents') : item ? (readOnly ? t('sticky') : t('edit')) : t('sticky')}
+    className="sticky-editor-modal"
+    onClose={attachmentsOpen ? returnToNote : onClose}
+    onBack={attachmentsOpen ? returnToNote : undefined}
+    backLabel={pick(locale, 'กลับไปโน้ต', 'Back to note')}
+    actions={attachmentsOpen ? <span /> : !readOnly && <button form={formId} className="primary">{t('save')}</button>}
+  >
+    <form id={formId} className="stack-form sticky-editor-form" style={attachmentsOpen ? { display: 'none' } : undefined} onSubmit={submit}>
+      <fieldset className="read-only-fields" disabled={readOnly}>
+        <label>{pick(locale, 'ข้อความ', 'Text')}<textarea autoFocus={desktop} rows={6} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} maxLength={800} /></label>
+        <div className="note-attachments">{form.documentIds.map((id) => {
+          const document = attachments.find((doc) => doc.id === id);
+          return <div key={id} className="note-attachment"><span>{document ? documentDisplayName(document) : pick(locale, 'เอกสารไม่พร้อมใช้งาน', 'Document unavailable')}</span><button type="button" className="secondary small" onClick={() => setForm({ ...form, documentIds: form.documentIds.filter((value) => value !== id) })} aria-label={pick(locale, 'นำเอกสารออก', 'Remove attachment')}><Icon name="close" /></button></div>;
+        })}</div>
+        <button ref={attachButton} type="button" className="secondary" disabled={form.documentIds.length >= MAX_NOTE_ATTACHMENTS} onClick={() => setAttachmentsOpen(true)}>{pick(locale, 'แนบเอกสาร', 'Attach documents')} ({form.documentIds.length}/{MAX_NOTE_ATTACHMENTS})</button>
+        <fieldset><legend>{pick(locale, 'สี', 'Color')}</legend><div className="color-picker light">{NOTE_COLORS.map((color) => <button type="button" key={color} className={form.color === color ? 'selected' : ''} style={{ background: color }} onClick={() => setForm({ ...form, color })} aria-label={color} />)}</div></fieldset>
+        <label>{pick(locale, 'ผูกกับ Task', 'Linked task')}<select value={form.taskId} onChange={(e) => setForm({ ...form, taskId: e.target.value })}><option value="">—</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>
+        <label className="simple-check"><input type="checkbox" checked={form.pinned} onChange={(e) => setForm({ ...form, pinned: e.target.checked })} /> {pick(locale, 'ปักหมุด (ล็อกตำแหน่ง)', 'Pinned (lock position)')}</label>
+      </fieldset>
+      <div className="form-actions">
+        {!readOnly && item && canDeleteItem(role, item.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(t('delete') + '?')) { await attempt(() => deleteWorkItem(projectId, 'stickyNotes', item.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } }}>{t('delete')}</button>}
+        <span /><button type="button" className="secondary" onClick={onClose}>{readOnly ? pick(locale, 'ปิด', 'Close') : t('cancel')}</button>{!readOnly && <button className="primary">{t('save')}</button>}
+      </div>
+    </form>
+    {attachmentsOpen && <CanvasDocumentPicker embedded projectId={projectId} canvasItems={[]} context={context} labels={[]} tasks={tasks} milestones={[]} linkedIds={form.documentIds} maxSelected={MAX_NOTE_ATTACHMENTS - form.documentIds.length} onAttach={(ids) => setForm((current) => ({ ...current, documentIds: [...new Set([...current.documentIds, ...ids])].slice(0, MAX_NOTE_ATTACHMENTS) }))} onClose={returnToNote} />}
+  </Modal>;
 }
 
 function DocumentLabelRow({ document, labels, projectId, context, readOnly, onFilter }: { document: ProjectDocument; labels: Label[]; projectId: string; context: AppContextValue; readOnly: boolean; onFilter: (label: Label) => void }) {
@@ -478,7 +489,10 @@ function AddDocumentModal({ project, members, documents, labels, context, onClos
   </Modal>;
 }
 
-function CanvasDocumentPicker({ projectId, canvasItems, context, labels, tasks, milestones, onClose }: { projectId: string; canvasItems: CanvasItem[]; context: AppContextValue; labels: Label[]; tasks: Task[]; milestones: Milestone[]; onClose: () => void }) {
+function CanvasDocumentPicker({ projectId, canvasItems, context, labels, tasks, milestones, onClose, onAttach, linkedIds = [], maxSelected = Infinity, embedded = false }: { embedded?: boolean; onAttach?: (ids: string[]) => void; linkedIds?: string[]; maxSelected?: number; projectId: string; canvasItems: CanvasItem[]; context: AppContextValue; labels: Label[]; tasks: Task[]; milestones: Milestone[]; onClose: () => void }) {
+  const desktop = useMediaQuery('(min-width: 640px)');
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (embedded) panelRef.current?.focus({ preventScroll: true }); }, [embedded]);
   const [items, setItems] = useState<ProjectDocument[]>([]);
   const [cursor, setCursor] = useState<CollectionCursor | null>(null);
   const [more, setMore] = useState(false);
@@ -486,11 +500,12 @@ function CanvasDocumentPicker({ projectId, canvasItems, context, labels, tasks, 
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => subscribeProjectQuery<ProjectDocument>(projectId, 'documents', 'canvas-picker:50', [orderBy('updatedAt', 'desc'), orderBy(documentId()), limit(50)], (next) => { setItems(next); const last = next.at(-1); setCursor(last?.updatedAt ? { value: last.updatedAt, id: last.id } : null); setMore(next.length === 50); }), [projectId]);
-  const available = useMemo(() => items.filter((item) => matchDocument(item, parseDocumentQuery(queryText), labels, tasks, milestones)), [items, queryText, labels, tasks, milestones]);
+  const available = useMemo(() => items.filter((item) => !linkedIds.includes(item.id) && matchDocument(item, parseDocumentQuery(queryText), labels, tasks, milestones)), [items, queryText, labels, tasks, milestones, linkedIds]);
   const copyCounts = useMemo(() => documentCardCounts(canvasItems), [canvasItems]);
   const loadMore = async () => { if (!cursor || busy) return; setBusy(true); try { const page = await loadProjectCollectionPage<ProjectDocument>(projectId, 'documents', cursor, 50); setItems((current) => [...current, ...page.items.filter((item) => !current.some((old) => old.id === item.id))]); setCursor(page.nextCursor); setMore(page.hasMore); } finally { setBusy(false); } };
   const pin = async () => {
     if (!selected.length || busy) return;
+    if (onAttach) { onAttach(selected); onClose(); return; }
     setBusy(true);
     let centre = { x: 300, y: 200 };
     try { const view = JSON.parse(localStorage.getItem(`ps.notes.view.${projectId}`) || 'null'); if (view && Number.isFinite(view.x) && Number.isFinite(view.y) && Number.isFinite(view.zoom)) centre = { x: (400 - view.x) / view.zoom, y: (300 - view.y) / view.zoom }; } catch { /* use board origin */ }
@@ -499,14 +514,16 @@ function CanvasDocumentPicker({ projectId, canvasItems, context, labels, tasks, 
     const ok = await attempt(() => pinProjectDocuments(projectId, selected, positions, context.user).then(() => true), pick(context.locale, 'ปักเอกสารไม่สำเร็จ', 'Could not pin documents'));
     setBusy(false); if (ok) onClose();
   };
-  return <Modal title={pick(context.locale, 'ปักเอกสารบน Notes', 'Pin documents to Notes')} onClose={onClose} wide actions={<button type="button" className="primary" disabled={!selected.length || busy} onClick={() => void pin()}>{pick(context.locale, `ปัก ${selected.length || ''}`.trim(), `Pin ${selected.length || ''}`.trim())}</button>}>
-    <div className="document-picker"><label className="search"><Icon name="search" /><input autoFocus value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder={pick(context.locale, 'ค้นหาชื่อ คำอธิบาย Labels หรือ Tasks', 'Search name, description, labels, or tasks')} /></label>
-      <div className="document-picker-list">{available.map((item) => <label key={item.id} className={selected.includes(item.id) ? 'selected' : ''}><input type="checkbox" disabled={busy} checked={selected.includes(item.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><span className="document-picker-icon"><Icon name={documentGroup(item) === 'folder' ? 'folder' : item.kind === 'drive' ? 'cloud' : item.kind === 'canva' ? 'canva' : 'document'} /></span><span><strong>{documentDisplayName(item)}</strong><small>{item.kind === 'drive' || item.kind === 'canva' ? item.description || item.title : item.excerpt || 'Markdown'}</small><small>{pick(context.locale, `${copyCounts.get(item.id) || 0} การ์ดบน Notes`, `${copyCounts.get(item.id) || 0} cards on Notes`)}</small></span></label>)}</div>
-      {!available.length && <p className="muted document-picker-empty">{pick(context.locale, 'ไม่มีเอกสารที่ปักได้', 'No documents available to pin')}</p>}
+  const picker = <div ref={panelRef} tabIndex={embedded ? -1 : undefined} className={`document-picker ${embedded ? 'note-document-picker' : ''}`} aria-label={pick(context.locale, 'เลือกเอกสารแนบ', 'Choose attachments')}>
+      <label className="search"><Icon name="search" /><input autoFocus={desktop && !embedded} aria-label={pick(context.locale, 'ค้นหาเอกสาร', 'Search documents')} value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder={pick(context.locale, 'ค้นหาชื่อ คำอธิบาย Labels หรือ Tasks', 'Search name, description, labels, or tasks')} /></label>
+      <div className="document-picker-list">{available.map((item) => <label key={item.id} className={selected.includes(item.id) ? 'selected' : ''}><input type="checkbox" disabled={busy || (!selected.includes(item.id) && selected.length >= maxSelected)} checked={selected.includes(item.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><span className="document-picker-icon"><Icon name={documentGroup(item) === 'folder' ? 'folder' : item.kind === 'drive' ? 'cloud' : item.kind === 'canva' ? 'canva' : 'document'} /></span><span><strong>{documentDisplayName(item)}</strong><small>{item.kind === 'drive' || item.kind === 'canva' ? item.description || item.title : item.excerpt || 'Markdown'}</small>{!onAttach && <small>{pick(context.locale, `${copyCounts.get(item.id) || 0} โน้ตบน Notes`, `${copyCounts.get(item.id) || 0} notes on canvas`)}</small>}</span></label>)}</div>
+      {!available.length && <p className="muted document-picker-empty">{onAttach ? pick(context.locale, 'ไม่พบเอกสารที่แนบได้', 'No documents available to attach') : pick(context.locale, 'ไม่มีเอกสารที่ปักได้', 'No documents available to pin')}</p>}
       {more && <div className="load-more-row"><button type="button" className="secondary" disabled={busy} onClick={() => void loadMore()}>{pick(context.locale, 'โหลดเพิ่มเติม', 'Load more')}</button></div>}
-      <div className="form-actions"><span /><button type="button" className="secondary" onClick={onClose}>{pick(context.locale, 'ยกเลิก', 'Cancel')}</button><button type="button" className="primary" disabled={!selected.length || busy} onClick={() => void pin()}>{pick(context.locale, 'ปักเอกสาร', 'Pin documents')}</button></div>
-    </div>
-  </Modal>;
+      {embedded && <p className="muted note-picker-count" aria-live="polite">{pick(context.locale, `เลือกแล้ว ${selected.length} / ${maxSelected} เอกสาร`, `${selected.length} / ${maxSelected} documents selected`)}</p>}
+      <div className="form-actions"><span /><button type="button" className="secondary" onClick={onClose}>{embedded ? pick(context.locale, 'กลับไปโน้ต', 'Back to note') : pick(context.locale, 'ยกเลิก', 'Cancel')}</button><button type="button" className="primary" disabled={!selected.length || busy} onClick={() => void pin()}>{onAttach ? pick(context.locale, 'แนบเอกสาร', 'Attach documents') : pick(context.locale, 'ปักเอกสาร', 'Pin documents')}</button></div>
+    </div>;
+  if (embedded) return picker;
+  return <Modal title={onAttach ? pick(context.locale, 'แนบเอกสาร', 'Attach documents') : pick(context.locale, 'ปักเอกสารบน Notes', 'Pin documents to Notes')} onClose={onClose} wide actions={<button type="button" className="primary" disabled={!selected.length || busy} onClick={() => void pin()}>{pick(context.locale, `${onAttach ? 'แนบ' : 'ปัก'} ${selected.length || ''}`.trim(), `${onAttach ? 'Attach' : 'Pin'} ${selected.length || ''}`.trim())}</button>}>{picker}</Modal>;
 }
 
 function DocumentList({ documents, labels, tasks, filtered, projectId, context, members, role, readOnly, userId, onFilter, onTaskFilter, onEditDrive }: { documents: ProjectDocument[]; labels: Label[]; tasks: Task[]; filtered: boolean; projectId: string; context: AppContextValue; members: Membership[]; role: Role | null; readOnly: boolean; userId: string; onFilter: (label: Label) => void; onTaskFilter: (task: Task) => void; onEditDrive: (item: DriveProjectDocument | CanvaProjectDocument) => void }) {

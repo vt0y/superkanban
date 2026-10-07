@@ -1,4 +1,4 @@
-import type { CanvasItem, Role } from '@/types';
+import type { CanvasItem, Role, StickyNote } from '@/types';
 import { canDeleteItem } from './permissions';
 
 export interface CanvasRect { x: number; y: number; w: number; h: number }
@@ -7,11 +7,11 @@ export interface CanvasRect { x: number; y: number; w: number; h: number }
 export const documentCanvasId = (documentId: string): string => `document_${documentId}`;
 
 export const removableCanvasItems = (items: CanvasItem[], role: Role | null, userId: string): CanvasItem[] =>
-  items.filter((item) => item.kind === 'document' || canDeleteItem(role, item.createdBy, userId));
+  items.filter((item) => canDeleteItem(role, item.createdBy, userId));
 
 export function documentCardCounts(items: CanvasItem[]): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const item of items) if (item.kind === 'document') counts.set(item.documentId, (counts.get(item.documentId) || 0) + 1);
+  for (const item of items) for (const id of new Set(noteDocumentIds(item))) counts.set(id, (counts.get(id) || 0) + 1);
   return counts;
 }
 
@@ -36,3 +36,13 @@ export function findCanvasPositions(count: number, centre: { x: number; y: numbe
 }
 
 export const isLegacyOrTypedNote = (item: CanvasItem): boolean => item.kind === undefined || item.kind === 'note';
+
+export const MAX_NOTE_ATTACHMENTS = 5;
+export const noteDocumentIds = (item: CanvasItem): string[] => item.kind === 'document' ? [item.documentId] : item.documentIds || [];
+
+/** Display-only normalization; writes happen only on an explicit edit. */
+export function normalizeCanvasNote(item: CanvasItem): StickyNote {
+  if (item.kind !== 'document') return { ...item, documentIds: item.documentIds || [] };
+  const { documentId, ...rest } = item;
+  return { ...rest, kind: 'note', content: '', taskId: '', color: item.color || '#fef3c7', pinned: item.pinned || false, documentIds: [documentId] };
+}

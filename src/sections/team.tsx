@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { InviteLinks, InviteModal } from '@/components/InviteLinks';
+import { useCallback, useEffect, useState } from 'react';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
-import { Avatar, Modal, PageTitle, PanelTitle } from '@/components/common';
+import { Avatar, PageTitle, PanelTitle } from '@/components/common';
 import { canManageTeam } from '@/utils/permissions';
-import { changeMemberRole, createInvite, removeMember, revokeInvite, subscribeProjectInvites } from '@/services';
+import { changeMemberRole, removeMember } from '@/services';
 import {
   endGitHubSession,
   fetchOwnerType,
@@ -25,7 +26,7 @@ import {
 import { toast } from '@/components/toast';
 import { attemptGitHub, GitHubSessionBar, useGitHubSession } from '@/components/github/GitHubSessionBar';
 import { isGitHubEnabled } from '@/config/features';
-import type { GitHubRevocation, Invite, Membership, Project, ProjectGitHubRepo, Role } from '@/types';
+import type { GitHubRevocation, Membership, ProjectGitHubRepo, Role } from '@/types';
 import type { MessageKey } from '@/utils/i18n';
 import { fillMessage } from '@/utils/i18n';
 import { Icon } from '@/components/common/Icon';
@@ -108,7 +109,6 @@ function useRepoOwnerType(repo: ProjectGitHubRepo | null | undefined): 'User' | 
 }
 
 export function Team({ context, project, members, role, readOnly }: SectionProps) {
-  const [invites, setInvites] = useState<Invite[]>([]);
   const [showInvite, setShowInvite] = useState(false);
   const [collaboratorLoading, setCollaboratorLoading] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
@@ -127,7 +127,6 @@ export function Team({ context, project, members, role, readOnly }: SectionProps
     Boolean(repo && member.githubUsername && member.githubUsername.toLowerCase() === repo.owner.toLowerCase());
   const linkedCount = members.filter((member) => member.githubUsername).length;
 
-  useEffect(() => (canManageTeam(role) ? subscribeProjectInvites(project.id, setInvites) : undefined), [project.id, role]);
 
   const flash = (memberId: string) => {
     setFlashId(memberId);
@@ -360,35 +359,7 @@ export function Team({ context, project, members, role, readOnly }: SectionProps
         <PendingRevocations context={context} projectId={project.id} isOwner={isOwner} readOnly={readOnly} />
       )}
 
-      {canManageTeam(role) && (
-        <section className="panel invites-panel">
-          <PanelTitle title={t('inviteLinks')} />
-          <div className="invite-list">
-            {invites
-              .filter((item) => item.status === 'active')
-              .map((invite) => (
-                <div key={invite.id}>
-                  <span><Icon name="link" /></span>
-                  <div>
-                    <strong>{t('anyoneWithLink')}</strong>
-                    <small>
-                      {invite.role} · {t('expires')} {invite.expiresAt.toDate().toLocaleDateString()}
-                    </small>
-                  </div>
-                  <button onClick={() => void navigator.clipboard.writeText(`${location.origin}/invite/${invite.id}`)}>
-                    {t('copyLink')}
-                  </button>
-                  {!readOnly && (
-                    <button className="icon-danger" onClick={() => void revokeInvite(invite.id)}>
-                      <Icon name="close" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            {!invites.some((item) => item.status === 'active') && <p className="muted">{t('noInviteLinks')}</p>}
-          </div>
-        </section>
-      )}
+      {canManageTeam(role) && <InviteLinks onCreate={() => setShowInvite(true)} context={context} project={project} members={members} role={role} readOnly={readOnly} />}
 
       {showInvite && !readOnly && <InviteModal project={project} context={context} role={role} onClose={() => setShowInvite(false)} />}
     </>
@@ -530,56 +501,6 @@ function PendingRevocations({
         ))}
       </div>
     </section>
-  );
-}
-
-function InviteModal({
-  project,
-  context,
-  role,
-  onClose,
-}: {
-  project: Project;
-  context: AppContextValue;
-  role: Role | null;
-  onClose: () => void;
-}) {
-  const [inviteRole, setInviteRole] = useState<'member' | 'admin'>('member');
-  const [link, setLink] = useState('');
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const id = await createInvite(project, context.user, inviteRole);
-    setLink(`${location.origin}/invite/${id}`);
-  };
-
-  return (
-    <Modal title={context.t('createInvite')} onClose={onClose}>
-      <form className="stack-form" onSubmit={submit}>
-        <p className="muted">{context.t('inviteHelp')}</p>
-        <label>
-          {context.t('colRole')}
-          <select
-            value={inviteRole}
-            onChange={(e) => setInviteRole(e.target.value as 'member' | 'admin')}
-            disabled={Boolean(link)}
-          >
-            <option value="member">Member</option>
-            {role === 'owner' && <option value="admin">Admin</option>}
-          </select>
-        </label>
-        {link ? (
-          <div className="generated-link">
-            <small>{context.t('inviteLink')}</small>
-            <code>{link}</code>
-            <button type="button" className="primary" onClick={() => void navigator.clipboard.writeText(link)}>
-              {context.t('copyLink')}
-            </button>
-          </div>
-        ) : (
-          <button className="primary">{context.t('createInvite')}</button>
-        )}
-      </form>
-    </Modal>
   );
 }
 
