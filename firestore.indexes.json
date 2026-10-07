@@ -51,5 +51,10 @@
     ,{ "collectionGroup": "tarotReadings", "fieldPath": "question", "indexes": [] }
     ,{ "collectionGroup": "tarotReadings", "fieldPath": "cards", "indexes": [] }
     ,{ "collectionGroup": "tarotReadings", "fieldPath": "readingMarkdown", "indexes": [] }
+    ,{ "collectionGroup": "summary", "fieldPath": "openTasks", "indexes": [] }
+    ,{ "collectionGroup": "summary", "fieldPath": "milestones", "indexes": [] }
+    ,{ "collectionGroup": "summary", "fieldPath": "openByStatus", "indexes": [] }
+    ,{ "collectionGroup": "summary", "fieldPath": "openByMilestone", "indexes": [] }
+    ,{ "collectionGroup": "summary", "fieldPath": "doneByMilestone", "indexes": [] }
   ]
 }

@@ -6,13 +6,12 @@ import { AppHeader } from '@/components/layout/AppHeader';
 import { Icon, type IconName } from '@/components/common/Icon';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import type { MessageKey } from '@/utils/i18n';
-import { roleFor } from '@/utils/permissions';
-import { subscribeMemberships } from '@/services/members';
+import { WorkspaceRosterProvider, useWorkspaceRoster, useFullProjectMembers } from '@/context/WorkspaceRoster';
 import { getProject, updateProject } from '@/services/projects';
 import { subscribeGachaDraws } from '@/services/gacha';
 import { membershipGitHubDrift, syncOwnMembershipGitHub } from '@/services/github';
 import { isGitHubEnabled } from '@/config/features';
-import type { GachaDraw, Membership, Project } from '@/types';
+import type { GachaDraw, Project } from '@/types';
 import { Dashboard } from '@/sections/dashboard';
 import { loadCalendar, Tasks } from '@/sections/tasks';
 import { loadDesign, loadMilestones, Plan } from '@/sections/plan';
@@ -76,6 +75,11 @@ const MOBILE_MORE = NAV_GROUPS.flatMap((group) => group.items).filter(
 );
 
 export function ProjectWorkspace({ context }: { context: AppContextValue }) {
+  const { projectId = '' } = useParams();
+  return <WorkspaceRosterProvider projectId={projectId} userId={context.user.uid}><WorkspaceContent context={context} /></WorkspaceRosterProvider>;
+}
+
+function WorkspaceContent({ context }: { context: AppContextValue }) {
   const params = useParams();
   const projectId = params.projectId || '';
   const documentId = params.documentId;
@@ -83,7 +87,9 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   const [search] = useSearchParams();
   const contextProject = context.projects.find((item) => item.id === projectId);
   const [fallbackProject, setFallbackProject] = useState<{ projectId: string; project: Project | null } | null>(null);
-  const [membershipState, setMembershipState] = useState<{ projectId: string; members: Membership[] } | null>(null);
+  const roster = useWorkspaceRoster();
+  const fullScreen = section !== 'notes' && section !== 'docs';
+  const fullRoster = useFullProjectMembers(fullScreen);
   const [gachaState, setGachaState] = useState<{ projectId: string; draws: GachaDraw[] } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // Desktop: persisted collapse to the icon rail. Tablet: always a rail, expandable as a drawer.
@@ -97,8 +103,8 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   const projectPending = !context.projectsLoaded || (!contextProject && !fallbackMatches);
   const canAccessProject = Boolean(project?.memberIds.includes(context.user.uid));
   const showGachaHistory = section === 'gacha';
-  const membersLoaded = membershipState?.projectId === projectId;
-  const members = membersLoaded ? membershipState.members : [];
+  const membersLoaded = roster.ownLoaded && (!fullScreen || fullRoster.loaded);
+  const members = fullRoster.members;
   const gachaDraws = gachaState?.projectId === projectId ? gachaState.draws : [];
 
   useEffect(() => {
@@ -113,11 +119,6 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
       .catch(() => { if (active) setFallbackProject({ projectId, project: null }); });
     return () => { active = false; };
   }, [context.projectsLoaded, contextProject, projectId]);
-
-  useEffect(() => {
-    if (!project || !canAccessProject) return;
-    return subscribeMemberships(project.id, (items) => setMembershipState({ projectId: project.id, members: items }));
-  }, [project?.id, canAccessProject]);
 
   useEffect(() => {
     if (!project || !canAccessProject) return;
@@ -142,7 +143,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   // Self-heal: keep my GitHub handle on this project's membership in step with my profile, so the
   // owner sees who is connected even if the sync at connect time failed. One write, only on drift.
   const healAttempted = useRef('');
-  const mine = members.find((member) => member.userId === context.user.uid);
+  const mine = roster.own;
   useEffect(() => {
     if (!isGitHubEnabled || !mine || !project || project.archived) return;
     if (!membershipGitHubDrift(mine, context.profile)) return;
@@ -177,7 +178,10 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
   const redirect = legacySectionRedirect(params.section, location.search, documentId);
   if (redirect) return <Navigate to={`/p/${projectId}/${redirect}`} replace />;
   if (!project || !project.memberIds.includes(context.user.uid)) return <ProjectUnavailable context={context} />;
-  const role = roleFor(members, context.user.uid);
+  if (roster.ownFailed) return <div className="full-loader"><button onClick={roster.retry}>Retry loading membership</button></div>;
+  if (!roster.ownLoaded) return <div className="full-loader"><span className="loader" /></div>;
+  if (roster.ownLoaded && !roster.own) return <ProjectUnavailable context={context} />;
+  const role = roster.own?.role || 'member';
   const readOnly = project.archived;
   const common = { context, project, members, role, readOnly };
   const { locale } = context;
@@ -257,11 +261,11 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <div className="member-dots" title={members.map((member) => member.displayName).join(', ')}>
-            {members.slice(0, 5).map((member) => (
+          <div className="member-dots" title={roster.preview.map((member) => member.displayName).join(', ')}>
+            {roster.preview.map((member) => (
               <i key={member.id}>{member.displayName.slice(0, 1).toUpperCase()}</i>
             ))}
-            {members.length > 5 && <i className="more">+{members.length - 5}</i>}
+            {project.memberIds.length > 5 && <i className="more">+{project.memberIds.length - 5}</i>}
           </div>
           <button
             type="button"
@@ -299,7 +303,7 @@ export function ProjectWorkspace({ context }: { context: AppContextValue }) {
         )}
         <Suspense fallback={<div className="section-loader"><span className="loader" /></div>}>
           {/* Role decides what each page shows, so wait for memberships instead of rendering as "member" first. */}
-          {!membersLoaded ? <div className="section-loader"><span className="loader" /></div> : <>
+          {!membersLoaded ? <div className="section-loader">{fullRoster.failed || roster.ownFailed ? <button className="secondary" onClick={roster.retry}>Retry loading members</button> : <span className="loader" />}</div> : <>
           {section === 'overview' && <Dashboard {...common} />}
           {section === 'tasks' && <Tasks {...common} />}
           {section === 'plan' && <Plan {...common} />}

@@ -180,3 +180,14 @@ Legacy `kind: 'document'` cards normalize into notes for display without writes,
 Library deletion removes metadata first, then queries both legacy `documentId == id` and modern `documentIds array-contains id` in bounded server-read batches. Modern cleanup atomically removes only the ID. Legacy cleanup reads current records in a transaction before conversion, so a concurrent conversion/text edit cannot be overwritten. Cleanup leaves empty notes after their last attachment is removed and retains the retry action. Missing attachments render as unavailable and remain removable. Firestore rules validate only newly added references in the current project, reject duplicates and more than five attachments, and preserve ownership and creation time. Default single-field indexes suffice; no eager migration or composite index is needed.
 
 Release order: deploy compatible Firestore rules before publishing the frontend. Direct uploads, inline editing, and group dragging remain outside this feature.
+
+## Firestore read reduction follow-up
+
+- TODO: Add paged/server-assisted document search. Pickers intentionally retain their current 50/100 recent-document limits and local search.
+- TODO: Load invite history on demand while preserving the invite tabs' exact live counts.
+- The Board still subscribes to all active tasks. Overview, Tasks, Plan, Votes, Gacha, Team and Settings still need complete rosters; global live Gacha announcements remain enabled. These costs grow with project size and activity; no concurrency threshold is promised.
+- Enable development counters with `VITE_FIRESTORE_DIAGNOSTICS=true`, then use `firestoreDiagnostics.reset()` and `firestoreDiagnostics.counts()` in the browser console. Compare identical Notes/Documents, editor, checklist, assignment and rebuild workflows. Counters contain workflow labels and counts only, stay in memory, and generate no telemetry writes. They measure client operations, not billed usage (rules reads, index work and reconnects can also affect billing).
+- Summary map index exemptions reduce index overhead; they do not reduce document-read counts.
+- Rollout: deploy Firestore rules and index exemptions before the updated client (`firebase deploy --only firestore:rules,firestore:indexes`). Then publish the client and review production Firestore usage against matching workflows. Existing projects need no migration.
+
+Verification: 393 unit tests and 78 emulator tests passed, including roster lifecycle, query reuse, zero-read patches, competing rebuilds, renewal, ownership loss, expiry rules and concurrent edits. TypeScript, CSS checks and the production build passed. Mobile/desktop browser interaction checks and production rollout/usage comparisons remain pending.

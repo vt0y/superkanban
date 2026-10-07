@@ -1,5 +1,6 @@
+import { measuredFirestore } from './firestore-diagnostics';
 import type { User } from 'firebase/auth';
-import { arrayRemove, deleteField, runTransaction, collection, doc, getDocsFromServer, limit, query, serverTimestamp, updateDoc, where, writeBatch, type Unsubscribe } from 'firebase/firestore';
+import { arrayRemove, deleteField, collection, doc, limit, query, serverTimestamp, where, type Unsubscribe } from 'firebase/firestore';
 import type { CanvasItem, StickyNote, DocumentCanvasCard, ProjectDocument } from '@/types';
 import { normalizeCanvasNote } from '@/utils/canvas-items';
 import { BATCH_CHUNK, database } from './helpers';
@@ -100,3 +101,5 @@ export async function updateCanvasNote(projectId: string, id: string, patch: Par
     transaction.update(ref, { ...conversion, ...patch, updatedAt: serverTimestamp() });
   });
 }
+
+const { runTransaction, getDocsFromServer, updateDoc, writeBatch } = measuredFirestore('canvas-documents');

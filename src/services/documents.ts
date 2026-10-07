@@ -1,3 +1,4 @@
+import { measuredFirestore } from '@/services/firestore-diagnostics';
 import type { User } from 'firebase/auth';
 import {
   collection,
@@ -5,11 +6,7 @@ import {
   arrayUnion,
   deleteField,
   doc,
-  onSnapshot,
-  runTransaction,
   serverTimestamp,
-  updateDoc,
-  writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
 import type { LoadedProjectDocument, MarkdownProjectDocument, ProjectDocument, ProjectDocumentBody } from '@/types';
@@ -180,3 +177,5 @@ export async function migrateLegacyProjectDocument(projectId: string, documentId
     transaction.update(itemRef, { ...documentMetadata(item.content), content: deleteField() });
   });
 }
+
+const { onSnapshot, runTransaction, writeBatch, updateDoc } = measuredFirestore('documents');

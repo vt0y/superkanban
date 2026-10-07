@@ -491,8 +491,24 @@ service cloud.firestore {
           && request.resource.data.winCounts is map && request.resource.data.updatedAt == request.time;
         allow delete: if false;
       }
+      match /summary/rebuildLease {
+        allow read: if isMember(projectId) && projectActive(projectId);
+        allow create: if isMember(projectId) && projectActive(projectId) && validLease();
+        allow update: if isMember(projectId) && projectActive(projectId) && validLease()
+          && (resource.data.expiresAt <= request.time
+            || (resource.data.ownerUid == request.auth.uid && request.resource.data.token == resource.data.token));
+        allow delete: if isMember(projectId) && projectActive(projectId) && resource.data.ownerUid == request.auth.uid;
+        function validLease() {
+          return request.resource.data.keys().hasOnly(['ownerUid', 'token', 'expiresAt'])
+            && request.resource.data.ownerUid == request.auth.uid
+            && request.resource.data.token is string && request.resource.data.token.size() > 0 && request.resource.data.token.size() <= 128
+            && request.resource.data.expiresAt is timestamp
+            && request.resource.data.expiresAt > request.time
+            && request.resource.data.expiresAt <= request.time + duration.value(120, 's');
+        }
+      }
       match /summary/{docId} {
-        allow read: if isMember(projectId);
+        allow read: if docId == 'main' && isMember(projectId);
         allow create, update: if docId == 'main' && projectActive(projectId) && isMember(projectId)
           && request.resource.data.keys().hasAll(['version','openTasks','openCount','openByStatus','openByMilestone','truncated','milestones','doneTotal','doneByMilestone','rebuiltAt','updatedAt'])
           && request.resource.data.keys().hasOnly(['version','openTasks','openCount','openByStatus','openByMilestone','truncated','milestones','doneTotal','doneByMilestone','rebuiltAt','updatedAt'])
@@ -563,7 +579,9 @@ service cloud.firestore {
     }
 
     match /invites/{inviteId} {
-      allow get: if signedIn();
+      // Members retain access to invite status; outsiders can only preview usable links.
+      allow get: if signedIn() && (isMember(resource.data.projectId)
+        || (inviteAvailable(resource.data) && projectActive(resource.data.projectId)));
       allow list: if isAdmin(resource.data.projectId);
       allow create: if projectActive(request.resource.data.projectId) && isAdmin(request.resource.data.projectId)
         && validInviteSettings(request.resource.data) && request.resource.data.status == 'active'

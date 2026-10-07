@@ -15,20 +15,27 @@ import {
 import { subscribeProjectDocsByIds } from '@/services/work-items';
 
 /** Like `useActiveTasks`, plus whether the first snapshot has arrived (to avoid rendering zeros meanwhile). */
-export function useActiveTasksState(projectId: string): { items: Task[]; loaded: boolean } {
-  const [state, setState] = useState<{ projectId: string; items: Task[] } | null>(null);
-  useEffect(() => subscribeActiveTasks(projectId, (items) => setState({ projectId, items })), [projectId]);
-  return state?.projectId === projectId ? { items: state.items, loaded: true } : { items: [], loaded: false };
+export function useActiveTasksState(projectId: string, enabled = true): { items: Task[]; loaded: boolean; failed: boolean; retry: () => void } {
+  const [state, setState] = useState<{ projectId: string; items: Task[]; failed: boolean } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    setState(null);
+    if (!enabled) return;
+    return subscribeActiveTasks(projectId, (items) => setState({ projectId, items, failed: false }), undefined, () => setState({ projectId, items: [], failed: true }));
+  }, [projectId, enabled, attempt]);
+  const current = enabled && state?.projectId === projectId ? state : null;
+  return { items: current?.items || [], loaded: !enabled || Boolean(current && !current.failed), failed: current?.failed || false, retry: () => { setState(null); setAttempt((count) => count + 1); } };
 }
 
-export function useActiveTasks(projectId: string, scope?: TaskScope): Task[] {
+export function useActiveTasks(projectId: string, scope?: TaskScope, enabled = true): Task[] {
   const [items, setItems] = useState<Task[]>([]);
   const milestoneId = scope?.milestoneId;
   useEffect(() => {
     setItems([]);
+    if (!enabled) return;
     return subscribeActiveTasks(projectId, setItems, milestoneId ? { milestoneId } : undefined);
-  }, [projectId, milestoneId]);
-  return items;
+  }, [projectId, milestoneId, enabled]);
+  return enabled ? items : [];
 }
 
 export function useBoardTasks(

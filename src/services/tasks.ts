@@ -1,11 +1,9 @@
+import { measuredFirestore } from '@/services/firestore-diagnostics';
 import {
   collection,
   doc,
   documentId,
-  getCountFromServer,
-  getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   startAfter,
@@ -149,3 +147,5 @@ export function subscribeCalendarTasks(
   const stopUnscheduled = onSnapshot(unscheduledQuery, (snap) => { unscheduled = snap.docs.map((item) => withId<Task>(item)); emit(); });
   return () => { stopDated(); stopUnscheduled(); };
 }
+
+const { getDocs, getCountFromServer, onSnapshot } = measuredFirestore('tasks');

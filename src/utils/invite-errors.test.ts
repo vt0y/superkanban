@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inviteErrorMessage } from './invite-errors';
+import { inviteErrorMessage, isUnavailableInviteError } from './invite-errors';
 
 const firebaseError = (code: string) => Object.assign(new Error('Missing or insufficient permissions.'), { code });
 
@@ -24,5 +24,21 @@ describe('inviteErrorMessage', () => {
   it('falls back to a generic localized message', () => {
     expect(inviteErrorMessage('boom', 'th')).toBe('เข้าร่วมโปรเจกต์ไม่สำเร็จ กรุณาลองใหม่');
     expect(inviteErrorMessage(firebaseError('unavailable'), 'en')).toMatch(/offline/);
+  });
+});
+
+describe('unavailable invitation classification', () => {
+  it('treats denied reads and unavailable invite states as the same public outcome', () => {
+    for (const code of ['NOT_FOUND', 'REVOKED', 'PAUSED', 'EXPIRED', 'EXHAUSTED']) {
+      expect(isUnavailableInviteError(new Error(`INVITE_${code}`))).toBe(true);
+    }
+    expect(isUnavailableInviteError(firebaseError('permission-denied'))).toBe(true);
+    expect(isUnavailableInviteError(firebaseError('firestore/permission-denied'))).toBe(true);
+  });
+  it('preserves retryable connection failures', () => {
+    expect(isUnavailableInviteError(firebaseError('unavailable'))).toBe(false);
+    expect(isUnavailableInviteError(firebaseError('firestore/unavailable'))).toBe(false);
+    expect(isUnavailableInviteError(new Error('boom'))).toBe(false);
+    expect(isUnavailableInviteError(null)).toBe(false);
   });
 });

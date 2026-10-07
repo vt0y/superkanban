@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { arrayUnion, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch, type Firestore } from 'firebase/firestore';
+import { arrayUnion, collection, doc, getDoc, getDocs, getDocFromServer, onSnapshot, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch, type Firestore } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { acceptInvite, createInvite, setInviteStatus, updateInviteSettings } from '@/services/invites';
@@ -66,6 +66,74 @@ function joinBatch(uid: string, count: number | undefined, extra: Record<string,
 }
 
 describe('dynamic invitation transactions and rules', () => {
+  it.each(['active', 'paused', 'revoked', 'expired', 'exhausted'])('restricts %s preview reads while preserving member access', async (status) => {
+    await seedInvite(status === 'expired' ? { expiresAt: Timestamp.fromMillis(1) }
+      : status === 'exhausted' ? { usesCount: 1, maxUses: 1 } : { status });
+    const guestRead = getDocFromServer(doc(dbFor('guest'), 'invites', 'link'));
+    if (status === 'active') await assertSucceeds(guestRead);
+    else await assertFails(guestRead);
+    for (const uid of ['owner', 'admin', 'member']) {
+      await assertSucceeds(getDocFromServer(doc(dbFor(uid), 'invites', 'link')));
+    }
+    await assertSucceeds(getDocs(query(collection(dbFor('admin'), 'invites'), where('projectId', '==', projectId))));
+    await assertFails(getDocs(query(collection(dbFor('guest'), 'invites'), where('projectId', '==', projectId))));
+  });
+  it('denies missing, unauthenticated and disallowed-domain previews', async () => {
+    await assertFails(getDocFromServer(doc(dbFor('guest'), 'invites', 'missing')));
+    await assertFails(getDocFromServer(doc(env.unauthenticatedContext().firestore(), 'invites', 'link')));
+    await assertFails(getDocFromServer(doc(env.authenticatedContext('member', { email: 'member@other.com' }).firestore(), 'invites', 'link')));
+  });
+  it('keeps archived project invite status readable only to members', async () => {
+    await updateDoc(doc(dbFor('owner'), 'projects', projectId), { archived: true });
+    await assertFails(getDocFromServer(doc(dbFor('guest'), 'invites', 'link')));
+    await assertSucceeds(getDocFromServer(doc(dbFor('member'), 'invites', 'link')));
+  });
+  it('allows server preview again after extending an expired link', async () => {
+    await seedInvite({ expiresAt: Timestamp.fromMillis(1) });
+    const guest = dbFor('guest');
+    await assertFails(getDocFromServer(doc(guest, 'invites', 'link')));
+    useDb('owner'); await updateInviteSettings('link', settings());
+    await assertSucceeds(getDocFromServer(doc(guest, 'invites', 'link')));
+    await accept('guest');
+    expect((await readInvite()).data()?.usesCount).toBe(1);
+  });
+  it('keeps member listeners live while status changes deny outsider listeners', async () => {
+    const memberRef = doc(dbFor('member'), 'invites', 'link');
+    const guestRef = doc(dbFor('guest'), 'invites', 'link');
+    const memberStatuses: string[] = [];
+    let resolveMember!: () => void;
+    const memberPaused = new Promise<void>((resolve) => { resolveMember = resolve; });
+    let resolveResumed!: () => void;
+    const memberResumed = new Promise<void>((resolve) => { resolveResumed = resolve; });
+    let stopMember = () => {};
+    const memberStarted = new Promise<void>((resolve, reject) => {
+      stopMember = onSnapshot(memberRef, (snapshot) => {
+        if (snapshot.metadata.fromCache) return;
+        memberStatuses.push(snapshot.data()?.status);
+        if (snapshot.data()?.status === 'paused') resolveMember();
+        if (snapshot.data()?.status === 'active' && memberStatuses.includes('paused')) resolveResumed();
+        resolve();
+      }, reject);
+    });
+    let stopGuest = () => {};
+    let resolveDenied!: () => void;
+    const guestDenied = new Promise<void>((resolve) => { resolveDenied = resolve; });
+    const guestStarted = new Promise<void>((resolve, reject) => {
+      stopGuest = onSnapshot(guestRef, (snapshot) => { if (!snapshot.metadata.fromCache) resolve(); }, (error) => {
+        if (error.code === 'permission-denied') resolveDenied();
+        else reject(error);
+      });
+    });
+    try {
+      await Promise.all([memberStarted, guestStarted]);
+      useDb('owner'); await setInviteStatus('link', 'paused');
+      await Promise.all([memberPaused, guestDenied]);
+      expect(memberStatuses).toContain('paused');
+      await setInviteStatus('link', 'active');
+      await memberResumed;
+      expect(memberStatuses.at(-1)).toBe('active');
+    } finally { stopMember(); stopGuest(); }
+  });
   it('joins a legacy link, counts once for duplicate clicks, and preserves existing role', async () => {
     const results = await Promise.all([accept('guest'), accept('guest')]);
     expect(results.map((result) => result.alreadyMember).sort()).toEqual([false, true]);
@@ -97,11 +165,15 @@ describe('dynamic invitation transactions and rules', () => {
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect((await readInvite()).data()?.usesCount).toBe(1);
     const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult;
-    expect(rejected.reason.message).toBe('INVITE_EXHAUSTED');
+    expect(rejected.reason.code).toBe('permission-denied');
+    for (const uid of ['alice', 'bob']) {
+      const exists = (await getDoc(doc(dbFor('owner'), 'memberships', `${projectId}_${uid}`))).exists();
+      expect(exists).toBe(results[uid === 'alice' ? 0 : 1].status === 'fulfilled');
+    }
   });
   it.each(['paused', 'revoked', 'expired', 'exhausted'])('rejects %s links', async (status) => {
     await seedInvite(status === 'expired' ? { expiresAt: Timestamp.fromMillis(1) } : status === 'exhausted' ? { maxUses: 1, usesCount: 1 } : { status });
-    await expect(accept('guest')).rejects.toThrow(`INVITE_${status.toUpperCase()}`);
+    await expect(accept('guest')).rejects.toMatchObject({ code: 'permission-denied' });
     await assertFails(joinBatch('guest', status === 'exhausted' ? 2 : 1));
   });
   it('reads the current role and revalidates a role changed during acceptance', async () => {
@@ -115,8 +187,8 @@ describe('dynamic invitation transactions and rules', () => {
     });
     if (change === 'limit') {
       await seedInvite({ usesCount: 1 });
-      await expect(accept('guest')).rejects.toThrow('INVITE_EXHAUSTED');
-    } else await expect(accept('guest')).rejects.toThrow(`INVITE_${change.toUpperCase()}`);
+      await expect(accept('guest')).rejects.toMatchObject({ code: 'permission-denied' });
+    } else await expect(accept('guest')).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('requires membership, counter, and project membership together and rejects counter tampering', async () => {
     await assertFails(joinBatch('guest', undefined));
@@ -147,7 +219,7 @@ describe('dynamic invitation transactions and rules', () => {
   it('extends expired links and increases exhausted limits without changing their URL', async () => {
     await seedInvite({ expiresAt: Timestamp.fromMillis(1), usesCount: 2 });
     useDb('owner'); await updateInviteSettings('link', { ...settings(), maxUses: 1 });
-    await expect(accept('guest')).rejects.toThrow('INVITE_EXHAUSTED');
+    await expect(accept('guest')).rejects.toMatchObject({ code: 'permission-denied' });
     useDb('owner'); await updateInviteSettings('link', { ...settings(), maxUses: 3 });
     await accept('guest');
     expect((await readInvite()).data()?.usesCount).toBe(3);

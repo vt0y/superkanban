@@ -1,6 +1,13 @@
 import type { Locale } from '@/types';
 import { pick } from './formatters';
 
+/** Denied reads and failed invite validation share a non-disclosing public state. */
+export function isUnavailableInviteError(error: unknown): boolean {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  return code === 'permission-denied' || code === 'firestore/permission-denied'
+    || (error instanceof Error && /^INVITE_(NOT_FOUND|REVOKED|PAUSED|EXPIRED|EXHAUSTED)$/.test(error.message));
+}
+
 /** A message an invitee can act on, for an error thrown while accepting an invite. */
 export function inviteErrorMessage(error: unknown, locale: Locale): string {
   const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';

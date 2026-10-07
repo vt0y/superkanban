@@ -55,6 +55,26 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export const taskAffectsSummary = (before: Task | null, after: Task | null) => !same(before && summaryTask(before), after && summaryTask(after)) || (before?.status === 'done') !== (after?.status === 'done') || (before?.status === 'done' && after?.status === 'done' && before.milestoneId !== after.milestoneId);
 export const milestoneAffectsSummary = (before: Milestone | null, after: Milestone | null) => !same(before && summaryMilestone(before), after && summaryMilestone(after));
 
+const taskSummaryFields = new Set(['title', 'status', 'priority', 'dueDate', 'dueTime', 'assigneeIds', 'milestoneId']);
+const milestoneSummaryFields = new Set(['title', 'dueDate', 'dueTime', 'status', 'dependsOn']);
+
+/** Dotted paths and unknown transform values on summary fields stay on the transactional path. */
+export function patchTouchesSummary(collection: string, patch: Record<string, unknown>): boolean {
+  const fields = collection === 'tasks' ? taskSummaryFields : collection === 'milestones' ? milestoneSummaryFields : null;
+  return Boolean(fields && Object.keys(patch).some((key) => fields.has(key.split('.')[0])));
+}
+
+/** Summary fields currently accept literal values; reject opaque transforms rather than corrupt aggregates. */
+export function summaryAfterPatch(before: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+  for (const [key, value] of Object.entries(patch)) {
+    if (!taskSummaryFields.has(key.split('.')[0]) && !milestoneSummaryFields.has(key.split('.')[0])) continue;
+    if (key.includes('.') || (value && typeof value === 'object' && !Array.isArray(value) && '_methodName' in value)) {
+      throw new Error('SUMMARY_FIELDS_REQUIRE_LITERAL_VALUES');
+    }
+  }
+  return { ...before, ...patch };
+}
+
 function rankTask([id, task]: [string, ProjectSummaryTask]): string {
   return `${task.dueDate || '9999-99-99'}T${task.dueTime || '99:99'}\u0000${id}`;
 }

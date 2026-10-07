@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type { SectionProps } from '@/context/AppContext';
 import { toast } from '@/components/toast';
+import { useFullProjectMembers, useWorkspaceRoster } from '@/context/WorkspaceRoster';
+import { Modal } from '@/components/common/Modal';
 import { useProjectItemsState } from '@/hooks/useProjectItems';
 import { subscribeTask } from '@/services/tasks';
 import type { Label, Milestone, Task } from '@/types';
@@ -91,10 +93,12 @@ function LoadedTaskModal({ taskId, seed, initialPanel, onClose, ...section }: Se
 function HostedTaskModal({ context, project, members, role, readOnly, task, defaults, initialPanel, onClose, onCreated }: SectionProps & {
   task: Task | null; defaults?: TaskDefaults; initialPanel?: 'documents'; onClose: () => void; onCreated?: (id: string) => void;
 }) {
+  const roster = useFullProjectMembers(true);
+  const { retry } = useWorkspaceRoster();
   const milestones = useProjectItemsState<Milestone>(project.id, 'milestones');
   const labels = useProjectItemsState<Label>(project.id, 'labels');
   // TaskModal reads labels/milestones once to build its form, so wait until both have arrived.
-  if (!milestones.loaded || !labels.loaded) return null;
-  return <TaskModal task={task} defaults={defaults} projectId={project.id} projectName={project.name} members={members} milestones={milestones.items} labels={labels.items}
+  if (!milestones.loaded || !labels.loaded || !roster.loaded) return <Modal title="Loading task editor" onClose={onClose}>{roster.failed || milestones.failed || labels.failed ? <button onClick={() => { retry(); milestones.retry(); labels.retry(); }}>Retry loading editor</button> : <span className="loader" />}</Modal>;
+  return <TaskModal task={task} defaults={defaults} projectId={project.id} projectName={project.name} members={roster.members} milestones={milestones.items} labels={labels.items}
     context={context} role={role} readOnly={readOnly} onClose={onClose} onCreated={onCreated} initialPanel={initialPanel} />;
 }

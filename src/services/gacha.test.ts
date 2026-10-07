@@ -1,3 +1,4 @@
+vi.mock('@/config/firebase', () => ({ auth: null }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const firestore = vi.hoisted(() => ({

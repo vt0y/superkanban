@@ -1148,3 +1148,57 @@ describe('ProjectSpace Firestore rules', () => {
     await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'stickyNotes', 'note-archived'), { kind: 'note', content: 'x', color: '#fff', x: 0, y: 0, taskId: '', pinned: false, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
   });
 });
+
+ describe('summary rebuild leases', () => {
+  const ref = (db: ReturnType<typeof context>) => doc(db, 'projects', projectId, 'summary', 'rebuildLease');
+  const lease = (ownerUid: string, token = 'attempt-a', offset = 90_000) => ({ ownerUid, token, expiresAt: Timestamp.fromMillis(Date.now() + offset) });
+
+  it('allows members to acquire, renew and release their attempt', async () => {
+    await seedProject();
+    const db = context('member');
+    await assertSucceeds(setDoc(ref(db), lease('member')));
+    await assertSucceeds(updateDoc(ref(db), { expiresAt: Timestamp.fromMillis(Date.now() + 90_000) }));
+    await assertSucceeds(deleteDoc(ref(db)));
+  });
+
+  it('rejects stealing an occupied lease, including a different token from the same account', async () => {
+    await seedProject();
+    await setDoc(ref(context('member')), lease('member'));
+    await assertFails(setDoc(ref(context('admin')), lease('admin')));
+    await assertFails(setDoc(ref(context('member')), lease('member', 'another-attempt')));
+    await assertFails(deleteDoc(ref(context('admin'))));
+  });
+
+  it('permits takeover of an abandoned expired attempt', async () => {
+    await seedProject();
+    await environment.withSecurityRulesDisabled(async (ctx) => setDoc(ref(ctx.firestore()), lease('member', 'old', -1000)));
+    await assertSucceeds(setDoc(ref(context('admin')), lease('admin', 'replacement')));
+  });
+
+  it('rejects unbounded expiry, impersonation and extra fields', async () => {
+    await seedProject();
+    const db = context('member');
+    await assertFails(setDoc(ref(db), lease('member', 'future', 121_000)));
+    await assertFails(setDoc(ref(db), lease('admin')));
+    await assertFails(setDoc(ref(db), { ...lease('member'), contents: 'no' }));
+  });
+
+  it('rejects outsiders, removed members and disallowed domains', async () => {
+    await seedProject();
+    await assertFails(setDoc(ref(context('outsider')), lease('outsider')));
+    await assertFails(setDoc(ref(context('member', 'member@other.com')), lease('member')));
+    await setDoc(ref(context('member')), lease('member'));
+    await environment.withSecurityRulesDisabled(async (ctx) => deleteDoc(doc(ctx.firestore(), 'memberships', `${projectId}_member`)));
+    await assertFails(getDoc(ref(context('member'))));
+    await assertFails(updateDoc(ref(context('member')), { expiresAt: Timestamp.fromMillis(Date.now() + 90_000) }));
+  });
+
+  it('denies coordination on archived projects', async () => {
+    await seedProject();
+    await setDoc(ref(context('member')), lease('member'));
+    await environment.withSecurityRulesDisabled(async (ctx) => updateDoc(doc(ctx.firestore(), 'projects', projectId), { archived: true }));
+    await assertFails(getDoc(ref(context('member'))));
+    await assertFails(updateDoc(ref(context('member')), { expiresAt: Timestamp.fromMillis(Date.now() + 90_000) }));
+    await assertFails(deleteDoc(ref(context('member'))));
+  });
+});

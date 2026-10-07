@@ -1,27 +1,24 @@
+import { measuredFirestore, recordFirestoreOperation } from '@/services/firestore-diagnostics';
+import { auth } from '@/config/firebase';
 import type { User } from 'firebase/auth';
 import type { Activity } from '@/types';
 import {
   collection,
-  deleteDoc,
   doc,
   documentId,
-  getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
-  runTransaction,
   startAfter,
   serverTimestamp,
   where,
-  writeBatch,
   type DocumentData,
   type QueryConstraint,
   type Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
 import type { Milestone, Task } from '@/types';
-import { applyMilestoneChanges, applyTaskChanges, milestoneAffectsSummary, taskAffectsSummary } from '@/utils/project-summary';
+import { applyMilestoneChanges, applyTaskChanges, milestoneAffectsSummary, taskAffectsSummary, patchTouchesSummary, summaryAfterPatch } from '@/utils/project-summary';
 import { readSummaryForTransaction, withProjectSummaryRetry, writeSummaryInTransaction } from './project-summary';
 import { activityData, database, withId, BATCH_CHUNK, type ActivityInput } from './helpers';
 
@@ -35,7 +32,7 @@ interface SharedSubscription<T = unknown> {
 }
 
 const subscriptionRegistry = new Map<string, SharedSubscription>();
-const KEEP_ALIVE_MS = 30000;
+const KEEP_ALIVE_MS = 0;
 export const projectQueryCacheKey = (projectId: string, name: string, scopeKey: string) => `${projectId}:${name}:${scopeKey}`;
 
 export interface CollectionCursor { value: Timestamp; id: string }
@@ -69,8 +66,8 @@ export function subscribeProjectDocsByIds<T>(projectId: string, name: string, id
   for (let start = 0; start < unique.length; start += 30) chunks.push(unique.slice(start, start + 30));
   const values = new Map<number, T[]>();
   const emit = () => { if (values.size === chunks.length) callback([...values.values()].flat()); };
-  const stops = chunks.map((chunk, index) => onSnapshot(query(collection(database(), 'projects', projectId, name), where(documentId(), 'in', chunk)), (snapshot) => {
-    values.set(index, snapshot.docs.map((item) => withId<T>(item)));
+  const stops = chunks.map((chunk, index) => subscribeProjectQuery<T>(projectId, name, `ids:${JSON.stringify(chunk)}`, [where(documentId(), 'in', chunk)], (items) => {
+    values.set(index, items);
     emit();
   }));
   return () => stops.forEach((stop) => stop());
@@ -98,9 +95,10 @@ export function subscribeProjectQuery<T>(
   callback: (items: T[]) => void,
   onError?: (error: Error) => void,
 ): Unsubscribe {
-  const key = projectQueryCacheKey(projectId, name, scopeKey);
+  const key = `${auth?.currentUser?.uid || 'anonymous'}:${projectQueryCacheKey(projectId, name, scopeKey)}`;
   let sub = subscriptionRegistry.get(key) as SharedSubscription<T> | undefined;
 
+  if (sub?.unsubscribeFirestore) recordFirestoreOperation('work-items', 'listener-reused');
   if (!sub) {
     sub = {
       refCount: 0,
@@ -150,6 +148,7 @@ export function subscribeProjectQuery<T>(
         // Firestore ends a listener after an error: forget it so the next subscriber retries.
         if (sub) {
           sub.unsubscribeFirestore = null;
+          sub.latestData = null;
           sub.errorListeners.forEach((listener) => listener(error));
         }
         if (subscriptionRegistry.get(key) === sub) subscriptionRegistry.delete(key);
@@ -170,7 +169,7 @@ export function subscribeProjectQuery<T>(
             sub.unsubscribeFirestore();
             sub.unsubscribeFirestore = null;
           }
-          subscriptionRegistry.delete(key);
+          if (subscriptionRegistry.get(key) === sub) subscriptionRegistry.delete(key);
         }
       }, KEEP_ALIVE_MS);
     }
@@ -231,24 +230,23 @@ export async function updateWorkItem(
   activity?: { type: string; th: string; en: string },
 ): Promise<void> {
   const store = database();
-  if (collectionName === 'tasks' || collectionName === 'milestones') {
+  if (patchTouchesSummary(collectionName, values)) {
     const itemRef = doc(store, 'projects', projectId, collectionName, itemId);
     await runTrackedTransaction(projectId, async () => runTransaction(store, async (transaction) => {
-      const [snapshot, summary] = await Promise.all([
-        transaction.get(itemRef),
-        readSummaryForTransaction(transaction, store, projectId),
-      ]);
+      const snapshot = await transaction.get(itemRef);
       if (!snapshot.exists()) throw new Error('WORK_ITEM_NOT_FOUND');
       const before = { id: snapshot.id, ...snapshot.data() } as DocumentData;
-      const after = { ...before, ...values, id: itemId } as DocumentData;
+      const after = { ...summaryAfterPatch(before, values), id: itemId } as DocumentData;
+      const material = collectionName === 'tasks' ? taskAffectsSummary(before as Task, after as Task) : milestoneAffectsSummary(before as Milestone, after as Milestone);
+      const summary = material ? await readSummaryForTransaction(transaction, store, projectId) : null;
       transaction.update(itemRef, { ...values, updatedAt: serverTimestamp() });
       if (user && activity) {
         const activityRef = doc(collection(store, 'projects', projectId, 'activities'));
         transaction.set(activityRef, activityData(user, activity.type, activity.th, activity.en, itemId));
       }
-      if (collectionName === 'tasks' && taskAffectsSummary(before as Task, after as Task)) {
+      if (summary && collectionName === 'tasks') {
         writeSummaryInTransaction(transaction, store, projectId, applyTaskChanges(summary, [{ before: before as Task, after: after as Task }]));
-      } else if (collectionName === 'milestones' && milestoneAffectsSummary(before as Milestone, after as Milestone)) {
+      } else if (summary && collectionName === 'milestones') {
         writeSummaryInTransaction(transaction, store, projectId, applyMilestoneChanges(summary, [{ before: before as Milestone, after: after as Milestone }]));
       }
     }));
@@ -294,26 +292,24 @@ export async function bulkUpdateWorkItems(
   const chunkSize = collectionName === 'tasks' || collectionName === 'milestones' ? 200 : BATCH_CHUNK;
   for (let start = 0; start < itemIds.length; start += chunkSize) {
     const ids = itemIds.slice(start, start + chunkSize);
-    if (collectionName === 'tasks' || collectionName === 'milestones') {
+    const patches = new Map(ids.map((id) => [id, typeof values === 'function' ? values(id) : values]));
+    if ([...patches.values()].some((patch) => patchTouchesSummary(collectionName, patch))) {
       await runTrackedTransaction(projectId, async () => runTransaction(store, async (transaction) => {
         const refs = ids.map((id) => doc(store, 'projects', projectId, collectionName, id));
-        const [snapshots, summary] = await Promise.all([
-          Promise.all(refs.map((ref) => transaction.get(ref))),
-          readSummaryForTransaction(transaction, store, projectId),
-        ]);
+        const snapshots = await Promise.all(refs.map((ref) => transaction.get(ref)));
         const changes = snapshots.filter((snapshot) => snapshot.exists()).map((snapshot) => {
           const before = { id: snapshot.id, ...snapshot.data() } as DocumentData;
-          const patch = typeof values === 'function' ? values(snapshot.id) : values;
-          return { before, after: { ...before, ...patch, id: snapshot.id } as DocumentData, patch, ref: snapshot.ref };
+          const patch = patches.get(snapshot.id)!;
+          return { before, after: { ...summaryAfterPatch(before, patch), id: snapshot.id } as DocumentData, patch, ref: snapshot.ref };
         });
+        const material = changes.filter(({ before, after }) => collectionName === 'tasks' ? taskAffectsSummary(before as Task, after as Task) : milestoneAffectsSummary(before as Milestone, after as Milestone));
+        const summary = material.length ? await readSummaryForTransaction(transaction, store, projectId) : null;
         changes.forEach(({ ref, patch }) => transaction.update(ref, { ...patch, updatedAt: serverTimestamp() }));
         if (start === 0 && user && activity) transaction.set(doc(collection(store, 'projects', projectId, 'activities')), activityData(user, activity.type, activity.th, activity.en, itemIds[0] || ''));
         if (collectionName === 'tasks') {
-          const material = changes.filter(({ before, after }) => taskAffectsSummary(before as Task, after as Task));
-          if (material.length) writeSummaryInTransaction(transaction, store, projectId, applyTaskChanges(summary, material as unknown as Array<{ before: Task; after: Task }>));
+          if (summary) writeSummaryInTransaction(transaction, store, projectId, applyTaskChanges(summary, material as unknown as Array<{ before: Task; after: Task }>));
         } else {
-          const material = changes.filter(({ before, after }) => milestoneAffectsSummary(before as Milestone, after as Milestone));
-          if (material.length) writeSummaryInTransaction(transaction, store, projectId, applyMilestoneChanges(summary, material as unknown as Array<{ before: Milestone; after: Milestone }>));
+          if (summary) writeSummaryInTransaction(transaction, store, projectId, applyMilestoneChanges(summary, material as unknown as Array<{ before: Milestone; after: Milestone }>));
         }
       }));
       continue;
@@ -321,7 +317,7 @@ export async function bulkUpdateWorkItems(
     const batch = writeBatch(store);
     ids.forEach((id) => {
       batch.update(doc(store, 'projects', projectId, collectionName, id), {
-        ...(typeof values === 'function' ? values(id) : values),
+        ...patches.get(id),
         updatedAt: serverTimestamp(),
       });
     });
@@ -371,3 +367,5 @@ export async function bulkDeleteWorkItems(
 async function runTrackedTransaction(projectId: string, operation: () => Promise<void>): Promise<void> {
   await withProjectSummaryRetry(projectId, operation);
 }
+
+const { getDocs, onSnapshot, runTransaction, writeBatch, deleteDoc } = measuredFirestore('work-items');

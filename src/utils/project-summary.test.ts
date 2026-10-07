@@ -6,6 +6,8 @@ import {
   buildProjectSummary,
   emptyProjectSummary,
   milestoneAffectsSummary,
+  patchTouchesSummary,
+  summaryAfterPatch,
   summaryCounts,
   summaryMilestoneCounts,
   summaryMilestones,
@@ -93,5 +95,22 @@ describe('rebuilding from open tasks and done counts', () => {
     expect(summary.doneByMilestone).toEqual({ m1: 3 });
     expect(summaryMilestoneCounts(summary, 'm1')).toEqual({ total: 4, done: 3 });
     expect(summaryCounts(summary)).toMatchObject({ total: 8, done: 7 });
+  });
+});
+
+describe('summary patch classification', () => {
+  it('ignores checklist, description, labels, timestamps and board order', () => {
+    expect(patchTouchesSummary('tasks', { checklist: [], description: 'Details', labelIds: ['x'], order: 2, updatedAt: {} })).toBe(false);
+    expect(patchTouchesSummary('milestones', { description: 'Details' })).toBe(false);
+    expect(patchTouchesSummary('documents', { title: 'Title' })).toBe(false);
+  });
+  it('includes every represented task and milestone field', () => {
+    for (const field of ['title', 'status', 'priority', 'dueDate', 'dueTime', 'assigneeIds', 'milestoneId']) expect(patchTouchesSummary('tasks', { [field]: null })).toBe(true);
+    for (const field of ['title', 'status', 'dueDate', 'dueTime', 'dependsOn']) expect(patchTouchesSummary('milestones', { [field]: null })).toBe(true);
+    expect(patchTouchesSummary('tasks', { 'assigneeIds.0': 'uid' })).toBe(true);
+  });
+  it('refuses ambiguous summary transforms before issuing writes', () => {
+    expect(() => summaryAfterPatch({}, { assigneeIds: { _methodName: 'arrayUnion' } })).toThrow('SUMMARY_FIELDS_REQUIRE_LITERAL_VALUES');
+    expect(summaryAfterPatch({ title: 'Before' }, { title: 'After' })).toEqual({ title: 'After' });
   });
 });

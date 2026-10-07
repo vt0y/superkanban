@@ -33,7 +33,11 @@ export function subscribeProjectInvites(projectId: string, callback: (items: Inv
 }
 
 export function subscribeInvite(inviteId: string, callback: (invite: Invite | null) => void, onError?: (error: Error) => void): Unsubscribe {
-  return onSnapshot(doc(database(), 'invites', inviteId), (snap) => callback(snap.exists() ? withId<Invite>(snap) : null), onError);
+  return onSnapshot(doc(database(), 'invites', inviteId), { includeMetadataChanges: true }, (snap) => {
+    // Cached data may have been read before access was revoked or the project archived.
+    // Wait for the server to authorize this read, even when only metadata changes.
+    if (!snap.metadata.fromCache) callback(snap.exists() ? withId<Invite>(snap) : null);
+  }, onError);
 }
 
 export async function acceptInvite(inviteId: string, user: User): Promise<{ projectId: string; alreadyMember: boolean }> {

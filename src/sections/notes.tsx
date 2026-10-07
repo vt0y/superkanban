@@ -4,7 +4,8 @@ import { documentId, limit, orderBy, where, type QueryConstraint } from 'firebas
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { AppContextValue, SectionProps } from '@/context/AppContext';
 import { BulkBar, CanvaFileRow, CanvaLinkForm, CanvasControls, DriveAttachmentControl, DriveFileRow, driveRoleLabel, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
-import { useActiveTasks, useCanvasViewport, useItemDrag, useLinkedTasks, useProjectItems, useProjectItemsState, useSelection, type Selection } from '@/hooks';
+import { useActiveTasksState, useProjectItemsByIds, useCanvasViewport, useItemDrag, useLinkedTasks, useProjectItems, useProjectItemsState, useSelection, type Selection } from '@/hooks';
+import { useFullProjectMembers, useWorkspaceRoster } from '@/context/WorkspaceRoster';
 import { NOTE_COLORS } from '@/config/constants';
 import { parseContentWithLinks } from '@/utils/linkify';
 import { canDeleteItem } from '@/utils/permissions';
@@ -58,9 +59,6 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const documentsPaged = useRef(false);
   const liveDocumentIds = useRef<Set<string>>(new Set());
-  const tasks = useActiveTasks(project.id);
-  const { items: labels, loaded: labelsLoaded } = useProjectItemsState<Label>(project.id, 'labels');
-  const { items: milestones } = useProjectItemsState<Milestone>(project.id, 'milestones');
   const [noteModal, setNoteModal] = useState<StickyNote | { x: number; y: number } | null>(null);
   const [docModal, setDocModal] = useState<LoadedProjectDocument | 'new' | null>(null);
   const [driveModal, setDriveModal] = useState<DriveProjectDocument | CanvaProjectDocument | null>(null);
@@ -69,6 +67,20 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   const [labelsOpen, setLabelsOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const query = searchParams.get('q') || '';
+  const parsedQuery = useMemo(() => parseDocumentQuery(query), [query]);
+  const choicesNeeded = Boolean(noteModal || docModal || driveModal || addDocumentOpen || pinPickerOpen || labelsOpen);
+  const taskChoicesNeeded = choicesNeeded || (mode === 'documents' && parsedQuery.terms.some((term) => term.key === 'task'));
+  const metadataChoicesNeeded = Boolean(docModal || driveModal || addDocumentOpen || pinPickerOpen);
+  const active = useActiveTasksState(project.id, taskChoicesNeeded);
+  const tasks = useLinkedTasks(project.id, active.items, notes.flatMap((note) => note.taskId ? [note.taskId] : []));
+  const labelChoices = useProjectItemsState<Label>(project.id, 'labels', mode === 'documents' || metadataChoicesNeeded || labelsOpen);
+  const { items: labels, loaded: labelsLoaded } = labelChoices;
+  const milestoneChoices = useProjectItemsState<Milestone>(project.id, 'milestones', mode === 'documents' || metadataChoicesNeeded);
+  const { items: milestones, loaded: milestonesLoaded } = milestoneChoices;
+  const choicesReady = active.loaded && labelsLoaded && milestonesLoaded;
+  const roster = useFullProjectMembers(addDocumentOpen);
+  const { retry: retryRoster } = useWorkspaceRoster();
   // Active tasks are shared with the board; done tasks are fetched only when a loaded document links them.
   const linkedTaskIds = useMemo(() => [
     ...documents.flatMap((item) => item.taskIds || []),
@@ -78,8 +90,6 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   const documentTasks = useLinkedTasks(project.id, tasks, linkedTaskIds);
   const navigate = useNavigate();
   const { locale } = context;
-  const query = searchParams.get('q') || '';
-  const parsedQuery = useMemo(() => parseDocumentQuery(query), [query]);
   const queryLabelNames = parsedQuery.terms.filter((term) => term.key === 'label' && !term.negated).map((term) => term.value);
   const queryTaskNames = parsedQuery.terms.filter((term) => term.key === 'task' && !term.negated).map((term) => term.value);
   const queryMilestoneNames = parsedQuery.terms.filter((term) => term.key === 'milestone' && !term.negated).map((term) => term.value);
@@ -92,6 +102,7 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   const labelFilterKey = [...selectedLabelIds].sort().join(',');
   const taskFilterKey = [...selectedTaskIds].sort().join(',');
   const milestoneFilterKey = [...selectedMilestoneIds].sort().join(',');
+  const filterChoicesReady = (!queryTaskNames.length || active.loaded) && ((!queryLabelNames.length && !searchParams.has('labels')) || labelsLoaded) && (!queryMilestoneNames.length || milestonesLoaded);
   const documentFilters: QueryConstraint[] = selectedTaskIds.length ? [where('taskIds', 'array-contains-any', selectedTaskIds)] : selectedMilestoneIds.length ? [where('milestoneIds', 'array-contains-any', selectedMilestoneIds)] : selectedLabelIds.length ? [where('labelIds', 'array-contains-any', selectedLabelIds)] : [];
 
   useEffect(() => {
@@ -123,7 +134,7 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   };
 
   useEffect(() => {
-    if (mode !== 'documents') return;
+    if (mode !== 'documents' || !filterChoicesReady) return;
     // Document records contain only lightweight metadata; bodies remain
     // lazy-loaded by DocumentReader.
     setDocuments([]);
@@ -139,7 +150,7 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
         setDocumentsHaveMore(items.length === 50);
       }
     });
-  }, [mode, project.id, labelFilterKey, taskFilterKey, milestoneFilterKey]);
+  }, [mode, project.id, labelFilterKey, taskFilterKey, milestoneFilterKey, filterChoicesReady]);
 
   const loadMoreDocuments = async () => {
     if (!documentCursor || loadingDocuments) return;
@@ -219,12 +230,13 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
       {milestones.length > 0 && <select value="" disabled={bulkBusy} onChange={(event) => { if (event.target.value) void bulkLink('milestoneIds', event.target.value); }} aria-label="Milestone"><option value="">Milestone…</option><optgroup label={pick(locale, 'เพิ่ม', 'Add')}>{milestones.map((milestone) => <option key={milestone.id} value={`add:${milestone.id}`}>+ {milestone.title}</option>)}</optgroup><optgroup label={pick(locale, 'เอาออก', 'Remove')}>{milestones.map((milestone) => <option key={milestone.id} value={`remove:${milestone.id}`}>− {milestone.title}</option>)}</optgroup></select>}
       <button type="button" className="danger ghost" disabled={bulkBusy} onClick={() => void bulkRemove()}>{pick(locale, 'นำออก', 'Remove')}</button>
     </BulkBar>}
-    {noteModal && <StickyModal item={'id' in noteModal ? noteModal : null} position={'id' in noteModal ? undefined : noteModal} projectId={project.id} tasks={tasks} context={context} role={role} readOnly={readOnly} onClose={() => setNoteModal(null)} />}
-    {docModal && <DocumentModal item={docModal === 'new' ? null : docModal} labels={labels} tasks={documentTasks} milestones={milestones} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} onSaved={(id) => { setDocModal(null); navigate(`/p/${project.id}/docs/${id}`); }} />}
-    {driveModal && <DriveDocumentDetailsModal item={driveModal} labels={labels} tasks={documentTasks} milestones={milestones} projectId={project.id} context={context} readOnly={readOnly} onClose={() => setDriveModal(null)} />}
+    {choicesNeeded && (!choicesReady || (addDocumentOpen && !roster.loaded)) && <Modal title="Loading editor" onClose={() => { setNoteModal(null); setDocModal(null); setDriveModal(null); setAddDocumentOpen(false); setPinPickerOpen(false); setLabelsOpen(false); }}>{roster.failed || active.failed || labelChoices.failed || milestoneChoices.failed ? <button onClick={() => { retryRoster(); active.retry(); labelChoices.retry(); milestoneChoices.retry(); }}>Retry loading editor</button> : <span className="loader" />}</Modal>}
+    {noteModal && choicesReady && <StickyModal item={'id' in noteModal ? noteModal : null} position={'id' in noteModal ? undefined : noteModal} projectId={project.id} tasks={tasks} context={context} role={role} readOnly={readOnly} onClose={() => setNoteModal(null)} />}
+    {docModal && choicesReady && <DocumentModal item={docModal === 'new' ? null : docModal} labels={labels} tasks={documentTasks} milestones={milestones} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setDocModal(null)} onSaved={(id) => { setDocModal(null); navigate(`/p/${project.id}/docs/${id}`); }} />}
+    {driveModal && choicesReady && <DriveDocumentDetailsModal item={driveModal} labels={labels} tasks={documentTasks} milestones={milestones} projectId={project.id} context={context} readOnly={readOnly} onClose={() => setDriveModal(null)} />}
     {labelsOpen && <LabelManager labels={labels} tasks={tasks} projectId={project.id} context={context} role={role} readOnly={readOnly} onClose={() => setLabelsOpen(false)} onFilter={(label) => { toggleLabelFilter(label); setLabelsOpen(false); }} />}
-    {addDocumentOpen && <AddDocumentModal project={project} members={members} documents={documents} labels={labels} tasks={documentTasks} context={context} onClose={() => setAddDocumentOpen(false)} onMarkdown={() => { setAddDocumentOpen(false); setDocModal('new'); }} />}
-    {pinPickerOpen && <CanvasDocumentPicker projectId={project.id} canvasItems={canvasItems} context={context} labels={labels} tasks={documentTasks} milestones={milestones} onClose={() => setPinPickerOpen(false)} />}
+    {addDocumentOpen && choicesReady && roster.loaded && <AddDocumentModal project={project} members={roster.members} documents={documents} labels={labels} tasks={documentTasks} context={context} onClose={() => setAddDocumentOpen(false)} onMarkdown={() => { setAddDocumentOpen(false); setDocModal('new'); }} />}
+    {pinPickerOpen && choicesReady && <CanvasDocumentPicker projectId={project.id} canvasItems={canvasItems} context={context} labels={labels} tasks={documentTasks} milestones={milestones} onClose={() => setPinPickerOpen(false)} />}
   </>;
 }
 
@@ -499,7 +511,7 @@ function CanvasDocumentPicker({ projectId, canvasItems, context, labels, tasks, 
   const [selected, setSelected] = useState<string[]>([]);
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => subscribeProjectQuery<ProjectDocument>(projectId, 'documents', 'canvas-picker:50', [orderBy('updatedAt', 'desc'), orderBy(documentId()), limit(50)], (next) => { setItems(next); const last = next.at(-1); setCursor(last?.updatedAt ? { value: last.updatedAt, id: last.id } : null); setMore(next.length === 50); }), [projectId]);
+  useEffect(() => subscribeProjectQuery<ProjectDocument>(projectId, 'documents', 'recent:50:labels:*:tasks:*:milestones:*', [orderBy('updatedAt', 'desc'), orderBy(documentId()), limit(50)], (next) => { setItems(next); const last = next.at(-1); setCursor(last?.updatedAt ? { value: last.updatedAt, id: last.id } : null); setMore(next.length === 50); }), [projectId]);
   const available = useMemo(() => items.filter((item) => !linkedIds.includes(item.id) && matchDocument(item, parseDocumentQuery(queryText), labels, tasks, milestones)), [items, queryText, labels, tasks, milestones, linkedIds]);
   const copyCounts = useMemo(() => documentCardCounts(canvasItems), [canvasItems]);
   const loadMore = async () => { if (!cursor || busy) return; setBusy(true); try { const page = await loadProjectCollectionPage<ProjectDocument>(projectId, 'documents', cursor, 50); setItems((current) => [...current, ...page.items.filter((item) => !current.some((old) => old.id === item.id))]); setCursor(page.nextCursor); setMore(page.hasMore); } finally { setBusy(false); } };
@@ -608,10 +620,14 @@ function DocumentReader({ documentId, projectId, context, role, readOnly }: { do
   const [item, setItem] = useState<LoadedProjectDocument | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(false);
-  const labels = useProjectItems<Label>(projectId, 'labels');
-  const activeTasks = useActiveTasks(projectId);
-  const tasks = useLinkedTasks(projectId, activeTasks, item?.taskIds || []);
-  const milestones = useProjectItems<Milestone>(projectId, 'milestones');
+  const labelChoices = useProjectItemsState<Label>(projectId, 'labels', editing);
+  const referencedLabels = useProjectItemsByIds<Label>(projectId, 'labels', item?.labelIds || [], !editing);
+  const labels = editing ? labelChoices.items : referencedLabels;
+  const active = useActiveTasksState(projectId, editing);
+  const tasks = useLinkedTasks(projectId, active.items, editing ? item?.taskIds || [] : []);
+  const milestoneChoices = useProjectItemsState<Milestone>(projectId, 'milestones', editing);
+  const milestones = milestoneChoices.items;
+  const choicesReady = labelChoices.loaded && active.loaded && milestoneChoices.loaded;
 
   useEffect(() => {
     setItem(undefined);
@@ -636,7 +652,8 @@ function DocumentReader({ documentId, projectId, context, role, readOnly }: { do
       </header>
       <MarkdownRenderer content={item.content} locale={locale} className="document-reader-content" />
     </section>
-    {editing && <DocumentModal item={item} labels={labels} tasks={tasks} milestones={milestones} projectId={projectId} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} onDeleted={() => navigate(`/p/${projectId}/docs`)} />}
+    {editing && !choicesReady && <Modal title="Loading editor" onClose={() => setEditing(false)}>{active.failed || labelChoices.failed || milestoneChoices.failed ? <button onClick={() => { active.retry(); labelChoices.retry(); milestoneChoices.retry(); }}>Retry loading editor</button> : <span className="loader" />}</Modal>}
+    {editing && choicesReady && <DocumentModal item={item} labels={labels} tasks={tasks} milestones={milestones} projectId={projectId} context={context} role={role} readOnly={readOnly} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} onDeleted={() => navigate(`/p/${projectId}/docs`)} />}
   </>;
 }
 
