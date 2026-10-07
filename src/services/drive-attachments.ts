@@ -18,6 +18,7 @@ import type { DriveAccessMode, DriveFileRef, DriveProjectDocument, DriveRole, Me
 import { allowedDriveRoles, isDriveFolder, removeDrivePermissions, syncDriveFileMembers, updateManagedPermissionRoles, type DriveFileCandidate, type DriveShareResult } from './google-drive';
 import { activityData, BATCH_CHUNK, database, withId } from './helpers';
 import { bulkDeleteWorkItems } from './work-items';
+import { cleanupRemovedDocumentCards } from './canvas-documents';
 
 export const isDriveProjectDocument = (item: ProjectDocument): item is DriveProjectDocument => item.kind === 'drive';
 export const driveDocumentId = (fileId: string) => `drive_${fileId}`;
@@ -120,12 +121,10 @@ export function subscribeMilestoneDocuments(projectId: string, milestoneId: stri
 
 export async function detachDriveProjectDocument(projectId: string, id: string): Promise<void> {
   const store = database();
-  const cardRef = doc(store, 'projects', projectId, 'stickyNotes', `document_${id}`);
-  const cardExists = (await getDoc(cardRef)).exists();
   const batch = writeBatch(store);
-  if (cardExists) batch.delete(cardRef);
   batch.delete(doc(store, 'projects', projectId, 'documents', id));
   await batch.commit();
+  await cleanupRemovedDocumentCards(projectId, [id]);
 }
 
 export interface DrivePermissionSyncSummary {

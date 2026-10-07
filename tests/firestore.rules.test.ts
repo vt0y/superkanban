@@ -959,13 +959,56 @@ describe('ProjectSpace Firestore rules', () => {
     await assertFails(updateDoc(card, { createdBy: 'owner', updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(card, { createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(doc(context('outsider'), card.path), { pinned: true, updatedAt: serverTimestamp() }));
-    await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'stickyNotes', 'wrong'), { kind: 'document', documentId: 'doc-card', x: 0, y: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    const copy = doc(memberDb, 'projects', projectId, 'stickyNotes', 'generated-copy');
+    await assertSucceeds(setDoc(copy, { kind: 'document', documentId: 'doc-card', x: 0, y: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(copy, { color: '#dbeafe', pinned: true, updatedAt: serverTimestamp() }));
+    expect((await getDoc(card)).data()?.color).toBe('#ffffff');
+    await assertFails(updateDoc(copy, { documentId: 'other', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(copy, { createdBy: 'owner', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(copy, { createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
     await assertFails(setDoc(doc(memberDb, 'projects', projectId, 'stickyNotes', 'document_missing'), { kind: 'document', documentId: 'missing', x: 0, y: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
     await assertSucceeds(deleteDoc(card));
+    expect((await getDoc(copy)).exists()).toBe(true);
+    expect((await getDoc(doc(memberDb, 'projects', projectId, 'documents', 'doc-card'))).exists()).toBe(true);
     await assertFails(setDoc(doc(context('outsider'), 'projects', projectId, 'stickyNotes', 'document_doc-card'), { kind: 'document', documentId: 'doc-card', x: 0, y: 0, createdBy: 'outsider', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
 
     const styled = doc(memberDb, 'projects', projectId, 'stickyNotes', 'document_doc-card');
     await assertSucceeds(setDoc(styled, { kind: 'document', documentId: 'doc-card', x: 0, y: 0, pinned: true, color: '#dbeafe', createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+  });
+
+  it('blocks new copies after document deletion and permits bounded cleanup of orphan cards', async () => {
+    await seedProject();
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'projects', projectId, 'documents', 'spec'), { title: 'Spec', content: '', createdBy: 'member', createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+      const batch = writeBatch(db);
+      for (let i = 0; i < 450; i++) batch.set(doc(db, 'projects', projectId, 'stickyNotes', `copy-${i}`), { kind: 'document', documentId: 'spec', x: 0, y: 0, createdBy: 'member', createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+      await batch.commit();
+    });
+    const db = context('member');
+    const source = doc(db, 'projects', projectId, 'documents', 'spec');
+    await assertSucceeds(deleteDoc(source));
+    await assertFails(setDoc(doc(db, 'projects', projectId, 'stickyNotes', 'late-copy'), { kind: 'document', documentId: 'spec', x: 0, y: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    const cards = await assertSucceeds(getDocs(query(collection(db, 'projects', projectId, 'stickyNotes'), where('documentId', '==', 'spec'), limit(450))));
+    const batch = writeBatch(db);
+    cards.docs.forEach((card) => batch.delete(card.ref));
+    await assertSucceeds(batch.commit());
+    expect((await getDocs(query(collection(db, 'projects', projectId, 'stickyNotes'), where('documentId', '==', 'spec')))).empty).toBe(true);
+  });
+
+  it('rejects duplicate-card mutations in archived projects', async () => {
+    await seedProject();
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'projects', projectId, 'documents', 'spec'), { title: 'Spec', content: '', createdBy: 'member' });
+      await setDoc(doc(db, 'projects', projectId, 'stickyNotes', 'generated-copy'), { kind: 'document', documentId: 'spec', x: 0, y: 0, createdBy: 'member', createdAt: Timestamp.now() });
+      await updateDoc(doc(db, 'projects', projectId), { archived: true });
+    });
+    const db = context('member');
+    const copy = doc(db, 'projects', projectId, 'stickyNotes', 'generated-copy');
+    await assertFails(updateDoc(copy, { pinned: true, updatedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(copy));
+    await assertFails(setDoc(doc(db, 'projects', projectId, 'stickyNotes', 'another-copy'), { kind: 'document', documentId: 'spec', x: 0, y: 0, createdBy: 'member', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
   });
 
   it('legacy sticky notes without kind can still be edited, moved, recolored, and deleted', async () => {

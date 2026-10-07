@@ -137,3 +137,10 @@
 .sticky-color-picker { position: absolute; top: 34px; right: var(--sp-2); z-index: 2; display: flex; gap: 5px; padding: 6px; border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--shadow-md); }
 .sticky-color-picker button { width: 22px; height: 22px; padding: 0; border: 1px solid var(--sticky-rule); border-radius: 50%; }
 .sticky-color-picker button.selected { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+.canvas-selection-toolbar { flex-wrap: wrap; margin-bottom: var(--sp-3); }
+.sticky-canvas .sticky-note.selected { outline: 3px solid var(--primary); outline-offset: 3px; }
+.sticky-canvas.select-mode .sticky-note { cursor: pointer; }
+.sticky-canvas.select-mode .sticky-note p { user-select: none; }
+.canvas-select-check { width: 22px; height: 22px; margin: 4px; accent-color: var(--primary); cursor: pointer; }
+@media (pointer: coarse) { .canvas-select-check { width: 28px; height: 28px; } }

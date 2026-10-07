@@ -130,19 +130,25 @@ If offline task editing or transaction latency becomes more important, switch to
 
 Prefer this alternative only when offline editing is a product requirement or measured transaction latency is unacceptable. Keep the current transaction strategy for stronger concurrent correctness.
 
-# Multiple sticky cards for the same document — feasibility
+# Multiple sticky cards for the same document — implemented
 
-This is feasible, but it is intentionally deferred. Today a document card uses the deterministic sticky-note ID `document_<documentId>`, so Firestore, the picker, unpinning, and document deletion all assume exactly one canvas card per document.
+Each new document card has a generated sticky-note ID and an immutable `documentId` reference. Existing `document_<documentId>` cards remain valid without migration.
 
-## Recommended design
+## Behavior
 
-- Give every new document card its own generated sticky-note ID and keep `documentId` as an immutable reference. Existing deterministic cards remain valid, so no migration is required.
-- Let each card own its position, color, pinned/locked state, creator, and timestamps. Editing or deleting one copy must not affect the presentation of another copy or the source document.
-- Keep the document picker available after a document is already pinned and show its current copy count. A card action can also offer **Pin another copy**.
-- Unpin by card ID rather than document ID. Deleting a library document must query every sticky-note card with that `documentId` and remove all copies before deleting the document metadata.
-- Update Firestore rules to allow generated card IDs while requiring an existing document on create and preventing `documentId`, ownership, and creation time from changing later.
-- Add a `stickyNotes.documentId` query/index if cleanup queries require it. Cleanup must be chunked to stay below Firestore batch limits.
+- Each card owns its position, color, pinned/locked state, creator, and timestamps. Updating or removing a copy does not change other copies or the source document.
+- The Notes document picker includes already-pinned documents and shows their current copy counts. Each submission creates one additional card per selected document. Adding copies is picker-only, with no count limit or clutter warning.
+- Unpinning uses the card ID. Markdown deletion, Drive/Canva detachment, and bulk document removal delete library metadata (and app-owned Markdown bodies) first, blocking concurrent new copies through Firestore rules, then remove all matching cards in server-read batches of up to 450. The default single-field `stickyNotes.documentId` index supports cleanup; no composite index is required.
+- Cleanup failure provides a persistent retry action for the current app session. Retry only repeats card cleanup, so it works after metadata is gone. Reloading closes the retry notification; an interrupted session can leave invisible orphan cards, which can be cleaned using the document-ID cleanup service. External source files and permissions are never changed.
+- Firestore rules allow generated and legacy IDs, require an existing source document on creation, and preserve immutable document reference, ownership, and creation time. Deploy these rules before the updated client.
+- Document metadata subscriptions are deduplicated across copies; Markdown bodies are not loaded by the canvas.
 
 ## Limits and tradeoffs
 
-Duplicate cards add only small metadata reads, writes, and index storage; Markdown bodies are still not loaded by the canvas. The main risk is canvas clutter rather than backend cost. Start with a visible per-document copy count and a client-side confirmation when adding many copies. A strict server-enforced per-document limit would require a counter or transaction because Firestore rules cannot count sibling query results.
+Duplicate cards add small metadata reads, writes, and index storage. Copies remain unlimited; there is no server-side counter.
+
+## Notes canvas bulk selection
+
+Select mode supports sticky notes and document cards with checkboxes, selected outlines, Select all, and Clear. Selected items can be recolored, locked/unlocked, or removed together. Item dragging and opening are disabled in Select mode; canvas pan/zoom remain available. Group dragging and marquee selection are deferred.
+
+Bulk removal deletes sticky notes and removes document cards without deleting library documents. Active members may remove document cards; sticky-note deletion keeps the creator/admin/owner policy. Unauthorized notes are skipped and counted in the confirmation and result. Archived projects remain read-only.

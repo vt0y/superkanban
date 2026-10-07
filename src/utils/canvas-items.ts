@@ -1,8 +1,19 @@
-import type { CanvasItem } from '@/types';
+import type { CanvasItem, Role } from '@/types';
+import { canDeleteItem } from './permissions';
 
 export interface CanvasRect { x: number; y: number; w: number; h: number }
 
+/** Legacy identifier only; new copies must use generated Firestore IDs. */
 export const documentCanvasId = (documentId: string): string => `document_${documentId}`;
+
+export const removableCanvasItems = (items: CanvasItem[], role: Role | null, userId: string): CanvasItem[] =>
+  items.filter((item) => item.kind === 'document' || canDeleteItem(role, item.createdBy, userId));
+
+export function documentCardCounts(items: CanvasItem[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const item of items) if (item.kind === 'document') counts.set(item.documentId, (counts.get(item.documentId) || 0) + 1);
+  return counts;
+}
 
 const overlaps = (a: CanvasRect, b: CanvasRect, gap = 16) =>
   a.x < b.x + b.w + gap && a.x + a.w + gap > b.x && a.y < b.y + b.h + gap && a.y + a.h + gap > b.y;

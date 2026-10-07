@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   removeDrivePermissions: vi.fn(),
   updateManagedPermissionRoles: vi.fn(),
   bulkDeleteWorkItems: vi.fn(),
+  cleanup: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('firebase/firestore', () => ({
@@ -29,6 +30,7 @@ vi.mock('firebase/firestore', () => ({
 
 vi.mock('./helpers', () => ({ database: vi.fn(() => 'database'), activityData: vi.fn(), withId: vi.fn(), BATCH_CHUNK: 450 }));
 vi.mock('./work-items', () => ({ bulkDeleteWorkItems: mocks.bulkDeleteWorkItems }));
+vi.mock('./canvas-documents', () => ({ cleanupRemovedDocumentCards: mocks.cleanup }));
 vi.mock('./google-drive', async (importOriginal) => ({
   allowedDriveRoles: (await importOriginal<typeof import('./google-drive')>()).allowedDriveRoles,
   isDriveFolder: (await importOriginal<typeof import('./google-drive')>()).isDriveFolder,
@@ -37,7 +39,7 @@ vi.mock('./google-drive', async (importOriginal) => ({
   updateManagedPermissionRoles: mocks.updateManagedPermissionRoles,
 }));
 
-import { attachDriveProjectDocument, deleteMilestoneAndUnlinkDocuments, syncProjectDrivePermissions, updateDriveProjectDocumentRole } from './drive-attachments';
+import { attachDriveProjectDocument, deleteMilestoneAndUnlinkDocuments, detachDriveProjectDocument, syncProjectDrivePermissions, updateDriveProjectDocumentRole } from './drive-attachments';
 
 const snapshot = (id: string, data: Record<string, unknown>) => ({ id, ref: `ref:${id}`, data: () => data });
 
@@ -50,6 +52,14 @@ describe('project Drive permission sync', () => {
     mocks.batch.commit.mockResolvedValue(undefined);
   });
   afterEach(() => vi.restoreAllMocks());
+
+  it('detaches metadata before cleaning up all cards without touching Drive permissions', async () => {
+    await detachDriveProjectDocument('project-1', 'drive_file-1');
+    expect(mocks.batch.delete).toHaveBeenCalledWith('database/projects/project-1/documents/drive_file-1');
+    expect(mocks.cleanup).toHaveBeenCalledWith('project-1', ['drive_file-1']);
+    expect(mocks.batch.commit.mock.invocationCallOrder[0]).toBeLessThan(mocks.cleanup.mock.invocationCallOrder[0]);
+    expect(mocks.removeDrivePermissions).not.toHaveBeenCalled();
+  });
 
   it('syncs only Drive documents from the unified library', async () => {
     mocks.getDocs

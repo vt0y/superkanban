@@ -7,11 +7,13 @@ export function BulkBar({
   locale,
   onClear,
   children,
+  disabled = false,
 }: {
   count: number;
   locale: string;
   onClear: () => void;
   children: ReactNode;
+  disabled?: boolean;
 }) {
   if (!count) return null;
   return (
@@ -20,7 +22,7 @@ export function BulkBar({
         <b>{count}</b> {pick(locale, 'รายการที่เลือก', 'selected')}
       </span>
       <div className="bulk-actions">{children}</div>
-      <button type="button" className="bulk-clear" onClick={onClear} title={pick(locale, 'ยกเลิกการเลือก', 'Clear selection')} aria-label={pick(locale, 'ยกเลิกการเลือก', 'Clear selection')}>
+      <button type="button" className="bulk-clear" disabled={disabled} onClick={onClear} title={pick(locale, 'ยกเลิกการเลือก', 'Clear selection')} aria-label={pick(locale, 'ยกเลิกการเลือก', 'Clear selection')}>
         <Icon name="close" />
       </button>
     </div>

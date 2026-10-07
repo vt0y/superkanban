@@ -5,7 +5,6 @@ import {
   arrayUnion,
   deleteField,
   doc,
-  getDoc,
   onSnapshot,
   runTransaction,
   serverTimestamp,
@@ -16,6 +15,7 @@ import {
 import type { LoadedProjectDocument, MarkdownProjectDocument, ProjectDocument, ProjectDocumentBody } from '@/types';
 import { DOCUMENT_BODY_MAX_BYTES, documentMetadata } from '@/utils/documents';
 import { activityData, database, withId } from './helpers';
+import { cleanupRemovedDocumentCards } from './canvas-documents';
 
 function metadataRef(projectId: string, documentId: string) {
   return doc(database(), 'projects', projectId, 'documents', documentId);
@@ -143,13 +143,11 @@ export async function updateProjectDocumentLabels(projectId: string, documentId:
 
 export async function deleteProjectDocument(projectId: string, documentId: string): Promise<void> {
   const store = database();
-  const cardRef = doc(store, 'projects', projectId, 'stickyNotes', `document_${documentId}`);
-  const cardExists = (await getDoc(cardRef)).exists();
   const batch = writeBatch(store);
   batch.delete(doc(store, 'projects', projectId, 'documentBodies', documentId));
-  if (cardExists) batch.delete(cardRef);
   batch.delete(doc(store, 'projects', projectId, 'documents', documentId));
   await batch.commit();
+  await cleanupRemovedDocumentCards(projectId, [documentId]);
 }
 
 /** Removes library records and their app-owned body/card data; external source files are untouched. */
@@ -157,15 +155,13 @@ export async function bulkRemoveProjectDocuments(projectId: string, documents: P
   const items = [...new Map(documents.map((item) => [item.id, item])).values()];
   for (let start = 0; start < items.length; start += DOCUMENT_RULES_BATCH_SIZE) {
     const chunk = items.slice(start, start + DOCUMENT_RULES_BATCH_SIZE);
-    const cardRefs = chunk.map((item) => doc(database(), 'projects', projectId, 'stickyNotes', `document_${item.id}`));
-    const cardSnapshots = await Promise.all(cardRefs.map((ref) => getDoc(ref)));
     const batch = writeBatch(database());
-    chunk.forEach((item, index) => {
+    chunk.forEach((item) => {
       batch.delete(metadataRef(projectId, item.id));
       if (item.kind !== 'drive' && item.kind !== 'canva') batch.delete(bodyRef(projectId, item.id));
-      if (cardSnapshots[index].exists()) batch.delete(cardRefs[index]);
     });
     await batch.commit();
+    await cleanupRemovedDocumentCards(projectId, chunk.map((item) => item.id));
   }
 }
 

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const firestore = vi.hoisted(() => {
   const batch = { set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn(() => Promise.resolve()) };
-  return { batch, getDoc: vi.fn(() => Promise.resolve({ exists: () => true })), updateDoc: vi.fn(() => Promise.resolve()), writeBatch: vi.fn(() => batch) };
+  return { batch, cleanup: vi.fn(() => Promise.resolve()), getDoc: vi.fn(() => Promise.resolve({ exists: () => true })), updateDoc: vi.fn(() => Promise.resolve()), writeBatch: vi.fn(() => batch) };
 });
 
 vi.mock('firebase/firestore', () => ({
@@ -24,6 +24,7 @@ vi.mock('./helpers', () => ({
   database: vi.fn(() => 'database'),
   withId: vi.fn(),
 }));
+vi.mock('./canvas-documents', () => ({ cleanupRemovedDocumentCards: firestore.cleanup }));
 
 import { bulkRemoveProjectDocuments, bulkUpdateProjectDocumentLinks, createProjectDocument, deleteProjectDocument, linkProjectDocumentsToMilestone, linkProjectDocumentsToTask, unlinkProjectDocumentFromMilestone, unlinkProjectDocumentFromTask, updateProjectDocument, updateProjectDocumentLabels } from './documents';
 
@@ -54,7 +55,9 @@ describe('document v2 writes', () => {
 
   it('deletes both records atomically and rejects oversized bodies before writing', async () => {
     await deleteProjectDocument('project-1', 'doc-1');
-    expect(firestore.batch.delete).toHaveBeenCalledTimes(3);
+    expect(firestore.batch.delete).toHaveBeenCalledTimes(2);
+    expect(firestore.cleanup).toHaveBeenCalledWith('project-1', ['doc-1']);
+    expect(firestore.batch.commit.mock.invocationCallOrder[0]).toBeLessThan(firestore.cleanup.mock.invocationCallOrder[0]);
     await expect(updateProjectDocument('project-1', 'doc-1', 'Large', 'x'.repeat(921601), [])).rejects.toThrow('DOCUMENT_TOO_LARGE');
     expect(firestore.writeBatch).toHaveBeenCalledTimes(1);
   });
@@ -101,15 +104,14 @@ describe('document v2 writes', () => {
       { id: 'markdown-1', title: 'Spec' },
     ] as never);
 
-    expect(firestore.batch.delete).toHaveBeenCalledTimes(7);
+    expect(firestore.batch.delete).toHaveBeenCalledTimes(4);
     expect(firestore.batch.delete).toHaveBeenCalledWith('database/projects/project-1/documentBodies/markdown-1');
     expect(firestore.batch.delete).not.toHaveBeenCalledWith('database/projects/project-1/documentBodies/drive-1');
-    expect(firestore.batch.delete).toHaveBeenCalledWith('database/projects/project-1/stickyNotes/document_canva-1');
+    expect(firestore.cleanup).toHaveBeenCalledWith('project-1', ['markdown-1', 'drive-1', 'canva-1']);
     expect(firestore.batch.commit).toHaveBeenCalledTimes(1);
   });
 
-  it('skips missing canvas cards while bulk removing documents', async () => {
-    firestore.getDoc.mockResolvedValue({ exists: () => false } as never);
+  it('chunks metadata removals within the rules access-call limit', async () => {
     await bulkRemoveProjectDocuments('project-1', Array.from({ length: 5 }, (_, index) => ({ id: `drive-${index}`, kind: 'drive', title: 'Sheet' })) as never);
     expect(firestore.batch.delete).toHaveBeenCalledTimes(5);
     expect(firestore.batch.delete).toHaveBeenCalledWith('database/projects/project-1/documents/drive-1');

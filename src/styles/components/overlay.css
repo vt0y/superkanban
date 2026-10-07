@@ -98,6 +98,8 @@
 .toast .icon { width: 16px; height: 16px; margin-top: 2px; color: var(--inverse-muted); }
 .toast.error .icon { color: var(--danger); }
 .toast.success .icon { color: var(--success); }
+.toast > span { min-width: 0; overflow-wrap: anywhere; }
+.toast > button { flex-shrink: 0; align-self: center; }
 @media (min-width: 640px) {
   .toaster { left: auto; right: var(--sp-5); bottom: var(--sp-5); align-items: flex-end; }
 }

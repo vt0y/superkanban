@@ -209,8 +209,7 @@ service cloud.firestore {
             && request.resource.data.documentId.size() > 0 && request.resource.data.documentId.size() <= 220
             && request.resource.data.x is number && request.resource.data.y is number
             && (!('pinned' in request.resource.data) || request.resource.data.pinned is bool)
-            && (!('color' in request.resource.data) || request.resource.data.color in ['#ffffff','#fef3c7','#dbeafe','#dcfce7','#fce7f3','#ede9fe'])
-            && itemId == 'document_' + request.resource.data.documentId;
+            && (!('color' in request.resource.data) || request.resource.data.color in ['#ffffff','#fef3c7','#dbeafe','#dcfce7','#fce7f3','#ede9fe']);
         }
         allow read: if isMember(projectId);
         allow create: if validWorkCreate(projectId) && ((validNote())
