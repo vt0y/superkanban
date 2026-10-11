@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppContextValue } from '@/context/AppContext';
-import { loadSiteFeedbackPage, subscribeSiteFeedback, type FeedbackCursor, type SubscribeSiteFeedbackOptions } from '@/services/feedback';
+import { subscribeSiteFeedback, type SubscribeSiteFeedbackOptions } from '@/services/feedback';
 import type { SiteFeedback } from '@/types';
 
 export function useSiteFeedback(
@@ -19,34 +19,55 @@ export function useSiteFeedback(
   return items;
 }
 
+/** Keep the loaded window live so deleted or reclassified older rows disappear too. */
 export function useSiteFeedbackPage(context: AppContextValue, options?: SubscribeSiteFeedbackOptions) {
-  const [items, setItems] = useState<SiteFeedback[]>([]);
-  const [cursor, setCursor] = useState<FeedbackCursor | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const paged = useRef(false);
-  const admin = context.siteRole !== null;
+  const pageSize = options?.limitCount ?? 50;
+  const admin = context.siteRole === 'owner' || context.siteRole === 'admin';
   const status = options?.status;
+  const key = `${context.user.uid}:${admin}:${status ?? 'all'}:${pageSize}`;
+  const [window, setWindow] = useState({ key, limit: pageSize });
+  const limitCount = window.key === key ? window.limit : pageSize;
+  const [result, setResult] = useState<{ key: string; limit: number; items: SiteFeedback[]; hasMore: boolean; error: Error | null }>({
+    key: '', limit: 0, items: [], hasMore: false, error: null,
+  });
+  const [retry, setRetry] = useState(0);
+  const active = useRef(false);
   useEffect(() => {
-    paged.current = false;
-    return subscribeSiteFeedback(context.user.uid, admin, (recent) => {
-    setItems((current) => [...recent, ...current.filter((item) => !recent.some((next) => next.id === item.id))]);
-    const last = recent.at(-1);
-    if (!paged.current) {
-      if (last?.createdAt) setCursor({ createdAt: last.createdAt, id: last.id });
-      setHasMore(recent.length === (options?.limitCount ?? 50));
-    }
-  }, () => setItems([]), { ...options, limitCount: options?.limitCount ?? 50 });
-  }, [context.user.uid, admin, status, options?.limitCount]);
-  const loadMore = async () => {
-    if (!cursor || !hasMore || loadingMore) return;
-    setLoadingMore(true);
-    paged.current = true;
-    try {
-      const page = await loadSiteFeedbackPage(context.user.uid, admin, cursor, options?.limitCount ?? 50, status);
-      setItems((current) => [...current, ...page.items.filter((item) => !current.some((existing) => existing.id === item.id))]);
-      setCursor(page.nextCursor); setHasMore(page.hasMore);
-    } finally { setLoadingMore(false); }
+    let current = true;
+    active.current = true;
+    setWindow({ key, limit: limitCount });
+    const stop = subscribeSiteFeedback(context.user.uid, admin, (rows) => {
+      if (!current) return;
+      active.current = false;
+      setResult({ key, limit: limitCount, items: rows.slice(0, limitCount), hasMore: rows.length > limitCount, error: null });
+    }, (error) => {
+      if (!current) return;
+      active.current = false;
+      setResult((previous) => ({
+        key, limit: limitCount, items: previous.key === key ? previous.items : [],
+        hasMore: previous.key === key && previous.hasMore, error,
+      }));
+    }, { status, limitCount: limitCount + 1 });
+    return () => { current = false; stop(); };
+  }, [context.user.uid, admin, key, status, limitCount, retry]);
+  const matching = result.key === key;
+  const loading = !matching || (result.limit !== limitCount && !result.error);
+  const refresh = () => {
+    active.current = true;
+    setResult((previous) => ({ ...previous, limit: 0, error: null }));
+    setRetry((value) => value + 1);
   };
-  return { items, hasMore, loadingMore, loadMore };
+  const loadMore = async () => {
+    if (!matching || !result.hasMore || loading || active.current || result.error) return;
+    active.current = true;
+    setWindow({ key, limit: limitCount + pageSize });
+  };
+  return {
+    items: matching ? result.items : [],
+    hasMore: matching && result.hasMore,
+    loading: loading && (!matching || result.items.length === 0),
+    loadingMore: loading && matching && result.items.length > 0,
+    error: matching ? result.error : null,
+    loadMore, refresh,
+  };
 }

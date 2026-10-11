@@ -6,6 +6,7 @@ import {
   doc,
   documentId,
   getDocs,
+  getCountFromServer,
   limit,
   onSnapshot,
   orderBy,
@@ -18,7 +19,8 @@ import {
   type Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
-import type { FeedbackCategory, SiteFeedback } from '@/types';
+import type { FeedbackCategory, FeedbackStatus, SiteFeedback } from '@/types';
+import { FEEDBACK_STATUSES } from '@/config/constants';
 import { database, withId } from './helpers';
 
 export interface SubscribeSiteFeedbackOptions {
@@ -27,6 +29,24 @@ export interface SubscribeSiteFeedbackOptions {
 }
 export interface FeedbackCursor { createdAt: Timestamp; id: string }
 export interface FeedbackPage { items: SiteFeedback[]; nextCursor: FeedbackCursor | null; hasMore: boolean }
+
+export interface FeedbackCounts {
+  total: number;
+  byStatus: Record<FeedbackStatus, number>;
+}
+
+/** Counts the whole inbox without downloading its submissions. Rules require site staff. */
+export async function loadSiteFeedbackCounts(): Promise<FeedbackCounts> {
+  const source = collection(database(), 'siteFeedback');
+  const [total, ...statuses] = await Promise.all([
+    getCountFromServer(source),
+    ...FEEDBACK_STATUSES.map(({ id }) => getCountFromServer(query(source, where('status', '==', id)))),
+  ]);
+  return {
+    total: total.data().count,
+    byStatus: Object.fromEntries(FEEDBACK_STATUSES.map(({ id }, index) => [id, statuses[index].data().count])) as Record<FeedbackStatus, number>,
+  };
+}
 
 function feedbackConstraints(userId: string, admin: boolean, status?: SiteFeedback['status']): QueryConstraint[] {
   const constraints: QueryConstraint[] = [];

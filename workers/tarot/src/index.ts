@@ -75,6 +75,9 @@ export default {
       return jsonError(401, 'UNAUTHENTICATED', error instanceof Error ? error.message : 'Authentication failed.', false, cors);
     }
 
+    const accessError = await checkAccountAccess(request, env, user.sub, cors);
+    if (accessError) return accessError;
+
     try {
       if (request.method === 'POST' && url.pathname === '/v1/tarot/sessions') {
         const rate = await env.SESSION_RATE_LIMITER.limit({ key: user.sub });
@@ -329,6 +332,27 @@ async function canvaDesignTitle(request: Request, cors: HeadersInit): Promise<Re
   if (!target) return jsonError(400, 'INVALID_LINK', 'Only https://www.canva.com/design/<id>/<token>/edit links are supported.', false, cors);
   const { value: title } = await withCanvaDiagnostics(() => cachedCanvaDesignTitle(target, edgeCache()));
   return json({ title }, 200, cors);
+}
+
+/** Read with the verified user's ID token so Firestore rules apply; never cache status. */
+export async function checkAccountAccess(request: Request, env: Pick<Env, 'FIREBASE_PROJECT_ID'>, uid: string, cors: HeadersInit): Promise<Response | null> {
+  try {
+    const response = await fetch(`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(env.FIREBASE_PROJECT_ID)}/databases/(default)/documents/users/${encodeURIComponent(uid)}`, {
+      headers: { Authorization: request.headers.get('Authorization')! },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error('Account status unavailable');
+    const profile = await response.json() as { fields?: Record<string, { stringValue?: string }> };
+    if (!profile.fields) throw new Error('Invalid account profile');
+    const status = profile.fields.accountStatus;
+    if (status?.stringValue === 'suspended') {
+      return jsonError(403, 'ACCOUNT_SUSPENDED', localMessage('This ProjectSpace account is suspended.', 'บัญชี ProjectSpace นี้ถูกระงับการใช้งาน', request), false, cors);
+    }
+    if (status && status.stringValue !== 'active') throw new Error('Invalid account status');
+    return null;
+  } catch {
+    return jsonError(503, 'ACCOUNT_STATUS_UNAVAILABLE', localMessage('Could not check account access. Please retry.', 'ตรวจสอบสถานะบัญชีไม่ได้ กรุณาลองใหม่', request), true, cors);
+  }
 }
 
 async function authenticate(request: Request, env: Env): Promise<FirebaseClaims> {

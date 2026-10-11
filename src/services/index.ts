@@ -20,3 +20,4 @@ export * from './drive-attachments';
 export * from './project-summary';
 export * from './canva';
 export * from './canvas-documents';
+export * from './admin';

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { Timestamp, arrayRemove, collection, deleteDoc, deleteField, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { Timestamp, arrayRemove, collection, deleteDoc, deleteField, doc, getDoc, getDocs, getCountFromServer, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 let environment: RulesTestEnvironment;
@@ -566,6 +566,28 @@ describe('ProjectSpace Firestore rules', () => {
     await assertFails(deleteDoc(doc(memberDb, 'projects', projectId, 'pollVotes', 'single_member')));
   });
 
+  it('feedback aggregation is restricted to site staff and triage enforces reply limits', async () => {
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'siteAdmins', 'site-owner'), { role: 'owner' });
+      await setDoc(doc(db, 'siteAdmins', 'site-admin'), { role: 'admin' });
+      await setDoc(doc(db, 'siteFeedback', 'entry'), { userId: 'alice', status: 'open', adminReply: '' });
+    });
+    for (const uid of ['site-owner', 'site-admin']) {
+      const db = context(uid);
+      const count = await assertSucceeds(getCountFromServer(collection(db, 'siteFeedback')));
+      expect(count.data().count).toBe(1);
+      await assertSucceeds(getCountFromServer(query(collection(db, 'siteFeedback'), where('status', '==', 'open'))));
+      await assertSucceeds(updateDoc(doc(db, 'siteFeedback', 'entry'), { adminReply: 'a'.repeat(3000) }));
+      await assertFails(updateDoc(doc(db, 'siteFeedback', 'entry'), { adminReply: 'a'.repeat(3001) }));
+    }
+    await assertFails(getCountFromServer(collection(context('alice'), 'siteFeedback')));
+    await assertFails(getCountFromServer(collection(context('project-admin', undefined, { role: 'admin' }), 'siteFeedback')));
+    await environment.withSecurityRulesDisabled(async (ctx) => deleteDoc(doc(ctx.firestore(), 'siteAdmins', 'site-admin')));
+    await assertFails(getCountFromServer(collection(context('site-admin'), 'siteFeedback')));
+    await assertFails(updateDoc(doc(context('site-admin'), 'siteFeedback', 'entry'), { status: 'resolved' }));
+  });
+
   it('site feedback: ผู้ใช้เห็นเฉพาะของตัวเอง ผู้ดูแลเว็บเห็นและจัดการได้ทั้งหมด', async () => {
     await environment.withSecurityRulesDisabled(async (ctx) => {
       const db = ctx.firestore();
@@ -608,8 +630,10 @@ describe('ProjectSpace Firestore rules', () => {
     });
     const admin = context('site-admin');
     await assertSucceeds(getDoc(doc(admin, 'siteAdmins', 'site-admin')));
-    await assertFails(getDoc(doc(admin, 'siteAdmins', 'someone-else')));
-    await assertFails(getDocs(collection(admin, 'siteAdmins')));
+    await assertSucceeds(getDoc(doc(admin, 'siteAdmins', 'someone-else')));
+    await assertFails(getDoc(doc(context('member'), 'siteAdmins', 'site-admin')));
+    await assertSucceeds(getDocs(collection(admin, 'siteAdmins')));
+    await assertFails(getDocs(collection(context('member'), 'siteAdmins')));
     await assertFails(setDoc(doc(context('member'), 'siteAdmins', 'member'), { role: 'owner' }));
     await assertFails(updateDoc(doc(admin, 'siteAdmins', 'site-admin'), { role: 'owner' }));
     await assertFails(deleteDoc(doc(admin, 'siteAdmins', 'site-admin')));

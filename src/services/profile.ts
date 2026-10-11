@@ -35,7 +35,10 @@ export async function ensureUserProfile(user: User): Promise<void> {
     photoURL: user.photoURL || '',
     updatedAt: serverTimestamp(),
   };
-  if (existing.exists()) await setDoc(ref, base, { merge: true });
+  if (existing.exists()) {
+    if (existing.data().accountStatus === 'suspended') return;
+    await setDoc(ref, base, { merge: true });
+  }
   else await setDoc(ref, { ...base, locale: 'th', theme: 'system', createdAt: serverTimestamp() });
 
   try {
@@ -82,7 +85,7 @@ export function subscribeEnsuredProfile(
     }
     const profile = withId<UserProfile>(snap);
     callback(profile);
-    if (!ensuring && profileAuthChanged(profile, user)) {
+    if (profile.accountStatus !== 'suspended' && !ensuring && profileAuthChanged(profile, user)) {
       ensuring = true;
       void updateDoc(ref, { ...authProfileFields(user), updatedAt: serverTimestamp() })
         .catch((error: Error) => onError?.(error))

@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/config/firebase';
 import type { AppContextValue } from '@/context/AppContext';
@@ -59,6 +60,14 @@ export function UserMenu({ context, onOpenProfile }: { context: AppContextValue;
           ]}
         />
       </div>
+      {(context.siteRole === 'owner' || context.siteRole === 'admin') && (
+        <>
+          <div className="menu-sep" />
+          <Link to="/admin" role="menuitem" className="menu-item" onClick={close}>
+            <Icon name="dashboard" /><span>{pick(locale, 'ผู้ดูแลเว็บ', 'Site admin')}</span>
+          </Link>
+        </>
+      )}
       {isGitHubEnabled && (
         <>
           <div className="menu-sep" />

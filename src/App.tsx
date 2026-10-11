@@ -14,8 +14,10 @@ import {
 import type { Locale, Project, SiteRole, ThemeMode, UserProfile } from '@/types';
 import { Theme } from '@/components/layout/Theme';
 import { Toaster } from '@/components/toast/Toaster';
+import { AccountSuspended } from '@/pages/AccountSuspended';
 import { FullLoader } from '@/components/common/FullLoader';
 
+const AdminPage = lazy(() => import('@/pages/AdminPage').then((m) => ({ default: m.AdminPage })));
 const ConfigScreen = lazy(() => import('@/pages/ConfigScreen').then((m) => ({ default: m.ConfigScreen })));
 const Home = lazy(() => import('@/pages/Home').then((m) => ({ default: m.Home })));
 const InviteAccept = lazy(() => import('@/pages/InviteAccept').then((m) => ({ default: m.InviteAccept })));
@@ -64,6 +66,8 @@ function AuthGate() {
             setAuthError('DOMAIN_NOT_ALLOWED');
             return;
           }
+          setProfile(null);
+          setError('');
           setUser(nextUser);
           setProjects([]);
           setProjectsLoaded(false);
@@ -82,20 +86,28 @@ function AuthGate() {
   useEffect(() => {
     if (!user) return;
     const stopProfile = subscribeEnsuredProfile(user, setProfile, () => setError('ไม่สามารถโหลดหรือสร้างโปรไฟล์ได้'));
-    const stopProjects = subscribeProjects(user.uid, (items) => {
-      setProjects(items);
-      setProjectsLoaded(true);
-    }, () => {
-      setProjectsLoaded(true);
-      setError('ไม่สามารถโหลดโปรเจกต์ได้');
-    });
     const stopSiteRole = subscribeSiteRole(user.uid, setSiteRole);
     return () => {
       stopProfile();
-      stopProjects();
       stopSiteRole();
     };
   }, [user]);
+
+  const accountActive = !!user && profile?.id === user.uid && profile.accountStatus !== 'suspended';
+  useEffect(() => {
+    setProjects([]);
+    setProjectsLoaded(false);
+    if (!user || !accountActive) return;
+    let current = true;
+    const stop = subscribeProjects(user.uid, (items) => {
+      if (!current) return;
+      setProjects(items); setProjectsLoaded(true);
+    }, () => {
+      if (!current) return;
+      setProjectsLoaded(true); setError('ไม่สามารถโหลดโปรเจกต์ได้');
+    });
+    return () => { current = false; stop(); };
+  }, [user, accountActive]);
 
   const handleLogin = async () => {
     setAuthError('');
@@ -114,7 +126,12 @@ function AuthGate() {
       </Suspense>
     );
   }
-  if (!profile || siteRole === undefined) return <FullLoader />;
+  if (!profile || profile.id !== user.uid) {
+    if (error) return <main className="page-shell feedback-page"><p role="alert">{error}</p><button type="button" className="secondary" onClick={() => window.location.reload()}>ลองใหม่ / Retry</button><button type="button" className="secondary" onClick={() => void signOut(auth!)}>ออกจากระบบ / Sign out</button></main>;
+    return <FullLoader />;
+  }
+  if (profile.accountStatus === 'suspended') return <Theme theme={profile.theme}><AccountSuspended locale={profile.locale} onSignOut={() => void signOut(auth!)} /></Theme>;
+  if (siteRole === undefined) return <FullLoader />;
 
   const setLocale = (locale: Locale) => void updatePreferences(user.uid, { locale });
   const setTheme = (theme: ThemeMode) => void updatePreferences(user.uid, { theme });
@@ -138,7 +155,8 @@ function AuthGate() {
           <Route path="/" element={<Home context={context} />} />
           <Route path="/new" element={<NewProject context={context} />} />
           <Route path="/invite/:inviteId" element={<InviteAccept context={context} />} />
-          <Route path="/feedback" element={<SiteFeedbackPage context={context} />} />
+          <Route path="/admin" element={siteRole === 'owner' || siteRole === 'admin' ? <AdminPage context={context} /> : <Navigate to="/" replace />} />
+          <Route path="/feedback" element={siteRole === 'owner' || siteRole === 'admin' ? <Navigate to="/admin" replace /> : <SiteFeedbackPage context={context} />} />
           <Route path="/tarot" element={<TarotPage context={context} />} />
           {/* `/p/:id/docs/:documentId` opens a document; the workspace redirects the old /documents/ and /notes/ forms. */}
           <Route path="/p/:projectId/:section/:documentId" element={<ProjectWorkspace context={context} />} />

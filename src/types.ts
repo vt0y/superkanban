@@ -7,6 +7,8 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
 
+export type AccountStatus = 'active' | 'suspended';
+
 export interface UserProfile {
   id: string;
   displayName: string;
@@ -14,6 +16,9 @@ export interface UserProfile {
   photoURL: string;
   locale: Locale;
   theme: ThemeMode;
+  accountStatus?: AccountStatus;
+  statusUpdatedAt?: Timestamp;
+  statusUpdatedBy?: string;
   githubUsername?: string;
   githubId?: string;
   githubConnectedAt?: Timestamp;

@@ -15,7 +15,7 @@ import { pick } from '@/utils/formatters';
 export function SiteFeedbackPage({ context }: { context: AppContextValue }) {
   const { locale } = context;
   const admin = context.siteRole !== null;
-  const { items, hasMore, loadingMore, loadMore } = useSiteFeedbackPage(context);
+  const { items, hasMore, loading, loadingMore, error, refresh, loadMore } = useSiteFeedbackPage(context);
   const [status, setStatus] = useState<FeedbackStatus | 'all'>(admin ? 'open' : 'all');
   const [category, setCategory] = useState<FeedbackCategory | 'all'>('all');
   const [composing, setComposing] = useState(false);
@@ -86,12 +86,14 @@ export function SiteFeedbackPage({ context }: { context: AppContextValue }) {
             ))}
           </select>
         </div>
+        {loading && <p role="status">{pick(locale, 'กำลังโหลด…', 'Loading…')}</p>}
+        {error && <div role="alert"><p>{pick(locale, 'โหลดฟีดแบ็กไม่สำเร็จ', 'Could not load feedback')}</p><button type="button" className="secondary" onClick={refresh}>{pick(locale, 'ลองใหม่', 'Retry')}</button></div>}
         <div className="site-feedback-list">
           {visible.map((item) => (
             <FeedbackCard key={item.id} item={item} admin={admin} context={context} />
           ))}
         </div>
-        {!visible.length && (
+        {!loading && !error && !visible.length && (
           <Empty
             icon="feedback"
             title={pick(locale, 'ยังไม่มีฟีดแบ็ก', 'No feedback here')}
@@ -102,7 +104,7 @@ export function SiteFeedbackPage({ context }: { context: AppContextValue }) {
             }
           />
         )}
-        {hasMore && <div className="load-more-row"><button type="button" className="secondary" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? pick(locale, 'กำลังโหลด…', 'Loading…') : pick(locale, 'โหลดฟีดแบ็กเพิ่มเติม', 'Load more feedback')}</button></div>}
+        {hasMore && <div className="load-more-row"><button type="button" className="secondary" disabled={loadingMore || !!error} onClick={() => void loadMore()}>{loadingMore ? pick(locale, 'กำลังโหลด…', 'Loading…') : pick(locale, 'โหลดฟีดแบ็กเพิ่มเติม', 'Load more feedback')}</button></div>}
         {composing && <SiteFeedbackModal context={context} onClose={() => setComposing(false)} />}
       </main>
     </>

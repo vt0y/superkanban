@@ -1,0 +1,101 @@
+import { readFileSync } from 'node:fs';
+import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
+import { collection, doc, getDoc, getDocs, limit, orderBy, documentId, query, serverTimestamp, setDoc, startAfter, updateDoc, writeBatch } from 'firebase/firestore';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+
+let environment: RulesTestEnvironment;
+const db = (uid: string) => environment.authenticatedContext(uid, { email: `${uid}@example.com` }).firestore();
+beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: 'admin-management-test', firestore: { rules: readFileSync('firestore.rules', 'utf8') } }); });
+afterAll(async () => environment.cleanup());
+beforeEach(async () => {
+  await environment.clearFirestore();
+  await environment.withSecurityRulesDisabled(async (ctx) => {
+    const store = ctx.firestore();
+    for (const uid of ['site-owner', 'site-admin', 'owner', 'project-admin', 'member']) {
+      await setDoc(doc(store, 'users', uid), { displayName: uid, email: `${uid}@example.com`, locale: 'en', theme: 'system' });
+    }
+    await setDoc(doc(store, 'siteAdmins', 'site-owner'), { role: 'owner' });
+    await setDoc(doc(store, 'siteAdmins', 'site-admin'), { role: 'admin' });
+    await setDoc(doc(store, 'projects', 'p1'), { name: 'Project', archived: false, ownerId: 'owner', memberIds: ['owner', 'project-admin', 'member'] });
+    for (const [uid, role] of [['owner', 'owner'], ['project-admin', 'admin'], ['member', 'member']]) {
+      await setDoc(doc(store, 'memberships', `p1_${uid}`), { projectId: 'p1', userId: uid, role });
+    }
+    await setDoc(doc(store, 'projects', 'p1', 'tasks', 't1'), { title: 'Private task', createdBy: 'member', status: 'todo' });
+    await setDoc(doc(store, 'siteFeedback', 'f1'), { userId: 'member', status: 'open' });
+    await setDoc(doc(store, 'users', 'member', 'tarotReadings', 'r1'), { createdBy: 'member' });
+  });
+});
+const statusWrite = (actor: string, uid: string, accountStatus: string) => updateDoc(doc(db(actor), 'users', uid), { accountStatus, statusUpdatedAt: serverTimestamp(), statusUpdatedBy: actor });
+
+describe('site management authorization', () => {
+  it.each(['site-owner', 'site-admin'])('allows %s to manage ordinary accounts and project archive status', async (actor) => {
+    await assertSucceeds(getDocs(collection(db(actor), 'users')));
+    await assertSucceeds(getDocs(collection(db(actor), 'projects')));
+    await assertSucceeds(getDocs(collection(db(actor), 'siteAdmins')));
+    await assertSucceeds(statusWrite(actor, 'member', 'suspended'));
+    await assertSucceeds(statusWrite(actor, 'member', 'active'));
+    await assertSucceeds(updateDoc(doc(db(actor), 'projects', 'p1'), { archived: true, updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(db(actor), 'projects', 'p1'), { archived: false, updatedAt: serverTimestamp() }));
+    expect((await getDoc(doc(db(actor), 'projects', 'p1'))).data()).toMatchObject({ ownerId: 'owner', memberIds: ['owner', 'project-admin', 'member'] });
+  });
+  it.each(['owner', 'project-admin', 'member'])('denies site-wide lists and account management to project user %s', async (actor) => {
+    await assertFails(getDocs(collection(db(actor), 'users')));
+    await assertFails(getDocs(collection(db(actor), 'projects')));
+    await assertFails(getDocs(collection(db(actor), 'siteAdmins')));
+    await assertFails(statusWrite(actor, 'member', 'suspended'));
+  });
+  it('protects all staff, including self, and rejects forged audit fields or other profile changes', async () => {
+    for (const target of ['site-owner', 'site-admin']) await assertFails(statusWrite('site-admin', target, 'suspended'));
+    await assertFails(updateDoc(doc(db('site-admin'), 'users', 'member'), { accountStatus: 'suspended', statusUpdatedBy: 'site-owner', statusUpdatedAt: serverTimestamp() }));
+    await assertFails(statusWrite('site-admin', 'member', 'deleted'));
+    await assertFails(updateDoc(doc(db('site-admin'), 'users', 'member'), { accountStatus: 'suspended', statusUpdatedBy: 'site-admin', statusUpdatedAt: serverTimestamp(), displayName: 'Changed' }));
+    await assertFails(updateDoc(doc(db('site-admin'), 'projects', 'p1'), { archived: true, updatedAt: serverTimestamp(), ownerId: 'site-admin' }));
+  });
+  it('does not grant staff access to private project content or personal tarot history', async () => {
+    await assertFails(getDoc(doc(db('site-admin'), 'projects', 'p1', 'tasks', 't1')));
+    await assertFails(getDoc(doc(db('site-admin'), 'users', 'member', 'tarotReadings', 'r1')));
+  });
+  it('blocks suspended users with existing auth tokens, while allowing own status and reactivation', async () => {
+    const member = db('member');
+    await assertSucceeds(getDoc(doc(member, 'projects', 'p1', 'tasks', 't1')));
+    await assertSucceeds(statusWrite('site-admin', 'member', 'suspended'));
+    expect((await assertSucceeds(getDoc(doc(member, 'users', 'member')))).data()?.accountStatus).toBe('suspended');
+    await assertSucceeds(getDoc(doc(member, 'siteAdmins', 'member')));
+    await assertFails(getDoc(doc(member, 'projects', 'p1')));
+    await assertFails(getDoc(doc(member, 'projects', 'p1', 'tasks', 't1')));
+    await assertFails(getDoc(doc(member, 'siteFeedback', 'f1')));
+    await assertFails(getDoc(doc(member, 'users', 'member', 'tarotReadings', 'r1')));
+    await assertFails(updateDoc(doc(member, 'users', 'member'), { accountStatus: 'active' }));
+    await assertFails(updateDoc(doc(member, 'users', 'member'), { theme: 'dark' }));
+    await assertSucceeds(statusWrite('site-owner', 'member', 'active'));
+    await assertSucceeds(getDoc(doc(member, 'projects', 'p1', 'tasks', 't1')));
+  });
+  it('denies management after staff role revocation or out-of-band staff suspension', async () => {
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'siteAdmins', 'site-admin'), { role: 'member' });
+      await updateDoc(doc(ctx.firestore(), 'users', 'site-owner'), { accountStatus: 'suspended' });
+    });
+    for (const actor of ['site-admin', 'site-owner']) {
+      await assertFails(getDocs(collection(db(actor), 'users')));
+      await assertFails(statusWrite(actor, 'member', 'suspended'));
+    }
+  });
+  it('allows legacy profiles and safe bootstrap, but prevents client provisioning of account state', async () => {
+    await assertSucceeds(getDoc(doc(db('member'), 'projects', 'p1')));
+    await assertSucceeds(setDoc(doc(db('new-user'), 'users', 'new-user'), { email: 'new-user@example.com', displayName: 'New' }));
+    await assertFails(setDoc(doc(db('spoof'), 'users', 'spoof'), { email: 'spoof@example.com', accountStatus: 'active' }));
+    await assertFails(setDoc(doc(db('spoof'), 'users', 'spoof'), { email: 'spoof@example.com', statusUpdatedBy: 'site-owner' }));
+  });
+  it('paginates metadata by ID, including legacy records without createdAt', async () => {
+    await environment.withSecurityRulesDisabled(async (ctx) => {
+      const batch = writeBatch(ctx.firestore());
+      for (let i = 0; i < 55; i++) batch.set(doc(ctx.firestore(), 'projects', `z${i.toString().padStart(2, '0')}`), { name: `Old ${i}`, ownerId: 'owner', memberIds: ['owner'], archived: false });
+      await batch.commit();
+    });
+    const first = await assertSucceeds(getDocs(query(collection(db('site-admin'), 'projects'), orderBy(documentId()), limit(51))));
+    expect(first.size).toBe(51);
+    const next = await assertSucceeds(getDocs(query(collection(db('site-admin'), 'projects'), orderBy(documentId()), startAfter(first.docs[49].id), limit(51))));
+    expect(next.size).toBe(6);
+    expect(new Set([...first.docs.slice(0, 50), ...next.docs].map((item) => item.id)).size).toBe(56);
+  });
+});

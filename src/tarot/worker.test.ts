@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import worker, { bangkokDayKey, dailyReadingLimit, hasDailyReadingCapacity, secureShuffle, type Env } from '../../workers/tarot/src/index';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import worker, { bangkokDayKey, checkAccountAccess, dailyReadingLimit, hasDailyReadingCapacity, secureShuffle, type Env } from '../../workers/tarot/src/index';
 
 const env = {
   ALLOWED_ORIGINS: 'https://app.example.com',
@@ -68,5 +68,63 @@ describe('tarot daily reading limit', () => {
 
     await expect(hasDailyReadingCapacity(quotaEnv, 'user-1', Date.parse('2026-09-26T12:00:00Z'))).resolves.toBe(false);
     expect(bind).toHaveBeenCalledWith('user-1', '2026-09-26');
+  });
+});
+
+
+describe('account access in the worker', () => {
+  const request = () => new Request('https://worker.example.com/v1/tarot/sessions', { method: 'POST', headers: { Authorization: 'Bearer verified-token', 'Accept-Language': 'en' } });
+  afterEach(() => vi.unstubAllGlobals());
+  it.each([{}, { accountStatus: { stringValue: 'active' } }])('accepts active and legacy profiles', async (fields) => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ fields }));
+    vi.stubGlobal('fetch', fetcher);
+    expect(await checkAccountAccess(request(), env, 'alice', {})).toBeNull();
+    expect(fetcher).toHaveBeenCalledWith('https://firestore.googleapis.com/v1/projects/demo/databases/(default)/documents/users/alice', expect.objectContaining({ headers: { Authorization: 'Bearer verified-token' } }));
+  });
+  it('rejects suspension and checks again after reactivation with no status cache', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ fields: { accountStatus: { stringValue: 'suspended' } } })).mockResolvedValueOnce(Response.json({ fields: { accountStatus: { stringValue: 'active' } } }));
+    vi.stubGlobal('fetch', fetcher);
+    const denied = await checkAccountAccess(request(), env, 'alice', {});
+    expect(denied?.status).toBe(403);
+    await expect(denied?.json()).resolves.toMatchObject({ error: { code: 'ACCOUNT_SUSPENDED', retryable: false } });
+    expect(await checkAccountAccess(request(), env, 'alice', {})).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it.each([404, 403, 500])('fails closed with retryable error when Firestore returns %s', async (status) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status })));
+    const response = await checkAccountAccess(request(), env, 'alice', {});
+    expect(response?.status).toBe(503);
+    await expect(response?.json()).resolves.toMatchObject({ error: { code: 'ACCOUNT_STATUS_UNAVAILABLE', retryable: true } });
+  });
+  it('fails closed for network failure or malformed status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Offline')));
+    expect((await checkAccountAccess(request(), env, 'alice', {}))?.status).toBe(503);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ fields: { accountStatus: { integerValue: '1' } } })));
+    expect((await checkAccountAccess(request(), env, 'alice', {}))?.status).toBe(503);
+  });
+});
+
+describe('suspension before worker operations', () => {
+  let token: string;
+  let jwk: JsonWebKey;
+  const encode = (data: string | Uint8Array) => Buffer.from(data).toString('base64url');
+  beforeAll(async () => {
+    const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+    jwk = await crypto.subtle.exportKey('jwk', pair.publicKey);
+    const prefix = `${encode(JSON.stringify({ alg: 'RS256', kid: 'account-test' }))}.${encode(JSON.stringify({ sub: 'alice', aud: 'demo', iss: 'https://securetoken.google.com/demo', exp: Math.floor(Date.now() / 1000) + 3600, email: 'alice@example.com', email_verified: true }))}`;
+    const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', pair.privateKey, new TextEncoder().encode(prefix));
+    token = `${prefix}.${encode(new Uint8Array(signature))}`;
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  it.each(['/v1/tarot/sessions', '/v1/tarot/sessions/aaaaaaaaaaaaaaaaaaaa/reveal', '/v1/links/canva/resolve', '/v1/links/canva/title'])('blocks %s despite a valid Firebase token, before rate limiting or storage', async (path) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('googleapis.com/service_accounts') ? Response.json({ keys: [{ ...jwk, kid: 'account-test' }] }) : Response.json({ fields: { accountStatus: { stringValue: 'suspended' } } })));
+    const limiter = { limit: vi.fn() };
+    const prepare = vi.fn();
+    const bindings = { ...env, DB: { prepare }, SESSION_RATE_LIMITER: limiter, REVEAL_RATE_LIMITER: limiter, LINK_RATE_LIMITER: limiter } as unknown as Env;
+    const response = await worker.fetch(new Request(`https://worker.example.com${path}`, { method: 'POST', headers: { Origin: 'https://app.example.com', Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}' }), bindings);
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'ACCOUNT_SUSPENDED' } });
+    expect(limiter.limit).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
   });
 });

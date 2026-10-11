@@ -1,0 +1,33 @@
+.admin-page { padding-inline: var(--sp-4); }
+.admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.admin-metrics .metric:first-child { grid-column: 1 / -1; }
+.admin-count-note { margin: var(--sp-2) 0 var(--sp-4); font-size: var(--fs-sm); }
+.admin-inbox { margin-top: var(--sp-8); }
+.admin-inbox h2 { margin-bottom: var(--sp-4); font-size: var(--fs-lg); }
+.admin-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3); margin-bottom: var(--sp-4); border: 1px solid var(--danger-border); border-radius: var(--r-md); background: var(--danger-bg); color: var(--danger-fg); }
+.admin-page .site-feedback-card { overflow-wrap: anywhere; }
+.admin-page .list-toolbar > select { max-width: 100%; }
+@media (min-width: 1024px) {
+  .admin-metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .admin-metrics .metric:first-child { grid-column: auto; }
+}
+
+.admin-navigation { margin-bottom: var(--sp-6); }
+.admin-management h2, .admin-page .page-title h2 { margin: 0; font-size: var(--fs-lg); }
+.admin-search { display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0; }
+.admin-search input { width: 100%; min-width: 0; }
+.admin-record-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.admin-record { display: flex; flex-direction: column; gap: var(--sp-4); align-items: flex-start; }
+.admin-record-detail { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.admin-record-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.admin-record h3 { margin: 0; font-size: var(--fs-md); }
+.admin-record p { margin: var(--sp-1) 0; font-size: var(--fs-sm); }
+.admin-record small { display: block; }
+.admin-active { color: var(--success-fg); background: var(--success-bg); }
+.admin-inactive { color: var(--warning-fg); background: var(--warning-bg); }
+.account-suspended { padding-block: var(--sp-12); max-width: 640px; }
+.account-suspended h1 { font-size: var(--fs-xl); }
+.account-suspended p { margin-block: var(--sp-4); color: var(--muted); }
+@media (min-width: 640px) {
+  .admin-record { flex-direction: row; align-items: center; }
+}

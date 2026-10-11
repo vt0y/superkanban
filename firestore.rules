@@ -2,12 +2,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Enforced on every request, so accounts created before a domain was removed lose access too.
-    function signedIn() { return request.auth != null && isAllowedEmail(request.auth.token.email); }
-    function siteAdminPath(uid) { return /databases/$(database)/documents/siteAdmins/$(uid); }
-    function isSiteStaff() {
-      return signedIn() && exists(siteAdminPath(request.auth.uid))
-        && get(siteAdminPath(request.auth.uid)).data.role in ['owner', 'admin'];
+    function authenticated() { return request.auth != null && isAllowedEmail(request.auth.token.email); }
+    function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function signedIn() {
+      return authenticated() && (!exists(userPath(request.auth.uid))
+        || get(userPath(request.auth.uid)).data.get('accountStatus', 'active') == 'active');
     }
+    function siteAdminPath(uid) { return /databases/$(database)/documents/siteAdmins/$(uid); }
+    function isSiteStaffId(uid) {
+      return exists(siteAdminPath(uid)) && get(siteAdminPath(uid)).data.role in ['owner', 'admin'];
+    }
+    function isSiteStaff() { return signedIn() && isSiteStaffId(request.auth.uid); }
     function membershipPath(projectId, uid) { return /databases/$(database)/documents/memberships/$(projectId + '_' + uid); }
     function projectDocumentPath(projectId, itemId) { return /databases/$(database)/documents/projects/$(projectId)/documents/$(itemId); }
     function projectDocumentBodyPath(projectId, itemId) { return /databases/$(database)/documents/projects/$(projectId)/documentBodies/$(itemId); }
@@ -55,14 +60,21 @@ service cloud.firestore {
     // [ALLOWED_EMAIL_DOMAINS_END]
 
     match /users/{uid} {
-      allow read: if signedIn() && uid == request.auth.uid;
+      allow get: if (authenticated() && uid == request.auth.uid) || isSiteStaff();
+      allow list: if isSiteStaff();
       allow create: if signedIn() && uid == request.auth.uid
         && request.resource.data.email == request.auth.token.email
-        && isAllowedEmail(request.auth.token.email);
-      allow update: if signedIn() && uid == request.auth.uid
+        && isAllowedEmail(request.auth.token.email)
+        && !request.resource.data.keys().hasAny(['accountStatus', 'statusUpdatedAt', 'statusUpdatedBy']);
+      allow update: if (signedIn() && uid == request.auth.uid
         && request.resource.data.email == resource.data.email
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'locale', 'theme', 'updatedAt', 'githubUsername', 'githubId', 'githubConnectedAt'])
-        && githubHandleProven();
+        && githubHandleProven())
+        || (isSiteStaff() && uid != request.auth.uid && !isSiteStaffId(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['accountStatus', 'statusUpdatedAt', 'statusUpdatedBy'])
+          && request.resource.data.accountStatus in ['active', 'suspended']
+          && request.resource.data.statusUpdatedAt == request.time
+          && request.resource.data.statusUpdatedBy == request.auth.uid);
       allow delete: if false;
 
       match /tarotReadings/{readingId} {
@@ -102,12 +114,15 @@ service cloud.firestore {
     }
 
     match /projects/{projectId} {
-      allow get: if isMember(projectId) || (signedIn() && request.auth.uid in resource.data.memberIds);
-      allow list: if signedIn() && request.auth.uid in resource.data.memberIds;
+      allow get: if isSiteStaff() || isMember(projectId) || (signedIn() && request.auth.uid in resource.data.memberIds);
+      allow list: if isSiteStaff() || (signedIn() && request.auth.uid in resource.data.memberIds);
       allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.memberIds == [request.auth.uid] && request.resource.data.archived == false
         && getAfter(membershipPath(projectId, request.auth.uid)).data.role == 'owner';
-      allow update: if (resource.data.archived == true
+      allow update: if (isSiteStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['archived', 'updatedAt'])
+        && request.resource.data.archived is bool && request.resource.data.updatedAt == request.time)
+        || (resource.data.archived == true
         && isOwner(projectId)
         && request.resource.data.archived == false
         && request.resource.data.ownerId == resource.data.ownerId
@@ -543,10 +558,11 @@ service cloud.firestore {
       allow delete: if isSiteStaff() || (signedIn() && resource.data.userId == request.auth.uid && resource.data.status == 'open');
     }
 
-    // Site roles are provisioned out of band in Firebase Console. Clients may only resolve their own role.
+    // Site roles are provisioned out of band. Staff can read roles to protect staff accounts in management.
     match /siteAdmins/{uid} {
-      allow get: if signedIn() && uid == request.auth.uid;
-      allow list, create, update, delete: if false;
+      allow get: if (authenticated() && uid == request.auth.uid) || isSiteStaff();
+      allow list: if isSiteStaff();
+      allow create, update, delete: if false;
     }
 
     match /memberships/{membershipId} {
