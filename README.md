@@ -52,11 +52,11 @@ Site owners and admins can open `/admin` from the account menu or the feedback i
 
 The overview counts all feedback with server aggregation queries. Counts refresh when opening the page, pressing Refresh, or completing a triage action. The inbox starts with Open, filters status on the server, and loads 50 rows at a time. Its loaded window stays live, including older rows, so deletions and status changes disappear immediately. Category filters apply only to loaded rows. Replies remain limited to 3,000 characters. The inbox uses the existing feedback schema and indexes.
 
-The Users and Projects tabs are available at `/admin?tab=users` and `/admin?tab=projects`. They load metadata in pages of 50 ordered by document ID, including legacy records without creation timestamps. Search and status filters apply to loaded records. Visited management tabs stay mounted for the admin session, preserving rows, filters, and pagination during tab changes; Refresh fetches current data. Concurrent pending reads are shared only for the same account, loader, cursor, and refresh generation. Switching accounts or losing site access removes the admin views. Loading errors distinguish permissions, authentication, connectivity, and service limits. Owner and Admin site roles can suspend/reactivate ordinary users and archive/restore projects. Staff accounts and the acting account are protected from status changes. Staff may read `siteAdmins` to identify protected accounts. Role updates are forbidden; owner-only admin grants record `grantedBy` and `grantedAt`. Both grants and revocations atomically record `staffUpdatedBy` and `staffUpdatedAt` on the target profile. Site management grants read-only access to the existing project summary, including open-task titles and milestone details, but does not grant access to the underlying tasks, documents, chat, or personal Tarot history.
+The Users and Projects tabs are available at `/admin?tab=users` and `/admin?tab=projects`. They load metadata in pages of 50 ordered by document ID, including legacy records without creation timestamps. Search and status filters apply to loaded records. Visited management tabs stay mounted for the admin session, preserving rows, filters, and pagination during tab changes; Refresh fetches current data. Concurrent pending reads are shared only for the same account, loader, cursor, and refresh generation. Switching accounts or losing site access removes the admin views. Loading errors distinguish permissions, authentication, connectivity, and service limits. Owner and Admin site roles can suspend/reactivate ordinary users and archive/restore projects. Staff accounts and the acting account are protected from status changes. Staff may read `siteAdmins` to identify protected accounts. Role updates are forbidden; owner-only admin grants record `grantedBy` and `grantedAt`. Both grants and revocations atomically record `staffUpdatedBy` and `staffUpdatedAt` on the target profile. Site management grants read-only access to project tasks and milestones, but not to the member-written project summary, documents, chat, other project content, or personal Tarot history.
 
 The default Overview tab shows site-wide aggregate counts for users, suspended accounts, projects, archived projects, and feedback. The feedback icon and `/feedback` redirect open `/admin?tab=feedback` directly. Overview counts refresh on opening the tab or explicit refresh.
 
-Projects → Inspect reads only `projects/{projectId}/summary/main`, showing owner/member metadata, timestamps, task totals/statuses, open-task details, and milestones. Missing/unsupported summaries are unavailable, not zero. Summary freshness and truncation are displayed. These member-maintained summaries can be stale or altered and are not verified abuse evidence. Staff inspection never rebuilds a summary or scans private collections; other record types have no new counters.
+Projects → Inspect never reads the member-written `summary/main`. It shows owner/member metadata, Firestore count aggregations of tasks by status and of milestones, and 50-item pages of the real tasks and milestones (filterable by task status). Reads stay bounded regardless of project size: each count query uses `limit(5001)` (about 6 reads at most, shown as `5000+` when capped), lists load one page per click, nothing is realtime, and repeat inspections of the same project within 60 seconds reuse the cached result (Refresh is disabled until then). Member-written text is rendered as plain, clipped text only, never as markdown, HTML, or links, and unknown status/priority values are labelled as unknown.
 
 Admin archiving requires a reason (up to 1,000 characters, visible to project members) and preserves all project data. It sets `archived` and `moderationArchived`, recording `moderationReason`, `moderationUpdatedAt`, and `moderationUpdatedBy`. Only site staff can restore a moderation archive. Owner archives keep their existing restore behavior. Existing projects without moderation metadata remain compatible; historic admin archives cannot be distinguished from owner archives and are not automatically locked. Release the updated Firestore rules and frontend together. No backend functions, permanent deletion, or linked-service access changes are introduced.
 
@@ -86,7 +86,7 @@ The Tarot Worker reads the verified user's profile from Firestore REST on every 
 
 ### D. Polls & Realtime Voting
 - Single-choice and multiple-choice polling.
-- Anonymous and public voting modes with real-time tally bars.
+- Real-time tally bars with voter avatars. Anonymous polls were removed: votes are readable by every project member, so hidden names were never private. Existing anonymous polls now show voters, and the rules reject new ones. A verifiable secret-ballot design is parked in [note.md](./note.md).
 - Creator and admin deadline management with close/reopen controls.
 
 ### E. Realtime Project Chat
@@ -113,10 +113,10 @@ The Tarot Worker reads the verified user's profile from Firestore REST on every 
 - Repository binding limited to the repositories the owner installed the GitHub App on (public or private).
 - Collaborator management (pull, triage, push, maintain, admin) with live status from GitHub: active, invitation pending, or out of sync.
 - Automatic revocation: removing a member, a member disconnecting, or unlinking the repository revokes GitHub access. Anything that cannot be revoked immediately is queued for the owner.
-- Anti-tampering guardrails: Firestore security rules only accept a githubUsername when the user token contains an authentic github.com identity.
+- Anti-tampering guardrails: Firestore security rules only accept a githubUsername when the user token contains a github.com identity, and a member cannot change the handle on their membership while repository access is granted (so revocation always targets the granted account).
 
 ### I. Identity, Roles & Internationalization
-- Google Sign-In with configurable email domain restrictions.
+- Google Sign-In with configurable email domain restrictions. Firestore accepts only accounts created through Google with a verified email; GitHub can be linked but never used as the sign-in account.
 - 3-tier role hierarchy: Project Owner, Admin, and Member.
 - Dual language support: English and Thai.
 - Theme switching: Light, Dark, and System modes.
@@ -328,17 +328,22 @@ Delete it at https://github.com/settings/developers. That revokes every token it
 Firestore security rules ([firestore.rules](./firestore.rules)) enforce strict isolation and data integrity:
 
 ### Role Permissions
-- **Owner**: Full administrative authority. Can archive projects, unarchive projects, link/unlink GitHub repositories, and assign GitHub collaborator permissions.
-- **Admin**: Can manage project tasks, milestones, invitations, and member roles (Member to Admin). Cannot archive projects or manage GitHub repository bindings.
+- **Owner**: Full administrative authority. Can archive projects, unarchive projects, change member roles (Admin or Member only), link/unlink GitHub repositories, and assign GitHub collaborator permissions.
+- **Admin**: Can manage project tasks, milestones, and member invitations, and remove Members. Cannot change roles, archive projects, or manage GitHub repository bindings.
 - **Member**: Can create, update, and collaborate on tasks, notes, documents, and diagrams. Can only delete work items they created.
 
 ### Anti-Tampering & Identity Verification
 - **User Document Protection**: A user can only write to `users/{uid}` where `uid == request.auth.uid`. Email changes are rejected.
-- **Domain Allowlist**: If `ALLOWED_EMAIL_DOMAINS` is set, `firestore.rules` rejects user profile creation from unauthorized email domains.
-- **GitHub Account Proof**: In `users/{uid}` and `memberships/{id}`, setting `githubUsername` or `githubId` requires that `'github.com' in request.auth.token.firebase.identities`. An attacker cannot spoof a GitHub handle or ID without authenticating via GitHub OAuth.
+- **Domain Allowlist and Google identity**: every rule builds on `authenticated()`, which requires an allowed email domain (from `ALLOWED_EMAIL_DOMAINS`), `email_verified == true`, and a linked `google.com` identity in the token. `sign_in_provider` is deliberately not checked, because it becomes `github.com` after a GitHub re-authentication popup. The Tarot Worker applies the same checks.
+- **Membership integrity**: membership documents must be named `{projectId}_{uid}`; access checks look memberships up by that ID. Owners and project admins can only remove UIDs from a project's `memberIds`; members are added only through the invite join path.
+- **GitHub Account Proof**: In `users/{uid}` and `memberships/{id}`, setting `githubUsername` or `githubId` requires that `'github.com' in request.auth.token.firebase.identities`. The rules cannot verify that the handle matches that identity, so while a membership has `githubPermission`, its handle and ID are locked (removal is still allowed when disconnecting).
 - **Least privilege via GitHub App**: the App can only reach repositories an owner installed it on. Member tokens are discarded after identity linking. Owner tokens live only for a management session and expire on GitHub after 8 hours.
 - **GitHub Privilege Enforcement**: Only project owners can modify `githubPermission` on membership documents.
 - **GitHub Invitation Model**: When collaborator permissions are assigned, GitHub sends an invitation to the specified username. Access is only granted when that user accepts the invite on GitHub.com.
+- **Profile photos**: only `https://lh3–6.googleusercontent.com/` photos (or none) can be written to profiles, memberships, and comments, and the `Avatar` component displays nothing else, so a member cannot make teammates load a tracking image.
+- **Site staff access**: staff can read project tasks and milestones (for inspection) but not the member-written summary, documents, chat, or other project content. See [Site admin management](#site-admin-management).
+- **Hosting headers**: `firebase.json` sends `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` (not `DENY`, so Firebase's same-origin auth iframe keeps working), `Referrer-Policy: strict-origin-when-cross-origin`, and a `Permissions-Policy` that disables camera, microphone, and geolocation. A Content Security Policy is not yet configured.
+- **Regression tests**: [tests/hardening.rules.test.ts](./tests/hardening.rules.test.ts) covers the October 2026 security audit fixes.
 
 ### Tarot history trust and quota trade-off
 
@@ -416,13 +421,14 @@ npm run dev
 
 ### Running Test Suites
 ```bash
-# Run all Vitest unit tests (17 test suites, 108 tests)
+# Run all Vitest unit tests
 npm test
 
 # Sync allowed email domains from .env to firestore.rules
 npm run sync:rules
 
-# Run Firestore security rules test suite in Firebase Emulator (26 tests)
+# Run Firestore security rules test suites in the Firebase Emulator
+# (afterwards run `npm run sync:rules` again: the test run writes example.com into firestore.rules)
 npm run test:rules
 
 # Run production build (TypeScript check, bundling, wire size report)

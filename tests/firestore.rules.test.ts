@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import { Timestamp, arrayRemove, collection, deleteDoc, deleteField, doc, getDoc, getDocs, getCountFromServer, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { googleClaims } from './google-claims';
 
 let environment: RulesTestEnvironment;
 const projectId = 'project-a';
@@ -17,7 +18,7 @@ beforeEach(async () => environment.clearFirestore());
 afterAll(async () => environment.cleanup());
 
 const context = (uid: string, email = `${uid}@example.com`, customClaims: Record<string, unknown> = {}) =>
-  environment.authenticatedContext(uid, { email, ...customClaims }).firestore();
+  environment.authenticatedContext(uid, { ...googleClaims(uid, email), ...customClaims }).firestore();
 
 async function seedProject() {
   await environment.withSecurityRulesDisabled(async (ctx) => {
@@ -772,7 +773,7 @@ describe('ProjectSpace Firestore rules', () => {
 
     const memberDb = context('member');
     const memberWithGitHubDb = context('member', 'member@example.com', {
-      firebase: { identities: { 'github.com': ['12345'] } },
+      firebase: { sign_in_provider: 'google.com', identities: { 'google.com': ['member'], 'github.com': ['12345'] } },
     });
 
     // 1. Anti-tamper: User WITHOUT linked GitHub identity in token CANNOT set githubUsername
@@ -969,7 +970,7 @@ describe('ProjectSpace Firestore rules', () => {
     unprovenJoin.update(doc(unprovenDb, 'invites', 'join'), { usesCount: 1, updatedAt: serverTimestamp() });
     unprovenJoin.update(doc(unprovenDb, 'projects', projectId), { memberIds: ['owner', 'member', 'admin', 'newbie'] });
     await assertFails(unprovenJoin.commit());
-    const provenDb = context('newbie', 'newbie@example.com', { firebase: { identities: { 'github.com': ['99'] } } });
+    const provenDb = context('newbie', 'newbie@example.com', { firebase: { sign_in_provider: 'google.com', identities: { 'google.com': ['newbie'], 'github.com': ['99'] } } });
     const provenJoin = writeBatch(provenDb);
     provenJoin.set(doc(provenDb, 'memberships', `${projectId}_newbie`), { ...joiner, githubUsername: 'newbie-gh' });
     provenJoin.update(doc(provenDb, 'invites', 'join'), { usesCount: 1, updatedAt: serverTimestamp() });

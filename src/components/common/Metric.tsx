@@ -9,7 +9,7 @@ export function Metric({
   icon: IconName;
   color: string;
   /** `null` while loading: shows a placeholder instead of a misleading 0. */
-  value: number | null;
+  value: number | string | null;
   label: string;
 }) {
   return (

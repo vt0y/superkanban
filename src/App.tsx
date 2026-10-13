@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { auth, googleProvider, missingFirebaseConfig } from '@/config/firebase';
-import { isAllowedEmail } from '@/config/auth-domains';
+import { isAllowedUser } from '@/config/auth-domains';
 import type { AppContextValue } from '@/context/AppContext';
 import { translate, type MessageKey } from '@/utils/i18n';
 import {
@@ -56,7 +56,7 @@ function AuthGate() {
     () =>
       onAuthStateChanged(auth!, async (nextUser) => {
         if (nextUser) {
-          if (!isAllowedEmail(nextUser.email)) {
+          if (!isAllowedUser(nextUser)) {
             await signOut(auth!);
             setUser(null);
             setProfile(null);
@@ -112,7 +112,7 @@ function AuthGate() {
   const handleLogin = async () => {
     setAuthError('');
     const result = await signInWithPopup(auth!, googleProvider);
-    if (!isAllowedEmail(result.user.email)) {
+    if (!isAllowedUser(result.user)) {
       await signOut(auth!);
       throw new Error('DOMAIN_NOT_ALLOWED');
     }

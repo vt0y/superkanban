@@ -40,6 +40,14 @@ export function isAllowedEmail(
   });
 }
 
+/** Mirrors the Firestore rules: a Google-created account with a verified, allowed email. */
+export function isAllowedUser(
+  user: { email: string | null; emailVerified: boolean; providerData: { providerId: string }[] },
+  domains: string[] = allowedDomains,
+): boolean {
+  return user.emailVerified && user.providerData.some((provider) => provider.providerId === 'google.com') && isAllowedEmail(user.email, domains);
+}
+
 export function getAllowedDomainsLabel(domains: string[] = allowedDomains): string {
   if (domains.length === 0) return '';
   return domains.map((domain) => `@${domain}`).join(', ');

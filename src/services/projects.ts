@@ -15,6 +15,7 @@ import type { Locale, Project } from '@/types';
 import { templateById, type ProjectTemplateId } from '@/config/project-templates';
 import { activityData, database, withId } from './helpers';
 import { emptyProjectSummary, summaryMilestone } from '@/utils/project-summary';
+import { safePhotoURL } from '@/utils/photo-url';
 
 export function subscribeProjects(
   uid: string,
@@ -53,7 +54,7 @@ export async function createProject(
     userId: user.uid,
     displayName: user.displayName || 'User',
     email: user.email || '',
-    photoURL: user.photoURL || '',
+    photoURL: safePhotoURL(user.photoURL),
     role: 'owner',
     joinedAt: serverTimestamp(),
   });

@@ -34,7 +34,7 @@ vi.mock('react', async (original) => ({
 }));
 
 vi.mock('@/config/firebase', () => ({ auth: {}, googleProvider: {}, missingFirebaseConfig: [] }));
-vi.mock('@/config/auth-domains', () => ({ isAllowedEmail: () => true }));
+vi.mock('@/config/auth-domains', () => ({ isAllowedUser: () => true }));
 vi.mock('firebase/auth', async (original) => ({ ...await original<typeof import('firebase/auth')>(), onAuthStateChanged: vi.fn(() => vi.fn()), signOut: vi.fn(), signInWithPopup: vi.fn() }));
 vi.mock('@/services', () => ({ subscribeEnsuredProfile: vi.fn(() => vi.fn()), subscribeProjects: vi.fn(() => vi.fn()), subscribeSiteRole: vi.fn(() => vi.fn()), updatePreferences: vi.fn() }));
 function render() {

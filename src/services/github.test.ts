@@ -423,6 +423,9 @@ describe('github service - membership drift', () => {
 
   it('does nothing when already in sync', () => {
     expect(membershipGitHubDrift(membership, profile)).toBe(false);
+    // A granted membership keeps its handle until the owner re-grants; removal still syncs.
+    expect(membershipGitHubDrift({ ...membership, githubUsername: 'old', githubId: '1', githubPermission: 'push' }, { ...profile, githubUsername: 'octo', githubId: '2' })).toBe(false);
+    expect(membershipGitHubDrift({ ...membership, githubUsername: 'old', githubId: '1', githubPermission: 'push' }, profile)).toBe(true);
     expect(membershipGitHubDrift({ ...membership, githubUsername: 'octo', githubId: '1' }, { ...profile, githubUsername: 'octo', githubId: '1' })).toBe(false);
   });
 });

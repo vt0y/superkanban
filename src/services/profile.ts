@@ -11,6 +11,7 @@ import {
 import type { Locale, SiteRole, ThemeMode, UserProfile } from '@/types';
 import { isAllowedEmail } from '@/config/auth-domains';
 import { database, withId } from './helpers';
+import { safePhotoURL } from '@/utils/photo-url';
 
 export { isAllowedEmail };
 
@@ -32,7 +33,7 @@ export async function ensureUserProfile(user: User): Promise<void> {
   const base = {
     displayName: user.displayName || user.email?.split('@')[0] || 'User',
     email: user.email || '',
-    photoURL: user.photoURL || '',
+    photoURL: safePhotoURL(user.photoURL),
     updatedAt: serverTimestamp(),
   };
   if (existing.exists()) {
@@ -54,7 +55,7 @@ export function authProfileFields(user: User) {
   return {
     displayName: user.displayName || user.email?.split('@')[0] || 'User',
     email: user.email || '',
-    photoURL: user.photoURL || '',
+    photoURL: safePhotoURL(user.photoURL),
   };
 }
 

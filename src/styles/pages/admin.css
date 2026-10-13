@@ -149,7 +149,6 @@
 .admin-inspector, .admin-confirm-form { padding: var(--sp-4); overflow-wrap: anywhere; }
 .admin-confirm-form p { margin: 0; }
 .admin-inspector > * + * { margin-top: var(--sp-4); }
-.admin-inspector h3 { margin-bottom: var(--sp-2); font-size: var(--fs-md); }
 .admin-inspector-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
 .admin-summary-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3) var(--sp-4); margin: 0; }
 .admin-summary-facts dt { color: var(--muted); font-size: var(--fs-xs); }
@@ -161,10 +160,14 @@
 .admin-summary-warning .icon { width: 16px; height: 16px; flex: 0 0 auto; }
 .admin-compact-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--r-md); }
 .admin-compact-list:empty { display: none; }
-.admin-compact-list li { display: flex; flex-direction: column; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); }
-.admin-compact-list li + li { border-top: 1px solid var(--border); }
+.admin-compact-list > li { display: flex; flex-direction: column; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); }
+.admin-compact-list > li + li { border-top: 1px solid var(--border); }
 .admin-compact-list strong { font-weight: 500; }
 .admin-compact-list small { font-size: var(--fs-xs); }
+.admin-compact-list details { margin-top: var(--sp-1); font-size: var(--fs-xs); }
+.admin-compact-list summary { cursor: pointer; color: var(--muted); }
+.admin-inspector-text { margin: var(--sp-1) 0 0; white-space: pre-wrap; }
+.admin-inspector-checklist { margin: var(--sp-1) 0 0; padding: 0; list-style: none; }
 .admin-inspector-note { font-size: var(--fs-xs); }
 
 .account-suspended { padding-block: var(--sp-12); max-width: 640px; }

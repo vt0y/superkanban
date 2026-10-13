@@ -1,16 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDoc, getDocs, getCountFromServer, runTransaction, updateDoc } from 'firebase/firestore';
-import { loadAdminOverview, loadAdminProjectSummary, loadAdminProjects, loadAdminUsers, setAdminAccountStatus, setAdminProjectArchived, setAdminStaffRole } from './admin';
+import { ADMIN_CACHE_TTL_MS, clearAdminInspectionCache, loadAdminOverview, loadAdminProjectCounts, loadAdminProjectMilestones, loadAdminProjectTasks, loadAdminProjects, loadAdminUsers, setAdminAccountStatus, setAdminProjectArchived, setAdminStaffRole } from './admin';
 
+vi.mock('@/config/firebase', () => ({ auth: { currentUser: { uid: 'staff' } } }));
 vi.mock('./helpers', () => ({ database: () => ({}), withId: (snapshot: { id: string; data: () => object }) => ({ ...snapshot.data(), id: snapshot.id }) }));
 vi.mock('firebase/firestore', () => ({
-  collection: (_db: unknown, path: string) => ({ path }), doc: (_db: unknown, ...segments: string[]) => ({ path: segments.slice(0, -1).join('/'), id: segments.at(-1) }),
+  collection: (_db: unknown, ...segments: string[]) => ({ path: segments.join('/') }), doc: (_db: unknown, ...segments: string[]) => ({ path: segments.slice(0, -1).join('/'), id: segments.at(-1) }),
   documentId: () => '__name__', orderBy: (field: string) => ({ order: field }), limit: (value: number) => ({ limit: value }),
   startAfter: (value: string) => ({ after: value }), where: (field: string, operator: string, value: unknown) => ({ field, operator, value }),
   query: (source: unknown, ...constraints: unknown[]) => ({ source, constraints }), getDocs: vi.fn(), getDoc: vi.fn(), getCountFromServer: vi.fn(), runTransaction: vi.fn(), updateDoc: vi.fn(), serverTimestamp: () => 'server-time',
 }));
 const snapshot = (entries: [string, object][]) => ({ docs: entries.map(([id, data]) => ({ id, data: () => data })) }) as unknown as Awaited<ReturnType<typeof getDocs>>;
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); vi.useRealTimers(); clearAdminInspectionCache(); });
 describe('admin management services', () => {
   it('loads 50 users with a lookahead and cursor, keeps legacy users, and uses trusted role documents', async () => {
     const entries = Array.from({ length: 51 }, (_, index) => [`u${index.toString().padStart(2, '0')}`, { email: `${index}@example.com`, displayName: 'User', siteRole: 'owner', id: 'spoof' }] as [string, object]);
@@ -60,13 +61,45 @@ describe('admin management services', () => {
     vi.mocked(getCountFromServer).mockRejectedValue(new Error('Denied'));
     await expect(loadAdminOverview()).rejects.toThrow('Denied');
   });
-  it('reads only the summary document and returns null for legacy projects', async () => {
-    vi.mocked(getDoc).mockResolvedValue({ exists: () => false } as never);
-    expect(await loadAdminProjectSummary('p1')).toBeNull();
-    expect(getDoc).toHaveBeenCalledWith({ path: 'projects/p1/summary', id: 'main' });
+  it('counts real work items with capped aggregations and never reads the summary', async () => {
+    vi.mocked(getCountFromServer).mockImplementation(async (source) => {
+      const status = (source as unknown as { constraints: { value?: string }[] }).constraints.find((item) => 'value' in item)?.value;
+      return { data: () => ({ count: status === 'todo' ? 5001 : status === 'done' ? 12 : 3 }) } as never;
+    });
+    const counts = await loadAdminProjectCounts('p1');
+    expect(getCountFromServer).toHaveBeenCalledTimes(6);
+    for (const [call] of vi.mocked(getCountFromServer).mock.calls) expect((call as unknown as { constraints: unknown[] }).constraints).toContainEqual({ limit: 5001 });
+    expect(getCountFromServer).toHaveBeenCalledWith({ source: { path: 'projects/p1/tasks' }, constraints: [{ field: 'status', operator: '==', value: 'todo' }, { limit: 5001 }] });
+    expect(getCountFromServer).toHaveBeenCalledWith({ source: { path: 'projects/p1/milestones' }, constraints: [{ limit: 5001 }] });
+    expect(counts.open.todo).toEqual({ value: 5000, capped: true });
+    expect(counts.open.backlog).toEqual({ value: 3, capped: false });
+    expect(counts.done).toEqual({ value: 12, capped: false });
+    expect(counts.milestones).toEqual({ value: 3, capped: false });
+    expect(getDoc).not.toHaveBeenCalled();
     expect(getDocs).not.toHaveBeenCalled();
-    vi.mocked(getDoc).mockResolvedValue({ exists: () => true, data: () => ({ version: 1, openCount: 8 }) } as never);
-    expect(await loadAdminProjectSummary('p1')).toEqual({ version: 1, openCount: 8 });
+  });
+  it('reuses inspections within the TTL, reloads after it, and drops failures', async () => {
+    vi.useFakeTimers();
+    vi.mocked(getCountFromServer).mockResolvedValue({ data: () => ({ count: 1 }) } as never);
+    await loadAdminProjectCounts('p1'); await loadAdminProjectCounts('p1');
+    expect(getCountFromServer).toHaveBeenCalledTimes(6);
+    vi.advanceTimersByTime(ADMIN_CACHE_TTL_MS);
+    await loadAdminProjectCounts('p1');
+    expect(getCountFromServer).toHaveBeenCalledTimes(12);
+    vi.mocked(getDocs).mockRejectedValueOnce(new Error('Denied')).mockResolvedValueOnce(snapshot([]));
+    await expect(loadAdminProjectMilestones('p1')).rejects.toThrow('Denied');
+    await expect(loadAdminProjectMilestones('p1')).resolves.toMatchObject({ items: [] });
+    expect(getDocs).toHaveBeenCalledTimes(2);
+  });
+  it('pages tasks and milestones 50 at a time with cursor and status filter', async () => {
+    const entries = Array.from({ length: 51 }, (_, index) => [`t${index.toString().padStart(2, '0')}`, { title: 'Task' }] as [string, object]);
+    vi.mocked(getDocs).mockResolvedValueOnce(snapshot(entries)).mockResolvedValueOnce(snapshot([['m1', { title: 'M' }]]));
+    const page = await loadAdminProjectTasks('p1', 'after', 'review');
+    expect(page).toMatchObject({ hasMore: true, nextCursor: 't49' });
+    expect(page.items).toHaveLength(50);
+    expect(getDocs).toHaveBeenCalledWith({ source: { path: 'projects/p1/tasks' }, constraints: [{ field: 'status', operator: '==', value: 'review' }, { order: '__name__' }, { after: 'after' }, { limit: 51 }] });
+    expect(await loadAdminProjectMilestones('p1')).toMatchObject({ items: [{ id: 'm1' }], hasMore: false });
+    expect(getDocs).toHaveBeenLastCalledWith({ source: { path: 'projects/p1/milestones' }, constraints: [{ order: '__name__' }, { limit: 51 }] });
   });
   it('protects staff targets and grants/revokes admin roles in a transaction', async () => {
     const read = vi.fn(); const set = vi.fn(); const remove = vi.fn(); const update = vi.fn();

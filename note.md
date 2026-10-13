@@ -191,3 +191,32 @@ Release order: deploy compatible Firestore rules before publishing the frontend.
 - Rollout: deploy Firestore rules and index exemptions before the updated client (`firebase deploy --only firestore:rules,firestore:indexes`). Then publish the client and review production Firestore usage against matching workflows. Existing projects need no migration.
 
 Verification: 393 unit tests and 78 emulator tests passed, including roster lifecycle, query reuse, zero-read patches, competing rebuilds, renewal, ownership loss, expiry rules and concurrent edits. TypeScript, CSS checks and the production build passed. Mobile/desktop browser interaction checks and production rollout/usage comparisons remain pending.
+
+# Secret ballots — deferred
+
+Anonymous ("Names hidden") polls were removed in October 2026. Their votes were never private: each `pollVotes/{pollId}_{uid}` document stores the voter and is readable by every project member; the UI only hid avatars. Existing anonymous polls now show voter names like any other poll, and the rules reject new ones.
+
+## Why Firestore alone cannot do it
+
+Rules can only enforce one vote per member if the vote is tied to the member. Splitting it into a "who voted" document and an unlinked ballot does not help: both are written in the same batch, share a `createTime` (visible through the REST API) and arrive in the same realtime snapshot, so members can link them. A trusted mixer outside Firestore is required.
+
+## Design (if revived)
+
+- **Mixer:** the existing tarot Cloudflare Worker and its D1 database. The Worker already verifies Firebase ID tokens and reads Firestore with the caller's token, so rules still decide membership.
+- **Storage** (`migrations/0003_secret_ballots.sql`): `poll_voters(project_id, poll_id, uid)` and `poll_ballots(project_id, poll_id, receipt, option_ids)`, both `WITHOUT ROWID` with no timestamps, so rows are ordered by key, not by insertion.
+- **`POST /v1/polls/vote`** `{ projectId, pollId, optionIds, secret? }`: reads the project (not archived) and poll (`secretBallot`, open, Bangkok-time deadline) with the caller's token, validates the selection, then in one `DB.batch` inserts the voter row and a ballot keyed by `receipt = SHA-256(secret)` (32 random bytes, base64url). A second first-vote returns 409. With `secret`, the ballot is updated instead (change, never withdraw).
+- **`GET /v1/polls/results`**: returns every ballot (`receipt`, `optionIds`, sorted by receipt) and the voter UIDs, never paired.
+- **Rate limit:** a new `POLL_RATE_LIMITER` binding.
+
+## Guarantees it would give
+
+- Anonymous to members; the site operator (Worker/D1) remains trusted.
+- One vote per member (primary key, same transaction as the ballot).
+- Recorded as cast: voters find their receipt next to their choice in the ballot list.
+- Counted correctly: the client recomputes the tally from the published ballots, and `ballots == voters` is shown.
+- Caveat: with very few voters, totals alone can reveal choices.
+
+## Pieces to add then
+
+- Rules: a `secretBallot` poll field (requires `anonymous`), immutable options/`multiple`/`secretBallot` after creation, and no Firestore `pollVotes` on secret-ballot polls.
+- Client: a secret-ballot service (receipt stored in `localStorage` per user/project/poll), `tallyBallots` in `utils/polls.ts`, and a Verify panel in the poll card.

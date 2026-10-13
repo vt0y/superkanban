@@ -34,7 +34,7 @@ describe('profile email validation', () => {
   });
 
   it('does not require a profile write when Auth identity fields are unchanged', () => {
-    const user = { email: 'student@example.com', displayName: 'Student', photoURL: 'photo' } as User;
+    const user = { email: 'student@example.com', displayName: 'Student', photoURL: 'https://lh3.googleusercontent.com/a/student' } as User;
     expect(profileAuthChanged({ email: user.email!, displayName: user.displayName!, photoURL: user.photoURL! }, user)).toBe(false);
     expect(profileAuthChanged({ email: user.email!, displayName: 'Old name', photoURL: user.photoURL! }, user)).toBe(true);
   });

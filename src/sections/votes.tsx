@@ -46,7 +46,7 @@ function PollCard({ poll, votes, members, context, role, projectId, readOnly, de
 
   return <article className={`poll-card ${open ? '' : 'closed'}`}>
     <header>
-      <div className="poll-badges"><span className={`chip ${poll.multiple ? 'violet' : 'blue'}`}>{poll.multiple ? pick(locale, 'เลือกได้หลายข้อ', 'Multiple choice') : pick(locale, 'เลือกได้ 1 ข้อ', 'Single choice')}</span>{poll.anonymous && <span className="chip"><Icon name="eyeOff" /> {pick(locale, 'ไม่แสดงชื่อ', 'Names hidden')}</span>}<span className={`chip ${open ? 'green' : ''}`}>{open ? <><i className="dot" />{pick(locale, 'เปิดโหวต', 'Open')}</> : pick(locale, 'ปิดแล้ว', 'Closed')}</span></div>
+      <div className="poll-badges"><span className={`chip ${poll.multiple ? 'violet' : 'blue'}`}>{poll.multiple ? pick(locale, 'เลือกได้หลายข้อ', 'Multiple choice') : pick(locale, 'เลือกได้ 1 ข้อ', 'Single choice')}</span><span className={`chip ${open ? 'green' : ''}`}>{open ? <><i className="dot" />{pick(locale, 'เปิดโหวต', 'Open')}</> : pick(locale, 'ปิดแล้ว', 'Closed')}</span></div>
       {canManage && !readOnly && <button className="icon-button" onClick={onEdit} title={pick(locale, 'แก้ไข', 'Edit')} aria-label={pick(locale, 'แก้ไข', 'Edit')}><Icon name="more" /></button>}
     </header>
     <h3>{poll.question}</h3>
@@ -58,7 +58,7 @@ function PollCard({ poll, votes, members, context, role, projectId, readOnly, de
         <i className="poll-fill" style={{ width: `${result.percent}%` }} />
         <span className={`poll-mark ${poll.multiple ? 'square' : ''}`}>{chosen && <Icon name="check" />}</span>
         <span className="poll-label">{result.label}</span>
-        {!poll.anonymous && result.voterIds.length > 0 && <span className="avatar-stack mini">{result.voterIds.slice(0, 4).map((uid) => { const member = memberFor(uid); return <Avatar key={uid} name={member?.displayName || '?'} src={member?.photoURL} size="sm" />; })}</span>}
+        {result.voterIds.length > 0 && <span className="avatar-stack mini">{result.voterIds.slice(0, 4).map((uid) => { const member = memberFor(uid); return <Avatar key={uid} name={member?.displayName || '?'} src={member?.photoURL} size="sm" />; })}</span>}
         <b>{result.count} · {result.percent}%</b>
       </button>;
     })}</div>}
@@ -74,7 +74,7 @@ function PollCard({ poll, votes, members, context, role, projectId, readOnly, de
 function PollModal({ poll, projectId, context, role, onClose }: { poll: Poll | null; projectId: string; context: AppContextValue; role: Role | null; onClose: () => void }) {
   const { user, t, locale } = context;
   const newOption = (): PollOption => ({ id: crypto.randomUUID().slice(0, 8), label: '' });
-  const [form, setForm] = useState({ question: poll?.question || '', description: poll?.description || '', multiple: poll?.multiple ?? false, anonymous: poll?.anonymous ?? false, deadline: poll?.deadline || '', deadlineTime: poll?.deadlineTime || '' });
+  const [form, setForm] = useState({ question: poll?.question || '', description: poll?.description || '', multiple: poll?.multiple ?? false, deadline: poll?.deadline || '', deadlineTime: poll?.deadlineTime || '' });
   const [options, setOptions] = useState<PollOption[]>(poll?.options || [newOption(), newOption()]);
   const [busy, setBusy] = useState(false);
   const formId = useId();
@@ -108,7 +108,6 @@ function PollModal({ poll, projectId, context, role, onClose }: { poll: Poll | n
       </div>
       <div className="field-row">
         <label>{pick(locale, 'ปิดโหวตอัตโนมัติ (ไม่บังคับ)', 'Auto-close on (optional)')}<span className="date-clear"><input type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value, deadlineTime: e.target.value ? form.deadlineTime : '' })} /><TimeField label={pick(locale, 'เวลา (ไม่บังคับ)', 'Time (optional)')} value={form.deadlineTime} disabled={!form.deadline} onChange={(deadlineTime) => setForm((current) => ({ ...current, deadlineTime }))} /></span></label>
-        <label className="simple-check align-end"><input type="checkbox" checked={form.anonymous} onChange={(e) => setForm({ ...form, anonymous: e.target.checked })} /> {pick(locale, 'ไม่แสดงชื่อผู้โหวต', 'Hide voter names')}</label>
       </div>
       <div className="form-actions">{poll && canDeleteItem(role, poll.createdBy, user.uid) && <button type="button" className="danger ghost" onClick={async () => { if (confirm(`${t('delete')}?`)) { await attempt(() => deleteWorkItem(projectId, 'polls', poll.id), pick(locale, 'ลบไม่สำเร็จ', 'Delete failed')); onClose(); } }}>{t('delete')}</button>}<span /><button type="button" className="secondary" onClick={onClose}>{t('cancel')}</button><button className="primary" disabled={busy || filled.length < 2}>{t('save')}</button></div>
     </form>

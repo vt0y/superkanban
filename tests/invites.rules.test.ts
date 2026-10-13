@@ -5,6 +5,7 @@ import type { User } from 'firebase/auth';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { acceptInvite, createInvite, setInviteStatus, updateInviteSettings } from '@/services/invites';
 import type { Project } from '@/types';
+import { googleClaims } from './google-claims';
 
 // Exercise the real client transaction against the rules, with a deterministic
 // competing management write after the first invite read when requested.
@@ -31,7 +32,7 @@ let env: RulesTestEnvironment;
 const projectId = 'invite-project';
 const user = (uid: string) => ({ uid, email: `${uid}@example.com`, displayName: uid, photoURL: '' }) as User;
 // RulesTestContext exposes the compat type; modular functions unwrap its delegate.
-const dbFor = (uid: string) => env.authenticatedContext(uid, { email: `${uid}@example.com` }).firestore() as unknown as Firestore;
+const dbFor = (uid: string) => env.authenticatedContext(uid, googleClaims(uid, `${uid}@example.com`)).firestore() as unknown as Firestore;
 const useDb = (uid: string) => { state.db = dbFor(uid); return state.db; };
 const accept = (uid: string) => { useDb(uid); return acceptInvite('link', user(uid)); };
 const future = () => Timestamp.fromMillis(Date.now() + 86400000);
@@ -81,7 +82,7 @@ describe('dynamic invitation transactions and rules', () => {
   it('denies missing, unauthenticated and disallowed-domain previews', async () => {
     await assertFails(getDocFromServer(doc(dbFor('guest'), 'invites', 'missing')));
     await assertFails(getDocFromServer(doc(env.unauthenticatedContext().firestore(), 'invites', 'link')));
-    await assertFails(getDocFromServer(doc(env.authenticatedContext('member', { email: 'member@other.com' }).firestore(), 'invites', 'link')));
+    await assertFails(getDocFromServer(doc(env.authenticatedContext('member', googleClaims('member', 'member@other.com')).firestore(), 'invites', 'link')));
   });
   it('keeps archived project invite status readable only to members', async () => {
     await updateDoc(doc(dbFor('owner'), 'projects', projectId), { archived: true });
@@ -239,6 +240,6 @@ describe('dynamic invitation transactions and rules', () => {
     await updateDoc(doc(dbFor('owner'), 'projects', projectId), { archived: true });
     await expect(accept('guest')).rejects.toMatchObject({ code: 'permission-denied' });
     useDb('owner'); await expect(updateInviteSettings('link', settings())).rejects.toMatchObject({ code: 'permission-denied' });
-    await assertFails(getDoc(doc(env.authenticatedContext('outsider', { email: 'outsider@other.com' }).firestore(), 'invites', 'link')));
+    await assertFails(getDoc(doc(env.authenticatedContext('outsider', googleClaims('outsider', 'outsider@other.com')).firestore(), 'invites', 'link')));
   });
 });

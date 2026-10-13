@@ -2,8 +2,9 @@ import { createElement, isValidElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppContextValue } from '@/context/AppContext';
-import type { ProjectSummary } from '@/types';
-import { loadAdminOverview, loadAdminProjectSummary, type AdminProject } from '@/services/admin';
+import type { Task } from '@/types';
+import { loadAdminOverview, loadAdminProjectCounts, loadAdminProjectMilestones, loadAdminProjectTasks, type AdminProject, type AdminProjectCounts } from '@/services/admin';
+import { useAdminCollection } from '@/hooks/useAdminCollection';
 import { loadSiteFeedbackCounts } from '@/services/feedback';
 import { useSiteFeedbackPage } from '@/hooks/useSiteFeedback';
 import { useAdminCounts } from '@/hooks/useAdminCounts';
@@ -33,12 +34,16 @@ vi.mock('react', async (original) => ({
   },
 }));
 vi.mock('@/components/common/Modal', () => ({ Modal: ({ children }: { children: ReactNode }) => createElement('div', {}, children) }));
-vi.mock('@/services/admin', () => ({ loadAdminOverview: vi.fn(), loadAdminProjectSummary: vi.fn() }));
+vi.mock('@/services/admin', () => ({ ADMIN_CACHE_TTL_MS: 60_000, ADMIN_COUNT_CAP: 5000, loadAdminOverview: vi.fn(), loadAdminProjectCounts: vi.fn(), loadAdminProjectTasks: vi.fn(), loadAdminProjectMilestones: vi.fn() }));
+vi.mock('@/hooks/useAdminCollection', () => ({ useAdminCollection: vi.fn() }));
 vi.mock('@/services/feedback', () => ({ loadSiteFeedbackCounts: vi.fn() }));
 vi.mock('@/hooks/useSiteFeedback', () => ({ useSiteFeedbackPage: vi.fn(() => ({ items: [{ id: 'f1', title: 'Broken export', body: '', category: 'bug', status: 'open', userName: 'Ann' }], loading: false, error: null })) }));
 const context = { locale: 'en', user: { uid: 'staff' }, siteRole: 'admin' } as AppContextValue;
 const project: AdminProject = { id: 'p1', kind: 'project', name: 'Project', ownerId: 'owner', ownerName: 'Owner', ownerEmail: 'owner@example.com', memberIds: ['owner'], archived: false, description: '', color: '' };
-const summary: ProjectSummary = { version: 1, openCount: 501, doneTotal: 5, openByStatus: { backlog: 0, todo: 501, in_progress: 0, review: 0 }, openByMilestone: {}, doneByMilestone: {}, truncated: true, openTasks: { t1: { title: 'Inspect this task', status: 'todo', priority: 'high', dueDate: '', dueTime: '', assigneeIds: ['owner'], milestoneId: 'm1' } }, milestones: { m1: { title: 'First milestone', status: 'active', dueDate: '', dueTime: '', dependsOn: [] } } };
+const count = (value: number, capped = false) => ({ value, capped });
+const projectCounts: AdminProjectCounts = { open: { backlog: count(1), todo: count(5000, true), in_progress: count(0), review: count(0) }, done: count(5), milestones: count(2), loadedAt: Date.now() };
+const hostile: Task & { kind: 'task' } = { kind: 'task', id: 't1', title: '<img src=x onerror=alert(1)>', description: 'x'.repeat(2500), status: 'weird' as never, priority: 'high', assigneeIds: ['a', 'b'], tags: [], checklist: [{ id: 'c1', text: 'Check it', done: true }], dueDate: '2026-10-20', milestoneId: '', order: 0, createdBy: 'owner' };
+const collectionState = (overrides: object = {}) => ({ items: [hostile], hasMore: true, loading: false, loadingMore: false, error: null, refresh: vi.fn(), loadMore: vi.fn(), retry: vi.fn(), replace: vi.fn(), ...overrides });
 function render(component: () => ReactNode) {
   lifecycle.index = 0;
   const tree = component();
@@ -93,45 +98,85 @@ describe('admin overview and inspection', () => {
     expect(html).toContain('role="alert"'); expect(html).toContain('Retry'); expect(html).toContain('skeleton-text');
     buttons(tree)[1].onClick!(); expect(onRefresh).toHaveBeenCalled();
   });
-  it('shows missing summaries without attempting a rebuild', async () => {
-    vi.mocked(loadAdminProjectSummary).mockResolvedValue(null);
+  it('shows Firestore counts, capping large ones, without reading the summary', async () => {
+    vi.mocked(loadAdminProjectCounts).mockResolvedValue(projectCounts);
+    vi.mocked(useAdminCollection).mockReturnValue(collectionState() as never);
     render(inspect);
     await vi.waitFor(() => expect(lifecycle.slots[1]).toBe(false));
     const html = render(inspect).html;
-    expect(html).toContain('Summary unavailable');
-    expect(html).toContain('member must update or rebuild');
-    expect(loadAdminProjectSummary).toHaveBeenCalledWith('p1');
+    expect(loadAdminProjectCounts).toHaveBeenCalledWith('p1');
+    expect(html).toContain('5006+');
+    expect(html).toContain('5000+');
+    expect(html).toContain('Live data from Firestore');
+    expect(html).not.toContain('not verified abuse evidence');
   });
-  it('exposes summary details while flagging stale and truncated estimates', async () => {
-    vi.mocked(loadAdminProjectSummary).mockResolvedValue(summary);
+  it('renders member-written task text escaped, clipped, and with unknown enums labelled', async () => {
+    vi.mocked(loadAdminProjectCounts).mockResolvedValue(projectCounts);
+    vi.mocked(useAdminCollection).mockReturnValue(collectionState() as never);
     render(inspect);
     await vi.waitFor(() => expect(lifecycle.slots[1]).toBe(false));
     const html = render(inspect).html;
-    expect(html).toContain('506');
-    expect(html).toContain('Inspect this task');
-    expect(html).toContain('First milestone');
-    expect(html).toContain('may be stale');
-    expect(html).toContain('truncated');
-    expect(html).toContain('not verified abuse evidence');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).toContain(`${'x'.repeat(2000)}…`);
+    expect(html).not.toContain('x'.repeat(2001));
+    expect(html).toContain('unknown · High');
+    expect(html).toContain('Assignees: 2');
+    expect(html).toContain('☑ Check it');
   });
-  it('permits retrying inspection errors without displaying stale content', async () => {
-    vi.mocked(loadAdminProjectSummary).mockRejectedValue({ code: 'unavailable' });
+  it('binds the paged loader to the project, status filter and tab, and loads more on request', async () => {
+    vi.mocked(loadAdminProjectCounts).mockResolvedValue(projectCounts);
+    const state = collectionState();
+    vi.mocked(useAdminCollection).mockReturnValue(state as never);
+    vi.mocked(loadAdminProjectTasks).mockResolvedValue({ items: [hostile], nextCursor: null, hasMore: false });
+    vi.mocked(loadAdminProjectMilestones).mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
+    const { tree } = render(inspect);
+    const [load, identity] = vi.mocked(useAdminCollection).mock.calls[0];
+    expect(identity).toBe('staff:p1:tasks:all');
+    expect((await load('cursor')).items[0]).toMatchObject({ kind: 'task', id: 't1' });
+    expect(loadAdminProjectTasks).toHaveBeenCalledWith('p1', 'cursor', undefined);
+    buttons(tree).at(-1)!.onClick!();
+    expect(state.loadMore).toHaveBeenCalled();
+    lifecycle.slots[4] = 'milestones';
+    render(inspect);
+    const [milestones, scope] = vi.mocked(useAdminCollection).mock.calls.at(-1)!;
+    expect(scope).toBe('staff:p1:milestones:all');
+    await milestones();
+    expect(loadAdminProjectMilestones).toHaveBeenCalledWith('p1', undefined);
+  });
+  it('keeps refresh disabled until the cached inspection expires', async () => {
+    vi.mocked(loadAdminProjectCounts).mockResolvedValue({ ...projectCounts, loadedAt: Date.now() });
+    vi.mocked(useAdminCollection).mockReturnValue(collectionState() as never);
     render(inspect);
     await vi.waitFor(() => expect(lifecycle.slots[1]).toBe(false));
-    const failed = render(inspect);
-    expect(failed.html).toContain('role="alert"');
-    vi.mocked(loadAdminProjectSummary).mockResolvedValue(summary);
-    buttons(failed.tree)[0].onClick!(); render(inspect);
-    await vi.waitFor(() => expect(lifecycle.slots[1]).toBe(false));
-    expect(render(inspect).html).toContain('Inspect this task');
+    expect(buttons(render(inspect).tree)[0].disabled).toBe(true);
+    vi.mocked(loadAdminProjectCounts).mockResolvedValue({ ...projectCounts, loadedAt: Date.now() - 61_000 });
+    lifecycle.slots[0] = { ...projectCounts, loadedAt: Date.now() - 61_000 };
+    const refresh = buttons(render(inspect).tree)[0];
+    expect(refresh.disabled).toBe(false);
+    refresh.onClick!(); render(inspect);
+    expect(loadAdminProjectCounts).toHaveBeenCalledTimes(2);
   });
-  it('ignores a pending inspection after losing the view', async () => {
-    let resolve!: (value: ProjectSummary) => void;
-    vi.mocked(loadAdminProjectSummary).mockReturnValue(new Promise((done) => { resolve = done; }));
+  it('shows count errors without zero totals and list errors with retry', async () => {
+    vi.mocked(loadAdminProjectCounts).mockRejectedValue({ code: 'unavailable' });
+    const state = collectionState({ items: [], hasMore: false, error: 'unavailable' });
+    vi.mocked(useAdminCollection).mockReturnValue(state as never);
     render(inspect);
-    const effect = lifecycle.slots[4] as { cleanup: () => void };
+    await vi.waitFor(() => expect(lifecycle.slots[1]).toBe(false));
+    const { tree, html } = render(inspect);
+    expect(html).toContain('role="alert"');
+    expect(html).not.toContain('Total tasks');
+    buttons(tree).find((button) => button.onClick === state.retry)!.onClick!();
+    expect(state.retry).toHaveBeenCalled();
+  });
+  it('ignores a pending count load after losing the view', async () => {
+    let resolve!: (value: AdminProjectCounts) => void;
+    vi.mocked(loadAdminProjectCounts).mockReturnValue(new Promise((done) => { resolve = done; }));
+    vi.mocked(useAdminCollection).mockReturnValue(collectionState() as never);
+    render(inspect);
+    const effect = lifecycle.slots[7] as { cleanup: () => void };
     effect.cleanup();
-    resolve(summary);
+    resolve(projectCounts);
     await Promise.resolve();
     expect(lifecycle.slots[0]).toBeNull();
   });

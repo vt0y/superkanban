@@ -2,7 +2,14 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Enforced on every request, so accounts created before a domain was removed lose access too.
-    function authenticated() { return request.auth != null && isAllowedEmail(request.auth.token.email); }
+    // Accounts must come from Google: a verified email plus a linked Google identity. sign_in_provider
+    // is not checked because it becomes github.com after a GitHub re-auth popup.
+    function authenticated() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.identities.keys().hasAny(['google.com'])
+        && isAllowedEmail(request.auth.token.email);
+    }
     function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
     function signedIn() {
       return authenticated() && (!exists(userPath(request.auth.uid))
@@ -46,6 +53,10 @@ service cloud.firestore {
         && request.auth.uid in getAfter(/databases/$(database)/documents/projects/$(data.projectId)).data.memberIds;
     }
     function validRole(role) { return role in ['owner', 'admin', 'member']; }
+    // Photos are copied from Google sign-in; other hosts could serve tracking images to teammates.
+    function validPhoto(value) {
+      return value == '' || (value is string && value.size() <= 2048 && value.matches('^https://lh[3-6][.]googleusercontent[.]com/.*$'));
+    }
     function hasGitHubIdentity() {
       return 'firebase' in request.auth.token && 'identities' in request.auth.token.firebase && 'github.com' in request.auth.token.firebase.identities;
     }
@@ -65,10 +76,12 @@ service cloud.firestore {
       allow create: if signedIn() && uid == request.auth.uid
         && request.resource.data.email == request.auth.token.email
         && isAllowedEmail(request.auth.token.email)
+        && validPhoto(request.resource.data.get('photoURL', ''))
         && !request.resource.data.keys().hasAny(['accountStatus', 'statusUpdatedAt', 'statusUpdatedBy', 'staffUpdatedAt', 'staffUpdatedBy']);
       allow update: if (signedIn() && uid == request.auth.uid
         && request.resource.data.email == resource.data.email
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'locale', 'theme', 'updatedAt', 'githubUsername', 'githubId', 'githubConnectedAt'])
+        && (validPhoto(request.resource.data.get('photoURL', '')) || request.resource.data.get('photoURL', '') == resource.data.get('photoURL', ''))
         && githubHandleProven())
         || (isSiteStaff() && uid != request.auth.uid && !isSiteStaffId(uid)
           && (!existsAfter(siteAdminPath(uid)) || !(getAfter(siteAdminPath(uid)).data.role in ['owner','admin']))
@@ -147,10 +160,12 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['archived','updatedAt']))
         || (resource.data.archived == false && isOwner(projectId)
         && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.memberIds.hasOnly(resource.data.memberIds)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','description','color','archived','memberIds','githubRepo','updatedAt']))
         || (resource.data.archived == false && isAdmin(projectId) && !isOwner(projectId)
           && request.resource.data.ownerId == resource.data.ownerId
           && request.resource.data.archived == resource.data.archived
+          && request.resource.data.memberIds.hasOnly(resource.data.memberIds)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','description','color','memberIds','updatedAt']))
         || (resource.data.archived == false && signedIn()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
@@ -212,8 +227,9 @@ service cloud.firestore {
                 || (request.resource.data.sharedMemberIds.hasOnly(get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds)
                   && get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds.hasOnly(request.resource.data.sharedMemberIds)))));
       }
+      // Site staff inspect real work items read-only; the member-written summary is not trusted.
       match /tasks/{itemId} {
-        allow read: if isMember(projectId);
+        allow read: if isMember(projectId) || isSiteStaff();
         allow create: if validWorkCreate(projectId)
           && request.resource.data.keys().hasOnly(['title','description','status','priority','assigneeIds','tags','labelIds','checklist','dueDate','dueTime','milestoneId','order','createdBy','createdAt','updatedAt'])
           && request.resource.data.status in ['backlog','todo','in_progress','review','done'] && request.resource.data.priority in ['low','medium','high','urgent']
@@ -231,7 +247,7 @@ service cloud.firestore {
           || (isMember(projectId) && get(/databases/$(database)/documents/projects/$(projectId)/tasks/$(resource.data.taskId)).data.createdBy == request.auth.uid));
       }
       match /milestones/{itemId} {
-        allow read: if isMember(projectId);
+        allow read: if isMember(projectId) || isSiteStaff();
         allow create: if validWorkCreate(projectId) && request.resource.data.keys().hasOnly(['title','description','dueDate','dueTime','status','dependsOn','createdBy','createdAt','updatedAt']) && request.resource.data.status in ['active','completed']
           && (!('dependsOn' in request.resource.data) || request.resource.data.dependsOn is list) && validTime('dueTime');
         allow update: if projectActive(projectId) && isMember(projectId) && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.keys().hasOnly(['title','description','dueDate','dueTime','status','dependsOn','createdBy','createdAt','updatedAt'])
@@ -392,11 +408,14 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['question','description','options','multiple','anonymous','closed','deadline','deadlineTime','createdBy','createdAt','updatedAt'])
           && request.resource.data.question is string && request.resource.data.options is list
           && request.resource.data.options.size() >= 2 && request.resource.data.options.size() <= 10
-          && request.resource.data.multiple is bool && request.resource.data.closed == false && validTime('deadlineTime');
+          && request.resource.data.multiple is bool && request.resource.data.closed == false && validTime('deadlineTime')
+          // Anonymous polls were removed: votes are member-readable, so "hidden names" was never private.
+          && request.resource.data.get('anonymous', false) == false;
         allow update: if projectActive(projectId) && (isAdmin(projectId) || (isMember(projectId) && resource.data.createdBy == request.auth.uid))
           && request.resource.data.createdBy == resource.data.createdBy
           && request.resource.data.keys().hasOnly(['question','description','options','multiple','anonymous','closed','deadline','deadlineTime','createdBy','createdAt','updatedAt'])
-          && request.resource.data.options is list && request.resource.data.multiple is bool && request.resource.data.closed is bool && validTime('deadlineTime');
+          && request.resource.data.options is list && request.resource.data.multiple is bool && request.resource.data.closed is bool && validTime('deadlineTime')
+          && (request.resource.data.get('anonymous', false) == false || resource.data.get('anonymous', false) == true);
         allow delete: if canDeleteWork(projectId);
       }
       match /pollVotes/{voteId} {
@@ -418,6 +437,7 @@ service cloud.firestore {
         allow create: if validWorkCreate(projectId)
           && request.resource.data.keys().hasOnly(['targetType','targetId','body','authorName','authorPhoto','createdBy','createdAt','updatedAt'])
           && request.resource.data.targetType in ['task','useCase','diagram','milestone']
+          && validPhoto(request.resource.data.get('authorPhoto', ''))
           && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 2000;
         allow update: if projectActive(projectId) && isMember(projectId) && resource.data.createdBy == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body','updatedAt'])
@@ -540,7 +560,7 @@ service cloud.firestore {
         }
       }
       match /summary/{docId} {
-        allow read: if docId == 'main' && (isSiteStaff() || isMember(projectId));
+        allow read: if docId == 'main' && isMember(projectId);
         allow create, update: if docId == 'main' && projectActive(projectId) && isMember(projectId)
           && request.resource.data.keys().hasAll(['version','openTasks','openCount','openByStatus','openByMilestone','truncated','milestones','doneTotal','doneByMilestone','rebuiltAt','updatedAt'])
           && request.resource.data.keys().hasOnly(['version','openTasks','openCount','openByStatus','openByMilestone','truncated','milestones','doneTotal','doneByMilestone','rebuiltAt','updatedAt'])
@@ -596,14 +616,16 @@ service cloud.firestore {
       allow get: if signedIn() && (!exists(/databases/$(database)/documents/memberships/$(membershipId))
         || resource.data.userId == request.auth.uid || isMember(resource.data.projectId));
       allow list: if isMember(resource.data.projectId);
-      allow create: if signedIn() && validRole(request.resource.data.role) && githubHandleProven() && (
+      // isMember/isOwner look memberships up by ID, so the ID must always be projectId_uid.
+      allow create: if signedIn() && validRole(request.resource.data.role) && githubHandleProven()
+        && validPhoto(request.resource.data.get('photoURL', ''))
+        && membershipId == request.resource.data.projectId + '_' + request.auth.uid && (
         (request.resource.data.userId == request.auth.uid
           && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.ownerId == request.auth.uid
           && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.archived == false
           && request.resource.data.role == 'owner')
         ||
         (request.resource.data.userId == request.auth.uid
-          && membershipId == request.resource.data.projectId + '_' + request.auth.uid
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.inviteId is string
           && projectActive(request.resource.data.projectId)
@@ -612,10 +634,14 @@ service cloud.firestore {
       );
       allow update: if (projectActive(resource.data.projectId) && isOwner(resource.data.projectId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'githubPermission'])
-        && (resource.data.role != 'owner' || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+          || (resource.data.role != 'owner' && request.resource.data.role in ['admin', 'member'])))
+        // Handles are locked while repo access is granted, so revocation always targets the granted account.
         || (projectActive(resource.data.projectId) && signedIn() && request.auth.uid == resource.data.userId
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['githubUsername', 'githubId'])
-        && githubHandleProven());
+        && githubHandleProven()
+        && (resource.data.get('githubPermission', null) == null
+          || !request.resource.data.keys().hasAny(['githubUsername', 'githubId'])));
       allow delete: if projectActive(resource.data.projectId) && signedIn() && resource.data.role != 'owner' && (
         request.auth.uid == resource.data.userId || isOwner(resource.data.projectId)
         || (isAdmin(resource.data.projectId) && resource.data.role == 'member'));

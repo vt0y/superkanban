@@ -270,7 +270,10 @@ export async function unlinkGitHubAccount(user: User): Promise<void> {
  * the sync at connect time failed). Writes only the caller's own membership, and only on mismatch.
  */
 export function membershipGitHubDrift(membership: Membership, profile: UserProfile): boolean {
-  return (membership.githubUsername || '') !== (profile.githubUsername || '') || (membership.githubId || '') !== (profile.githubId || '');
+  const drifted = (membership.githubUsername || '') !== (profile.githubUsername || '') || (membership.githubId || '') !== (profile.githubId || '');
+  // Rules lock the handle while repo access is granted (only removal is allowed); the owner re-grants for a new account.
+  if (drifted && membership.githubPermission && profile.githubUsername) return false;
+  return drifted;
 }
 
 export async function syncOwnMembershipGitHub(membership: Membership, profile: UserProfile): Promise<void> {

@@ -396,7 +396,8 @@ export interface Poll {
   description: string;
   options: PollOption[];
   multiple: boolean;
-  anonymous: boolean;
+  /** Legacy: anonymous polls were removed; names are always shown. */
+  anonymous?: boolean;
   closed: boolean;
   deadline: string;
   deadlineTime?: string;

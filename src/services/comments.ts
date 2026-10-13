@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import type { Comment, CommentTarget } from '@/types';
 import { database, withId } from './helpers';
+import { safePhotoURL } from '@/utils/photo-url';
 
 export function subscribeComments(
   projectId: string,
@@ -40,7 +41,7 @@ export async function addComment(
     targetId,
     body,
     authorName: user.displayName || user.email || 'User',
-    authorPhoto: user.photoURL || '',
+    authorPhoto: safePhotoURL(user.photoURL),
     createdBy: user.uid,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

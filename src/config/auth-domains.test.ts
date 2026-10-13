@@ -3,6 +3,7 @@ import {
   getAllowedDomainsLabel,
   getDomainErrorMessage,
   isAllowedEmail,
+  isAllowedUser,
   parseAllowedDomains,
 } from './auth-domains';
 
@@ -68,6 +69,17 @@ describe('auth-domains config and validation', () => {
       expect(isAllowedEmail('student@example.com', [])).toBe(true);
       expect(isAllowedEmail('anyone@company.org', [])).toBe(true);
       expect(isAllowedEmail('invalid-email', [])).toBe(false);
+    });
+  });
+
+  describe('isAllowedUser', () => {
+    const google = [{ providerId: 'google.com' }];
+    it('requires a verified email, a linked Google identity, and an allowed domain', () => {
+      expect(isAllowedUser({ email: 'a@example.com', emailVerified: true, providerData: google }, ['example.com'])).toBe(true);
+      expect(isAllowedUser({ email: 'a@example.com', emailVerified: true, providerData: [...google, { providerId: 'github.com' }] }, ['example.com'])).toBe(true);
+      expect(isAllowedUser({ email: 'a@example.com', emailVerified: false, providerData: google }, ['example.com'])).toBe(false);
+      expect(isAllowedUser({ email: 'a@example.com', emailVerified: true, providerData: [{ providerId: 'github.com' }] }, ['example.com'])).toBe(false);
+      expect(isAllowedUser({ email: 'a@other.com', emailVerified: true, providerData: google }, ['example.com'])).toBe(false);
     });
   });
 

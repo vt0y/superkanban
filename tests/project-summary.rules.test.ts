@@ -3,6 +3,7 @@ import { initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/
 import { Timestamp, doc, getDoc, setDoc, type Firestore } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { emptyProjectSummary } from '@/utils/project-summary';
+import { googleClaims } from './google-claims';
 
 const state = vi.hoisted(() => ({ db: null as Firestore | null, auth: { currentUser: { uid: 'member' } }, scans: 0, gate: null as Promise<void> | null }));
 vi.mock('@/config/firebase', () => ({ get db() { return state.db; }, auth: state.auth }));
@@ -24,7 +25,7 @@ afterAll(async () => environment.cleanup());
 beforeEach(async () => {
   vi.resetModules(); state.scans = 0; state.gate = null; state.auth.currentUser = { uid: 'member' };
   await environment.clearFirestore();
-  state.db = environment.authenticatedContext('member', { email: 'member@example.com' }).firestore();
+  state.db = environment.authenticatedContext('member', googleClaims('member', 'member@example.com')).firestore();
   await environment.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
     await setDoc(doc(db, 'projects', projectId), { memberIds: ['member'], archived: false });

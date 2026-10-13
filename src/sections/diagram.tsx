@@ -12,6 +12,7 @@ import { pick } from '@/utils/formatters';
 import { NODE_DEFAULTS, classifyUseCase, clipToShape, nextUseCaseCode, validEdge, type UseCaseKind } from '@/utils/usecase-model';
 import { CommentThread } from '@/components/comments/CommentThread';
 import { Icon } from '@/components/common/Icon';
+import { safePhotoURL } from '@/utils/photo-url';
 
 type Tool = 'select' | DiagramNodeKind | DiagramEdgeKind;
 const NODE_TOOLS: { id: DiagramNodeKind; th: string; en: string }[] = [
@@ -528,7 +529,7 @@ function NodeShape({ node, box, label, selected, dim, useCase, kind, assignee, l
       <title>{assignee.displayName}</title>
       <clipPath id={clipId}><circle r={11} /></clipPath>
       <circle r={12} className="assignee-ring" />
-      {assignee.photoURL ? <image href={assignee.photoURL} x={-11} y={-11} width={22} height={22} clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" crossOrigin="anonymous" /> : <><circle r={11} className="assignee-fallback" /><text textAnchor="middle" dominantBaseline="central" className="assignee-initial">{initials}</text></>}
+      {safePhotoURL(assignee.photoURL) ? <image href={safePhotoURL(assignee.photoURL)} x={-11} y={-11} width={22} height={22} clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" crossOrigin="anonymous" /> : <><circle r={11} className="assignee-fallback" /><text textAnchor="middle" dominantBaseline="central" className="assignee-initial">{initials}</text></>}
     </g>}
   </g>;
 }

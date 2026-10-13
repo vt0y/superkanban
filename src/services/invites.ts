@@ -3,6 +3,7 @@ import { arrayUnion, collection, doc, getDocFromServer, onSnapshot, query, runTr
 import type { Invite, InviteSettings, Project } from '@/types';
 import { database, withId } from './helpers';
 import { inviteState } from '@/utils/invite-state';
+import { safePhotoURL } from '@/utils/photo-url';
 
 function validateSettings(settings: InviteSettings) {
   if (settings.name.length > 120 || !['member', 'admin'].includes(settings.role)
@@ -66,7 +67,7 @@ export async function acceptInvite(inviteId: string, user: User): Promise<{ proj
         const githubId = userSnap.data()?.githubId;
         transaction.set(membershipRef, {
           projectId: data.projectId, userId: user.uid, displayName: user.displayName || 'User',
-          email: user.email || '', photoURL: user.photoURL || '', role: data.role,
+          email: user.email || '', photoURL: safePhotoURL(user.photoURL), role: data.role,
           joinedAt: serverTimestamp(), inviteId,
           ...(githubUsername ? { githubUsername } : {}), ...(githubId ? { githubId } : {}),
         });
