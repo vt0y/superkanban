@@ -9,7 +9,7 @@ import { AdminPage } from './AdminPage';
 vi.mock('@/components/layout/AppHeader', () => ({ AppHeader: () => null }));
 vi.mock('@/hooks/useSiteFeedback', () => ({ useSiteFeedbackPage: vi.fn(() => ({ items: [], hasMore: false, loading: false, loadingMore: false, error: null, loadMore: vi.fn(), refresh: vi.fn() })) }));
 vi.mock('@/services/feedback', () => ({ loadSiteFeedbackCounts: vi.fn() }));
-function markup(siteRole: AppContextValue['siteRole'], locale = 'en', path = '/admin') {
+function markup(siteRole: AppContextValue['siteRole'], locale = 'en', path = '/admin?tab=feedback') {
   const context = { siteRole, locale, user: { uid: 'staff' }, t: () => 'Overview' } as unknown as AppContextValue;
   return renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [path] }, createElement(AdminPage, { context })));
 }
@@ -33,15 +33,22 @@ describe('admin page access and presentation', () => {
     expect(useSiteFeedbackPage).not.toHaveBeenCalled();
     expect(html).toContain('Search and filters apply to loaded records');
   });
-  it('uses feedback for an unknown tab', () => {
-    expect(markup('admin', 'en', '/admin?tab=unknown')).toContain('Feedback inbox');
+  it('uses overview for the default and an unknown tab, loading only a short open-feedback preview', () => {
+    expect(markup('admin', 'en', '/admin')).toContain('Site overview');
+    expect(markup('admin', 'en', '/admin?tab=unknown')).toContain('Latest open feedback');
+    expect(useSiteFeedbackPage).toHaveBeenCalledWith(expect.anything(), { status: 'open', limitCount: 5 });
+    expect(useSiteFeedbackPage).not.toHaveBeenCalledWith(expect.anything(), { status: 'open' });
   });
-  it('renders Thai labels, loading placeholders, category filter, and responsive metric tiles', () => {
+  it('applies a status deep link to the management filter', () => {
+    expect(markup('admin', 'en', '/admin?tab=users&status=suspended')).toMatch(/<option value="suspended" selected="">/);
+  });
+  it('renders Thai labels, side navigation, status filters, and category filter', () => {
     const html = markup('admin', 'th');
     expect(html).toContain('ผู้ดูแลเว็บ');
     expect(html).toContain('กล่องฟีดแบ็ก');
     expect(html).toContain('ประเภทฟีดแบ็ก');
-    expect(html).toContain('skeleton-text');
-    expect(html).toContain('admin-metrics');
+    expect(html).toContain('admin-nav');
+    expect(html).toContain('กำลังพิจารณา');
+    expect(html).not.toContain('admin-metrics');
   });
 });

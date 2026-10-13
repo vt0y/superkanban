@@ -156,7 +156,7 @@ function AuthGate() {
           <Route path="/new" element={<NewProject context={context} />} />
           <Route path="/invite/:inviteId" element={<InviteAccept context={context} />} />
           <Route path="/admin" element={siteRole === 'owner' || siteRole === 'admin' ? <AdminPage context={context} /> : <Navigate to="/" replace />} />
-          <Route path="/feedback" element={siteRole === 'owner' || siteRole === 'admin' ? <Navigate to="/admin" replace /> : <SiteFeedbackPage context={context} />} />
+          <Route path="/feedback" element={siteRole === 'owner' || siteRole === 'admin' ? <Navigate to="/admin?tab=feedback" replace /> : <SiteFeedbackPage context={context} />} />
           <Route path="/tarot" element={<TarotPage context={context} />} />
           {/* `/p/:id/docs/:documentId` opens a document; the workspace redirects the old /documents/ and /notes/ forms. */}
           <Route path="/p/:projectId/:section/:documentId" element={<ProjectWorkspace context={context} />} />

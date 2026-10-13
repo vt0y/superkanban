@@ -65,16 +65,22 @@ service cloud.firestore {
       allow create: if signedIn() && uid == request.auth.uid
         && request.resource.data.email == request.auth.token.email
         && isAllowedEmail(request.auth.token.email)
-        && !request.resource.data.keys().hasAny(['accountStatus', 'statusUpdatedAt', 'statusUpdatedBy']);
+        && !request.resource.data.keys().hasAny(['accountStatus', 'statusUpdatedAt', 'statusUpdatedBy', 'staffUpdatedAt', 'staffUpdatedBy']);
       allow update: if (signedIn() && uid == request.auth.uid
         && request.resource.data.email == resource.data.email
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'locale', 'theme', 'updatedAt', 'githubUsername', 'githubId', 'githubConnectedAt'])
         && githubHandleProven())
         || (isSiteStaff() && uid != request.auth.uid && !isSiteStaffId(uid)
+          && (!existsAfter(siteAdminPath(uid)) || !(getAfter(siteAdminPath(uid)).data.role in ['owner','admin']))
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['accountStatus', 'statusUpdatedAt', 'statusUpdatedBy'])
           && request.resource.data.accountStatus in ['active', 'suspended']
           && request.resource.data.statusUpdatedAt == request.time
-          && request.resource.data.statusUpdatedBy == request.auth.uid);
+          && request.resource.data.statusUpdatedBy == request.auth.uid)
+        || (isSiteStaff() && get(siteAdminPath(request.auth.uid)).data.role == 'owner' && uid != request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['staffUpdatedAt','staffUpdatedBy'])
+          && request.resource.data.staffUpdatedAt == request.time && request.resource.data.staffUpdatedBy == request.auth.uid
+          && ((!exists(siteAdminPath(uid)) && existsAfter(siteAdminPath(uid)) && getAfter(siteAdminPath(uid)).data.role == 'admin')
+            || (exists(siteAdminPath(uid)) && get(siteAdminPath(uid)).data.role == 'admin' && !existsAfter(siteAdminPath(uid)))));
       allow delete: if false;
 
       match /tarotReadings/{readingId} {
@@ -118,11 +124,22 @@ service cloud.firestore {
       allow list: if isSiteStaff() || (signedIn() && request.auth.uid in resource.data.memberIds);
       allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.memberIds == [request.auth.uid] && request.resource.data.archived == false
+        && !request.resource.data.keys().hasAny(['moderationArchived','moderationReason','moderationUpdatedAt','moderationUpdatedBy'])
         && getAfter(membershipPath(projectId, request.auth.uid)).data.role == 'owner';
       allow update: if (isSiteStaff()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['archived', 'updatedAt'])
-        && request.resource.data.archived is bool && request.resource.data.updatedAt == request.time)
-        || (resource.data.archived == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['archived','updatedAt','moderationArchived','moderationReason','moderationUpdatedAt','moderationUpdatedBy'])
+        && request.resource.data.archived is bool
+        && request.resource.data.moderationArchived == request.resource.data.archived
+        && request.resource.data.moderationReason is string
+        && request.resource.data.moderationReason.size() <= 1000
+        && ((request.resource.data.archived && request.resource.data.moderationReason.matches('(?s).*[^[:space:]].*'))
+          || (!request.resource.data.archived && request.resource.data.moderationReason == ''))
+        && request.resource.data.moderationUpdatedBy == request.auth.uid
+        && request.resource.data.moderationUpdatedAt == request.time
+        && request.resource.data.updatedAt == request.time)
+        || (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['moderationArchived','moderationReason','moderationUpdatedAt','moderationUpdatedBy'])
+        && (!resource.data.get('moderationArchived', false) || request.resource.data.archived == true)
+        && ((resource.data.archived == true
         && isOwner(projectId)
         && request.resource.data.archived == false
         && request.resource.data.ownerId == resource.data.ownerId
@@ -142,7 +159,7 @@ service cloud.firestore {
         || (resource.data.archived == false && isMember(projectId) && membership(projectId).data.role != 'owner'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
           && request.resource.data.memberIds.toSet() == resource.data.memberIds.toSet().difference([request.auth.uid].toSet())
-          && !existsAfter(membershipPath(projectId, request.auth.uid)));
+          && !existsAfter(membershipPath(projectId, request.auth.uid)))));
       allow delete: if false;
 
       function validTime(key) {
@@ -523,7 +540,7 @@ service cloud.firestore {
         }
       }
       match /summary/{docId} {
-        allow read: if docId == 'main' && isMember(projectId);
+        allow read: if docId == 'main' && (isSiteStaff() || isMember(projectId));
         allow create, update: if docId == 'main' && projectActive(projectId) && isMember(projectId)
           && request.resource.data.keys().hasAll(['version','openTasks','openCount','openByStatus','openByMilestone','truncated','milestones','doneTotal','doneByMilestone','rebuiltAt','updatedAt'])
           && request.resource.data.keys().hasOnly(['version','openTasks','openCount','openByStatus','openByMilestone','truncated','milestones','doneTotal','doneByMilestone','rebuiltAt','updatedAt'])
@@ -558,11 +575,21 @@ service cloud.firestore {
       allow delete: if isSiteStaff() || (signedIn() && resource.data.userId == request.auth.uid && resource.data.status == 'open');
     }
 
-    // Site roles are provisioned out of band. Staff can read roles to protect staff accounts in management.
+    // Owners can grant/revoke admins; owner roles remain provisioned out of band.
     match /siteAdmins/{uid} {
       allow get: if (authenticated() && uid == request.auth.uid) || isSiteStaff();
       allow list: if isSiteStaff();
-      allow create, update, delete: if false;
+      allow create: if isSiteStaff() && get(siteAdminPath(request.auth.uid)).data.role == 'owner'
+        && uid != request.auth.uid && exists(userPath(uid))
+        && getAfter(userPath(uid)).data.get('accountStatus', 'active') == 'active'
+        && request.resource.data.keys().hasOnly(['role','grantedBy','grantedAt'])
+        && request.resource.data.role == 'admin'
+        && request.resource.data.grantedBy == request.auth.uid && request.resource.data.grantedAt == request.time
+        && getAfter(userPath(uid)).data.staffUpdatedBy == request.auth.uid && getAfter(userPath(uid)).data.staffUpdatedAt == request.time;
+      allow delete: if isSiteStaff() && get(siteAdminPath(request.auth.uid)).data.role == 'owner'
+        && uid != request.auth.uid && resource.data.role == 'admin'
+        && getAfter(userPath(uid)).data.staffUpdatedBy == request.auth.uid && getAfter(userPath(uid)).data.staffUpdatedAt == request.time;
+      allow update: if false;
     }
 
     match /memberships/{membershipId} {

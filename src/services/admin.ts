@@ -1,5 +1,5 @@
-import { collection, doc, documentId, getDocs, limit, orderBy, query, serverTimestamp, startAfter, updateDoc, where } from 'firebase/firestore';
-import type { AccountStatus, Project, SiteRole, UserProfile } from '@/types';
+import { collection, doc, documentId, getDoc, getDocs, getCountFromServer, limit, orderBy, query, runTransaction, serverTimestamp, startAfter, updateDoc, where } from 'firebase/firestore';
+import type { AccountStatus, Project, ProjectSummary, SiteRole, UserProfile } from '@/types';
 import { database, withId } from './helpers';
 
 export interface AdminUser extends UserProfile { kind: 'user'; siteRole: SiteRole | null }
@@ -43,6 +43,60 @@ export async function setAdminAccountStatus(uid: string, status: AccountStatus, 
   });
 }
 
-export async function setAdminProjectArchived(projectId: string, archived: boolean): Promise<void> {
-  await updateDoc(doc(database(), 'projects', projectId), { archived, updatedAt: serverTimestamp() });
+export async function setAdminProjectArchived(projectId: string, archived: boolean, actorUid: string, reason = ''): Promise<void> {
+  const trimmed = reason.trim();
+  if (archived && (!trimmed || trimmed.length > 1000)) throw new Error('MODERATION_REASON_REQUIRED');
+  await updateDoc(doc(database(), 'projects', projectId), {
+    archived, moderationArchived: archived, moderationReason: archived ? trimmed : '',
+    moderationUpdatedBy: actorUid, moderationUpdatedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+}
+
+export interface AdminOverviewCounts {
+  users: number;
+  suspendedUsers: number;
+  projects: number;
+  archivedProjects: number;
+  feedback: number;
+}
+
+export async function loadAdminOverview(): Promise<AdminOverviewCounts> {
+  const store = database();
+  const users = collection(store, 'users');
+  const projects = collection(store, 'projects');
+  const counts = await Promise.all([
+    getCountFromServer(users), getCountFromServer(query(users, where('accountStatus', '==', 'suspended'))),
+    getCountFromServer(projects), getCountFromServer(query(projects, where('archived', '==', true))),
+    getCountFromServer(collection(store, 'siteFeedback')),
+  ]);
+  return { users: counts[0].data().count, suspendedUsers: counts[1].data().count, projects: counts[2].data().count, archivedProjects: counts[3].data().count, feedback: counts[4].data().count };
+}
+
+/** Read the member-maintained summary only; never rebuild or scan private collections. */
+export async function loadAdminProjectSummary(projectId: string): Promise<ProjectSummary | null> {
+  const snapshot = await getDoc(doc(database(), 'projects', projectId, 'summary', 'main'));
+  return snapshot.exists() ? snapshot.data() as ProjectSummary : null;
+}
+
+/** Rules recheck ownership, target status, and protected roles at commit time. */
+export async function setAdminStaffRole(uid: string, grant: boolean, actorUid: string): Promise<void> {
+  if (uid === actorUid) throw new Error('CANNOT_MODIFY_SELF');
+  const store = database();
+  const ref = doc(store, 'siteAdmins', uid);
+  const profileRef = doc(store, 'users', uid);
+  await runTransaction(store, async (transaction) => {
+    const [role, profile] = await Promise.all([transaction.get(ref), transaction.get(profileRef)]);
+    if (!profile.exists()) throw new Error('USER_NOT_FOUND');
+    if (role.exists() && role.data().role !== 'admin') throw new Error('PROTECTED_ROLE');
+    if (grant) {
+      if (profile.data().accountStatus === 'suspended') throw new Error('USER_SUSPENDED');
+      if (!role.exists()) {
+        transaction.set(ref, { role: 'admin', grantedBy: actorUid, grantedAt: serverTimestamp() });
+        transaction.update(profileRef, { staffUpdatedBy: actorUid, staffUpdatedAt: serverTimestamp() });
+      }
+    } else if (role.exists()) {
+      transaction.delete(ref);
+      transaction.update(profileRef, { staffUpdatedBy: actorUid, staffUpdatedAt: serverTimestamp() });
+    }
+  });
 }

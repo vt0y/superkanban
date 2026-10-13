@@ -238,6 +238,7 @@ function WorkspaceContent({ context }: { context: AppContextValue }) {
               <small>
                 {roleLabel} · {pick(locale, 'สลับโปรเจกต์', 'Switch project')}
               </small>
+              {project.moderationArchived && project.moderationReason && <small>{pick(locale, 'เหตุผล', 'Reason')}: {project.moderationReason}</small>}
             </div>
             <Icon name="chevronsUpDown" />
           </button>
@@ -289,12 +290,16 @@ function WorkspaceContent({ context }: { context: AppContextValue }) {
               <small>
                 {pick(
                   locale,
-                  'โปรเจกต์นี้ถูกเก็บแล้ว คุณยังดูข้อมูลทั้งหมดได้แต่แก้ไขไม่ได้',
-                  'This project is archived. You can browse everything, but changes are disabled.',
+                  project.moderationArchived
+                    ? 'โปรเจกต์นี้ถูกเก็บโดยผู้ดูแลเว็บ เฉพาะผู้ดูแลเว็บเท่านั้นที่กู้คืนได้'
+                    : 'โปรเจกต์นี้ถูกเก็บแล้ว คุณยังดูข้อมูลทั้งหมดได้แต่แก้ไขไม่ได้',
+                  project.moderationArchived
+                    ? 'This project was archived by site staff. Only site staff can restore it.'
+                    : 'This project is archived. You can browse everything, but changes are disabled.',
                 )}
               </small>
             </div>
-            {role === 'owner' && (
+            {role === 'owner' && !project.moderationArchived && (
               <button className="secondary" onClick={() => void updateProject(project.id, { archived: false })}>
                 {context.t('unarchive')}
               </button>

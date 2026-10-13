@@ -100,7 +100,7 @@ export function subscribeProfile(uid: string, callback: (profile: UserProfile) =
   });
 }
 
-/** Site-wide roles are provisioned by trusted operators in Firestore, never by clients. */
+/** Owner roles are provisioned externally; site owners can grant/revoke admin roles. */
 export function subscribeSiteRole(uid: string, callback: (role: SiteRole | null) => void): Unsubscribe {
   return onSnapshot(
     doc(database(), 'siteAdmins', uid),

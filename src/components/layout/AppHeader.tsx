@@ -38,7 +38,7 @@ export function AppHeader({ context, leading }: { context: AppContextValue; lead
         <button type="button" className="topbar-button tarot" onClick={() => navigate('/tarot')} title={pick(locale, 'เปิดไพ่ทาโรต์', 'Open Tarot')} aria-label={pick(locale, 'เปิดไพ่ทาโรต์', 'Open Tarot')}>
           <Icon name="sparkles" />
         </button>
-        <button type="button" className="topbar-button" onClick={() => (admin ? navigate('/admin') : setFeedbackOpen(true))} title={feedbackLabel} aria-label={feedbackLabel}>
+        <button type="button" className="topbar-button" onClick={() => (admin ? navigate('/admin?tab=feedback') : setFeedbackOpen(true))} title={feedbackLabel} aria-label={feedbackLabel}>
           <Icon name={admin ? 'inbox' : 'feedback'} />
           {admin && openCount > 0 && <b>{openCount}</b>}
         </button>

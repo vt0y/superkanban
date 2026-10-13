@@ -19,6 +19,8 @@ export interface UserProfile {
   accountStatus?: AccountStatus;
   statusUpdatedAt?: Timestamp;
   statusUpdatedBy?: string;
+  staffUpdatedAt?: Timestamp;
+  staffUpdatedBy?: string;
   githubUsername?: string;
   githubId?: string;
   githubConnectedAt?: Timestamp;
@@ -47,6 +49,10 @@ export interface Project {
   ownerId: string;
   memberIds: string[];
   archived: boolean;
+  moderationArchived?: boolean;
+  moderationReason?: string;
+  moderationUpdatedAt?: Timestamp;
+  moderationUpdatedBy?: string;
   githubRepo?: ProjectGitHubRepo | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;

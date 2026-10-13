@@ -30,7 +30,7 @@ vi.mock('react', async (original) => ({
     }
   },
 }));
-
+vi.mock('@/hooks/useAdminCounts', () => ({ useAdminCounts: () => ({ overview: null, feedback: null, loading: true, error: null, refresh: () => undefined }) }));
 
 const location = vi.hoisted(() => ({ params: new URLSearchParams() }));
 vi.mock('react-router-dom', async (original) => ({
