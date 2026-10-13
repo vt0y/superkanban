@@ -24,7 +24,7 @@ export interface RunGachaInput {
   candidateIds: string[];
   targets: Array<Pick<GachaTargetInput, 'targetType' | 'targetId' | 'winnerCount'>>;
   user: User;
-  animationStyle: 'golden' | 'pack';
+  animationStyle: 'golden' | 'pack' | 'arcana';
 }
 
 export async function runGachaDraw(input: RunGachaInput): Promise<string> {

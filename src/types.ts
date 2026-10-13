@@ -344,7 +344,7 @@ export interface GachaDraw {
   initiatedByName: string;
   poolKey: string;
   animationVersion: number;
-  animationStyle: 'golden' | 'pack';
+  animationStyle: 'golden' | 'pack' | 'arcana';
   createdAt?: Timestamp;
 }
 

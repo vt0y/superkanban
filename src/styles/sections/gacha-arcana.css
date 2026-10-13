@@ -1,0 +1,217 @@
+/* The Arcana (tarot-style) gacha reveal.
+   Palette tokens (--t-*) are shared with the tarot page (see pages/tarot.css). */
+
+/* ── app tokens re-pointed for the night palette ── */
+.arcana-theme {
+  --warning: var(--t-gold);
+  --warning-fg: var(--t-gold-soft);
+  --warning-bg: rgba(236, 199, 126, .1);
+  --warning-border: var(--t-line-strong);
+  --info-fg: #a5c8ff;
+  --info-bg: rgba(96, 140, 255, .16);
+  --violet-fg: #d3c4ff;
+  --violet-bg: rgba(167, 139, 250, .18);
+  --danger-fg: #fda4af;
+  --primary-soft: rgba(236, 199, 126, .1);
+  --primary-solid: var(--t-gold-deep);
+  --focus-ring: 0 0 0 3px rgba(236, 199, 126, .25);
+  color-scheme: dark;
+}
+
+/* the gold call-to-action */
+.arcana-done {
+  position: relative;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+  padding: 0 22px;
+  color: #2a1605;
+  border: 0;
+  border-radius: 99px;
+  background: linear-gradient(135deg, var(--t-gold-soft), var(--t-gold) 45%, var(--t-gold-deep));
+  box-shadow: 0 10px 30px rgba(236, 199, 126, .3);
+  font-weight: 700;
+  letter-spacing: .03em;
+  transition: transform .2s, box-shadow .2s;
+}
+.arcana-done::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, .55) 50%, transparent 70%); transform: translateX(-120%); }
+.arcana-done:hover { transform: translateY(-1px); box-shadow: 0 14px 38px rgba(236, 199, 126, .45); }
+.arcana-done:hover::after { transform: translateX(120%); transition: transform .9s ease; }
+
+
+/* ── reveal overlay ── */
+.generic-reveal.arcana-theme { color: var(--t-text); background: var(--t-night); }
+.generic-reveal.arcana-theme::before { display: none; }
+.arcana-theme .generic-reveal-close, .arcana-theme .gacha-reveal-actions button { color: var(--t-gold-soft); border-color: var(--t-line-strong); border-radius: 50%; background: rgba(19, 11, 46, .65); }
+.arcana-theme .gacha-round-progress span { color: var(--t-muted); border-color: var(--t-line); background: rgba(19, 11, 46, .7); font-family: var(--t-display); }
+.arcana-theme .gacha-round-progress span.active { color: #2a1605; border-color: var(--t-gold); background: var(--t-gold); box-shadow: 0 0 20px rgba(236, 199, 126, .6); }
+.arcana-theme .gacha-round-progress span.done { color: var(--t-gold-soft); border-color: var(--t-line-strong); background: rgba(236, 199, 126, .14); }
+
+.arcana-round, .arcana-summary { position: relative; z-index: 1; width: min(900px, 100%); text-align: center; }
+.arcana-kicker { margin: 0 0 10px; color: var(--t-gold); font-size: .72rem; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; }
+.arcana-round h1, .arcana-summary h1 {
+  margin: 0;
+  padding-bottom: .08em;
+  font-family: var(--t-display);
+  font-size: clamp(1.8rem, 5vw, 3rem);
+  font-weight: 600;
+  line-height: 1.15;
+  color: transparent;
+  background: linear-gradient(180deg, var(--t-gold-soft), var(--t-gold) 60%, var(--t-gold-deep));
+  -webkit-background-clip: text;
+  background-clip: text;
+  overflow-wrap: anywhere;
+}
+
+.arcana-table { --card-w: 104px; --table-h: 390px; position: relative; height: var(--table-h); display: grid; place-items: center; margin: 14px auto 4px; }
+.arcana-shuffle { transform: scale(1.1); }
+
+/* deal: a fan of face-down cards pivoting from a point below the table */
+.arcana-fan { position: relative; width: 100%; height: 100%; }
+.arcana-fan-card {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  width: var(--card-w);
+  height: calc(var(--card-w) * 1.6);
+  margin-left: calc(var(--card-w) / -2);
+  transform-origin: 50% 190%;
+  transform: rotate(var(--a));
+  transition: transform .6s cubic-bezier(.2, .9, .3, 1.2), opacity .5s, filter .5s;
+  animation: arcana-deal .45s cubic-bezier(.2, .9, .3, 1.1) backwards;
+  animation-delay: calc(var(--i) * 50ms);
+}
+.arcana-fan-card .arc-card-back { border-radius: 10px; box-shadow: -4px 8px 18px rgba(0, 0, 0, .5), inset 0 0 18px rgba(0, 0, 0, .55); }
+@keyframes arcana-deal { from { transform: rotate(0) translateY(140px) scale(.7); opacity: 0; } }
+/* choose: fate lifts one card to the centre of the table (the extra .56w offsets scaling about the low pivot), the rest fall back into the dark */
+.phase-choose .arcana-fan-card:not(.chosen) { opacity: .28; filter: blur(1px) saturate(.6); }
+.phase-choose .arcana-fan-card.chosen { z-index: 2; transform: rotate(0) translateY(calc(var(--table-h) / -2 + 40px + var(--card-w) * 1.36)) scale(1.25); }
+.phase-choose .arcana-fan-card.chosen .arc-card-back { box-shadow: 0 0 0 1px var(--t-gold), 0 0 50px rgba(236, 199, 126, .75); animation: arcana-pulse .9s ease-in-out infinite alternate; }
+@keyframes arcana-pulse { to { filter: brightness(1.35); } }
+.arcana-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--card-w) * 2.8);
+  height: calc(var(--card-w) * 2.8);
+  margin: calc(var(--card-w) * -1.4) 0 0 calc(var(--card-w) * -1.4);
+  border: 1px dashed var(--t-gold);
+  border-radius: 50%;
+  box-shadow: 0 0 40px rgba(236, 199, 126, .25), inset 0 0 40px rgba(167, 139, 250, .2);
+  pointer-events: none;
+  animation: arc-spin 7s linear infinite, arcana-ring-in .5s ease-out backwards;
+}
+.arcana-ring::before { content: ''; position: absolute; inset: 14px; border: 1px solid rgba(236, 199, 126, .3); border-radius: 50%; }
+@keyframes arcana-ring-in { from { opacity: 0; scale: .5; } }
+
+/* reveal: the lifted card flips to the winner's face inside a burst of light */
+.arcana-reveal { position: relative; width: calc(var(--card-w) * 2); height: calc(var(--card-w) * 3.2); perspective: 1400px; }
+.arcana-flip { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateY(180deg); animation: arcana-flip 1.1s cubic-bezier(.3, 1.3, .4, 1) both; }
+@keyframes arcana-flip {
+  0% { transform: rotateY(0) scale(.62); }
+  30% { transform: rotateY(0) scale(1.04); }
+  100% { transform: rotateY(180deg) scale(1); }
+}
+.arcana-flip-back, .arcana-flip-front { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.arcana-flip-front { transform: rotateY(180deg); }
+.arcana-flip-back .arc-card-back { border-radius: 14px; }
+.arcana-flip-back .arc-card-back em { font-size: 9px; }
+.arcana-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--card-w) * 5.6);
+  height: calc(var(--card-w) * 5.6);
+  margin: calc(var(--card-w) * -2.8) 0 0 calc(var(--card-w) * -2.8);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(248, 230, 184, .55), rgba(236, 199, 126, .16) 32%, transparent 62%),
+    repeating-conic-gradient(rgba(236, 199, 126, .2) 0 4deg, transparent 4deg 18deg);
+  -webkit-mask: radial-gradient(circle, #000 25%, transparent 70%);
+  mask: radial-gradient(circle, #000 25%, transparent 70%);
+  pointer-events: none;
+  animation: arcana-burst 1.4s ease-out .3s backwards, arc-spin 40s linear infinite;
+}
+@keyframes arcana-burst { from { opacity: 0; scale: .2; } 40% { opacity: 1; } }
+
+.arcana-countdown {
+  position: absolute;
+  top: 4px;
+  right: 6%;
+  color: transparent;
+  font-family: var(--t-display);
+  font-size: clamp(3.2rem, 9vw, 5.5rem);
+  font-weight: 600;
+  line-height: 1;
+  -webkit-text-stroke: 1px var(--t-gold);
+  text-shadow: 0 0 30px rgba(236, 199, 126, .35);
+  pointer-events: none;
+  animation: arcana-tick .65s ease-out both;
+}
+@keyframes arcana-tick { from { opacity: 0; scale: 1.8; } 50% { opacity: .9; } to { opacity: .55; scale: 1; } }
+.arcana-status { display: block; color: var(--t-muted); font-family: var(--t-display); font-size: 1.35rem; font-style: italic; font-weight: 500; animation: arcana-breathe 1.4s ease-in-out infinite alternate; }
+@keyframes arcana-breathe { from { opacity: .55; } }
+.arcana-verdict small { color: var(--t-gold); font-size: .72rem; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; }
+.arcana-verdict h2 { margin: 4px 0 6px; color: var(--t-gold-soft); font-family: var(--t-display); font-size: clamp(1.9rem, 5vw, 2.8rem); font-weight: 600; text-shadow: 0 0 30px rgba(236, 199, 126, .5); overflow-wrap: anywhere; animation: arc-fade .7s .55s backwards; }
+.arcana-verdict p { margin: 0; color: var(--t-muted); }
+
+/* the face card */
+.arcana-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+  padding: 16% 10% 18%;
+  color: var(--t-text);
+  border-radius: 14px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(236, 199, 126, .3), transparent 52%),
+    radial-gradient(circle, rgba(255, 255, 255, .4) .6px, transparent 1px) 0 0 / 13px 13px,
+    linear-gradient(165deg, #2b1866, #150b38 60%, #2a0f3d);
+  box-shadow: 0 0 0 1px rgba(236, 199, 126, .7), 0 0 50px rgba(236, 199, 126, .32), 0 26px 60px rgba(0, 0, 0, .6);
+}
+.arcana-face-frame { position: absolute; inset: 7px; border: 1px solid rgba(236, 199, 126, .55); border-radius: 9px; pointer-events: none; }
+.arcana-face-frame::before { content: ''; position: absolute; inset: 4px; border: 1px solid rgba(236, 199, 126, .2); border-radius: 6px; }
+.arcana-face-frame::after { content: '✦'; position: absolute; left: 50%; bottom: -8px; padding: 0 4px; color: var(--t-gold); background: #170c3c; font-size: 10px; line-height: 1; transform: translateX(-50%); }
+.arcana-face-numeral { position: absolute; top: 7%; left: 0; right: 0; color: var(--t-gold); font-family: var(--t-display); font-size: 1.15rem; font-weight: 600; letter-spacing: .2em; }
+.arcana-face-halo { display: grid; place-items: center; padding: 4px; border-radius: 50%; background: conic-gradient(var(--t-gold-deep), var(--t-gold-soft), var(--t-gold), var(--t-gold-deep)); box-shadow: 0 0 30px rgba(236, 199, 126, .55); }
+.arcana-face-halo .avatar { width: calc(var(--card-w, 104px) * .9); height: calc(var(--card-w, 104px) * .9); border: 3px solid #150b38; font-size: 2rem; }
+.arcana-face strong { max-width: 100%; overflow: hidden; color: var(--t-gold-soft); font-family: var(--t-display); font-size: 1.35rem; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.arcana-face > small { position: absolute; bottom: 7%; left: 12%; right: 12%; overflow: hidden; color: var(--t-muted); font-size: .6rem; font-weight: 700; letter-spacing: .16em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.arcana-face.small { gap: 6px; padding: 18% 8% 20%; }
+.arcana-face.small .arcana-face-numeral { font-size: .85rem; }
+.arcana-face.small strong { font-size: .95rem; }
+.arcana-face.small .arcana-face-halo .avatar { font-size: 1.2rem; }
+
+/* summary: the reading laid out face up */
+.arcana-summary > p { margin: 8px 0 26px; color: var(--t-muted); }
+.arcana-spread { display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(12px, 3vw, 26px); }
+.arcana-landed { --card-w: 96px; position: relative; width: calc(var(--card-w) * 1.8); height: calc(var(--card-w) * 2.9); animation: arc-land .7s cubic-bezier(.2, .9, .3, 1.3) backwards; animation-delay: calc(var(--i) * 180ms + 200ms); }
+.arcana-summary.assignment article { margin: 0 auto 16px; padding: 14px; border: 1px solid var(--t-line); border-radius: 18px; background: var(--t-glass); }
+.arcana-summary.assignment article > header { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; }
+.arcana-summary.assignment article > header strong { font-family: var(--t-display); font-size: 1.15rem; font-weight: 600; }
+.arcana-summary.assignment .arcana-landed { --card-w: 66px; }
+.arcana-done { min-width: 150px; margin-top: 28px; }
+
+@media (max-width: 640px) {
+  .arcana-table { --card-w: 72px; --table-h: 300px; }
+  .arcana-landed { --card-w: 74px; }
+  .arcana-summary.assignment .arcana-landed { --card-w: 58px; }
+  .arcana-face strong { font-size: 1.05rem; }
+  .arcana-face-numeral { font-size: .9rem; }
+  .arcana-face-halo .avatar { font-size: 1.4rem; }
+}
+
+/* ── reduced motion: no shuffling or flipping, faces shown directly ── */
+@media (prefers-reduced-motion: reduce) {
+  .arcana-theme *, .arcana-theme *::before, .arcana-theme *::after { animation: none !important; transition: none !important; }
+  .arcana-theme .arc-shooting { display: none; }
+}

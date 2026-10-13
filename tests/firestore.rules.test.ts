@@ -690,6 +690,8 @@ describe('ProjectSpace Firestore rules', () => {
     await assertFails(setDoc(target('outsider-winner'), { ...validGachaDraw(), winnerIds: ['outsider'] }));
     await assertFails(setDoc(target('too-many-targets'), { ...validGachaDraw(), targetIds: Array.from({ length: 21 }, (_, index) => `t${index}`), results: Array.from({ length: 21 }, () => validGachaDraw().results[0]) }));
     await assertFails(setDoc(target('extra-field'), { ...validGachaDraw(), reroll: true }));
+    await assertFails(setDoc(target('bad-style'), { ...validGachaDraw(), animationStyle: 'confetti' }));
+    await assertSucceeds(setDoc(target('arcana'), { ...validGachaDraw(), animationStyle: 'arcana' }));
     await assertSucceeds(updateDoc(doc(context('owner'), 'projects', projectId), { archived: true }));
     await assertFails(setDoc(target('archived'), validGachaDraw()));
     await assertFails(setDoc(doc(db, 'projects', projectId, 'gachaBags', 'b'.repeat(64)), { candidateIds: ['member'], winCounts: { member: 0 }, updatedAt: serverTimestamp() }));

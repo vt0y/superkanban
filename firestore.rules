@@ -519,7 +519,7 @@ service cloud.firestore {
           && request.resource.data.initiatedBy == request.auth.uid
           && request.resource.data.createdAt == request.time
           && request.resource.data.animationVersion == 1
-          && request.resource.data.animationStyle in ['golden','pack']
+          && request.resource.data.animationStyle in ['golden','pack','arcana']
           && request.resource.data.poolKey is string && request.resource.data.poolKey.size() == 64
           && request.resource.data.candidateIds is list && request.resource.data.candidateIds.size() > 0 && request.resource.data.candidateIds.size() <= 100
           && request.resource.data.candidateIds.hasOnly(get(/databases/$(database)/documents/projects/$(projectId)).data.memberIds)

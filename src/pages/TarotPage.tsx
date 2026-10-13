@@ -24,23 +24,12 @@ import { TarotForm } from '@/components/tarot/TarotForm';
 import { TarotNav } from '@/components/tarot/TarotNav';
 import { TarotResult } from '@/components/tarot/TarotResult';
 import { pick } from '@/utils/formatters';
+import { useDisplayFonts } from '@/hooks/useDisplayFonts';
 
 type Stage = 'form' | 'shuffling' | 'selecting' | 'reading' | 'result';
 /** Long enough for the shuffle animation to read as a ritual rather than a flash. */
 const MIN_SHUFFLE_MS = 1400;
-const DISPLAY_FONTS = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Noto+Serif+Thai:wght@500;600&display=swap';
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** The serif display faces are only used here, so load them on this page instead of for every visitor. */
-function useDisplayFonts() {
-  useEffect(() => {
-    if (document.querySelector(`link[href="${DISPLAY_FONTS}"]`)) return;
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = DISPLAY_FONTS;
-    document.head.append(link);
-  }, []);
-}
 
 const READING_PHRASES: [string, string][] = [
   ['กำลังฟังเสียงจากไพ่…', 'Listening to the cards…'],

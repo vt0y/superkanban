@@ -6,7 +6,7 @@ import { join, relative } from 'node:path';
 
 const root = new URL('../src/styles/', import.meta.url).pathname;
 // Themed stages that intentionally keep their own palette and type.
-const THEMED = new Set(['tokens.css', 'pages/tarot.css', 'sections/gacha-reveal.css']);
+const THEMED = new Set(['tokens.css', 'pages/tarot.css', 'sections/gacha-reveal.css', 'sections/gacha-arcana.css', 'sections/gacha-golden.css', 'sections/gacha-pack.css']);
 
 const files = (dir) => readdirSync(dir).flatMap((name) => {
   const path = join(dir, name);

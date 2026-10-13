@@ -24,6 +24,9 @@
 @import './sections/team.css';
 @import './sections/gacha.css';
 @import './sections/gacha-reveal.css';
+@import './sections/gacha-golden.css';
+@import './sections/gacha-pack.css';
+@import './sections/gacha-arcana.css';
 @import './sections/collab.css';
 
 @import './pages/pages.css';

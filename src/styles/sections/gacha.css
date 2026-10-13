@@ -109,7 +109,7 @@
 }
 .golden-button:hover:not(:disabled) { background: color-mix(in srgb, var(--warning) 22%, var(--warning-bg)); }
 
-.animation-picker { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); margin: 0 0 var(--sp-3); padding: 0; border: 0; }
+.animation-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-2); margin: 0 0 var(--sp-3); padding: 0; border: 0; }
 @media (min-width: 640px) { .generic-gacha-form .animation-picker { grid-column: 1 / -1; } }
 .animation-picker legend { margin-bottom: 6px; padding: 0; color: var(--muted); font-size: var(--fs-xs); font-weight: 500; }
 .animation-picker button {
@@ -127,6 +127,8 @@
 .animation-picker button.active { border-color: var(--warning); background: var(--warning-bg); }
 .animation-picker button > i { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto; color: var(--warning-fg); border-radius: var(--r-md); background: var(--warning-bg); font-size: var(--fs-md); font-style: normal; }
 .animation-picker button.active > i { background: var(--surface); }
+.animation-picker button.arcana > i { color: var(--violet-fg); background: var(--violet-bg); }
+.animation-picker button.arcana.active { border-color: var(--violet-border); background: var(--violet-bg); }
 .animation-picker button > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .animation-picker strong { font-size: var(--fs-sm); font-weight: 600; }
 .animation-picker small { color: var(--muted); line-height: 1.35; }

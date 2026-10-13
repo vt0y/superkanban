@@ -63,8 +63,8 @@
   .home-tarot-card em { font-size: .7rem; }
 }
 
-/* ── theme ── */
-.tarot-page.arc {
+/* ── theme (tokens are shared with the gacha Arcana stage) ── */
+.tarot-page.arc, .arcana-theme {
   --t-night: #07041a;
   --t-ink: #120a2e;
   --t-glass: rgba(24, 15, 56, .58);
@@ -93,7 +93,8 @@
   --surface-3: rgba(255, 255, 255, .08);
   --primary: var(--t-gold);
   --code-bg: rgba(255, 255, 255, .06);
-
+}
+.tarot-page.arc {
   position: relative;
   min-height: 100vh;
   min-height: 100dvh;
