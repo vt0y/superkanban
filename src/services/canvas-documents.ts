@@ -6,6 +6,8 @@ import { normalizeCanvasNote } from '@/utils/canvas-items';
 import { BATCH_CHUNK, database } from './helpers';
 import { subscribeProjectDocsByIds } from './work-items';
 
+const { runTransaction, getDocsFromServer, updateDoc, writeBatch } = measuredFirestore('canvas-documents');
+
 export async function pinProjectDocuments(projectId: string, documentIds: string[], positions: Array<{ x: number; y: number }>, user: User): Promise<void> {
   const ids = [...new Set(documentIds)];
   if (positions.length !== ids.length || positions.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) throw new Error('INVALID_CARD_POSITIONS');
@@ -101,5 +103,3 @@ export async function updateCanvasNote(projectId: string, id: string, patch: Par
     transaction.update(ref, { ...conversion, ...patch, updatedAt: serverTimestamp() });
   });
 }
-
-const { runTransaction, getDocsFromServer, updateDoc, writeBatch } = measuredFirestore('canvas-documents');

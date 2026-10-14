@@ -55,8 +55,15 @@ const categories = new Set<TarotCategory>(['general', 'love', 'work', 'finance']
 const encoder = new TextEncoder();
 const READING_COMPLETE_MARKER = '<!-- reading-complete -->';
 const MAX_READING_CHARACTERS = 16_000;
+const JWKS_REFRESH_COOLDOWN_MS = 60_000;
+const MIN_CACHE_AGE_MS = 5 * 60_000;
+const MAX_CACHE_AGE_MS = 24 * 60 * 60_000;
+const DEFAULT_CACHE_AGE_MS = 60 * 60_000;
+
 type FirebaseJwk = JsonWebKey & { kid?: string };
 let jwksCache: { expiresAt: number; keys: FirebaseJwk[] } | null = null;
+let inFlightRefresh: Promise<FirebaseJwk[]> | null = null;
+let lastAttemptAt = 0;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -364,12 +371,18 @@ async function authenticate(request: Request, env: Env): Promise<FirebaseClaims>
   const header = decodeSegment<{ alg?: string; kid?: string }>(parts[0]);
   const claims = decodeSegment<FirebaseClaims>(parts[1]);
   if (header.alg !== 'RS256' || !header.kid) throw new Error('Invalid identity token.');
+
+  // Pre-filter obvious claim failures before key lookup
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.aud !== env.FIREBASE_PROJECT_ID || claims.iss !== `https://securetoken.google.com/${env.FIREBASE_PROJECT_ID}` || claims.exp <= now || !claims.sub) {
+    throw new Error('Identity token expired or invalid.');
+  }
+
   const key = await firebaseKey(header.kid);
   const cryptoKey = await crypto.subtle.importKey('jwk', key, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
   const signature = base64UrlBytes(parts[2]);
   const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', cryptoKey, signature.buffer as ArrayBuffer, encoder.encode(`${parts[0]}.${parts[1]}`));
-  const now = Math.floor(Date.now() / 1000);
-  if (!valid || claims.aud !== env.FIREBASE_PROJECT_ID || claims.iss !== `https://securetoken.google.com/${env.FIREBASE_PROJECT_ID}` || claims.exp <= now || !claims.sub) throw new Error('Identity token expired or invalid.');
+  if (!valid) throw new Error('Identity token expired or invalid.');
   if (!claims.email || claims.email_verified !== true) throw new Error('A verified email is required.');
   const allowed = env.ALLOWED_EMAIL_DOMAINS.split(/[\s,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
   const domain = claims.email.split('@').pop()?.toLowerCase();
@@ -377,21 +390,57 @@ async function authenticate(request: Request, env: Env): Promise<FirebaseClaims>
   return claims;
 }
 
+function parseCacheAgeMs(response: Response): number {
+  const match = response.headers.get('Cache-Control')?.match(/max-age=(\d+)/i);
+  if (!match) return DEFAULT_CACHE_AGE_MS;
+  const seconds = parseInt(match[1], 10);
+  if (!Number.isFinite(seconds) || seconds <= 0) return DEFAULT_CACHE_AGE_MS;
+  const ms = seconds * 1000;
+  return Math.max(MIN_CACHE_AGE_MS, Math.min(ms, MAX_CACHE_AGE_MS));
+}
+
 async function firebaseKey(kid: string): Promise<FirebaseJwk> {
-  const refresh = async () => {
+  const fetchJwks = async (): Promise<FirebaseJwk[]> => {
+    lastAttemptAt = Date.now();
     const response = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com');
     if (!response.ok) throw new Error('Could not verify identity.');
+    const maxAgeMs = parseCacheAgeMs(response);
     const payload = await response.json() as { keys?: FirebaseJwk[] };
-    jwksCache = { keys: payload.keys || [], expiresAt: Date.now() + 60 * 60_000 };
+    const keys = payload.keys || [];
+    jwksCache = { keys, expiresAt: Date.now() + maxAgeMs };
+    return keys;
   };
-  if (!jwksCache || jwksCache.expiresAt < Date.now()) await refresh();
-  let key = jwksCache!.keys.find((item) => item.kid === kid);
-  if (!key) {
-    await refresh();
-    key = jwksCache!.keys.find((item) => item.kid === kid);
+
+  const tryRefresh = async (): Promise<void> => {
+    if (inFlightRefresh) {
+      try { await inFlightRefresh; } catch { /* allow stale fallback */ }
+      return;
+    }
+    if (Date.now() - lastAttemptAt >= JWKS_REFRESH_COOLDOWN_MS) {
+      inFlightRefresh = fetchJwks().finally(() => { inFlightRefresh = null; });
+      try { await inFlightRefresh; } catch { /* allow stale fallback */ }
+    }
+  };
+
+  if (!jwksCache || jwksCache.expiresAt < Date.now()) {
+    await tryRefresh();
   }
-  if (!key) throw new Error('Unknown identity key.');
+  let key = jwksCache?.keys.find((item) => item.kid === kid);
+  if (!key) {
+    await tryRefresh();
+    key = jwksCache?.keys.find((item) => item.kid === kid);
+  }
+  if (!key) {
+    if (!jwksCache) throw new Error('Could not verify identity.');
+    throw new Error('Unknown identity key.');
+  }
   return key;
+}
+
+export function _resetJwksCacheForTest() {
+  jwksCache = null;
+  inFlightRefresh = null;
+  lastAttemptAt = 0;
 }
 
 function decodeSegment<T>(segment: string): T { return JSON.parse(new TextDecoder().decode(base64UrlBytes(segment))) as T; }

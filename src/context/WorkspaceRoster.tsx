@@ -4,6 +4,8 @@ import { collection, doc, limit, query, where } from 'firebase/firestore';
 import type { Membership } from '@/types';
 import { database, withId } from '@/services/helpers';
 
+const { onSnapshot } = measuredFirestore('roster');
+
 interface RosterState { members: Membership[]; loaded: boolean; failed: boolean }
 interface RosterContextValue {
   own: Membership | null; ownLoaded: boolean; ownFailed: boolean;
@@ -58,5 +60,3 @@ export function useFullProjectMembers(enabled = true): RosterState {
   useEffect(() => { if (!enabled) return; demand(1); return () => demand(-1); }, [enabled, demand]);
   return enabled ? full : empty;
 }
-
-const { onSnapshot } = measuredFirestore('roster');

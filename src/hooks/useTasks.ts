@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Task } from '@/types';
 import {
-  getTaskCounts,
   loadCompletedTasksPage,
   mergeTaskStreams,
   subscribeActiveTasks,
   subscribeBoardTaskStreams,
   subscribeCalendarTasks,
   TASK_HISTORY_PAGE_SIZE,
-  type TaskCounts,
   type TaskCursor,
   type TaskScope,
 } from '@/services/tasks';
@@ -75,29 +73,6 @@ export function useBoardTasks(
   }, [projectId, cursor, doneLimit, milestoneId, hasMore, loadingMore]);
 
   return { items: useMemo(() => mergeTaskStreams(active, [...done, ...olderDone]), [active, done, olderDone]), hasMore, loadingMore, loadMore };
-}
-
-export function useTaskCounts(projectId: string, milestoneId?: string): TaskCounts | null {
-  const [counts, setCounts] = useState<TaskCounts | null>(null);
-  useEffect(() => {
-    let current = true;
-    setCounts(null);
-    void getTaskCounts(projectId, milestoneId).then((value) => { if (current) setCounts(value); });
-    return () => { current = false; };
-  }, [projectId, milestoneId]);
-  return counts;
-}
-
-export function useMilestoneTaskCounts(projectId: string, milestoneIds: string[], refreshKey = ''): Record<string, TaskCounts> {
-  const [counts, setCounts] = useState<Record<string, TaskCounts>>({});
-  const idsKey = [...milestoneIds].sort().join(',');
-  useEffect(() => {
-    let current = true;
-    void Promise.all((idsKey ? idsKey.split(',') : []).map(async (id) => [id, await getTaskCounts(projectId, id)] as const))
-      .then((entries) => { if (current) setCounts(Object.fromEntries(entries)); });
-    return () => { current = false; };
-  }, [projectId, idsKey, refreshKey]);
-  return counts;
 }
 
 export function useCalendarTasks(projectId: string, startDate: string, endDateExclusive: string): Task[] {

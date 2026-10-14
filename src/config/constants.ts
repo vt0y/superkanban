@@ -29,3 +29,6 @@ export const FEEDBACK_STATUSES: { id: FeedbackStatus; th: string; en: string; co
 ];
 
 export const USECASE_STATUS_COLORS = { open: '#94a3b8', assigned: '#f59e0b', completed: '#10b981' } as const;
+
+/** Cloud Firestore maximum items in `in`, `not-in`, and `array-contains-any` filters. */
+export const FIRESTORE_DISJUNCTION_LIMIT = 30;

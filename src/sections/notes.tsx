@@ -6,7 +6,7 @@ import type { AppContextValue, SectionProps } from '@/context/AppContext';
 import { BulkBar, CanvaFileRow, CanvaLinkForm, CanvasControls, DriveAttachmentControl, DriveFileRow, driveRoleLabel, Empty, MarkdownRenderer, Modal, PageTitle } from '@/components/common';
 import { useActiveTasksState, useProjectItemsByIds, useCanvasViewport, useItemDrag, useLinkedTasks, useProjectItems, useProjectItemsState, useSelection, type Selection } from '@/hooks';
 import { useFullProjectMembers, useWorkspaceRoster } from '@/context/WorkspaceRoster';
-import { NOTE_COLORS } from '@/config/constants';
+import { FIRESTORE_DISJUNCTION_LIMIT, NOTE_COLORS } from '@/config/constants';
 import { parseContentWithLinks } from '@/utils/linkify';
 import { canDeleteItem } from '@/utils/permissions';
 import { allowedDriveRoles, attachCanvaProjectDocument, attachDriveProjectDocument, bulkRemoveProjectDocuments, bulkUpdateProjectDocumentLinks, bulkUpdateWorkItems, createProjectDocument, createWorkItem, deleteProjectDocument, deleteWorkItem, detachDriveProjectDocument, driveFolderUrl, driveOpenUrl, isCanvaProjectDocument, isDriveFolder, isDriveProjectDocument, loadProjectCollectionPage, migrateLegacyProjectDocument, pinProjectDocuments, subscribePinnedDocumentMetadata, subscribeProjectDocument, subscribeProjectQuery, updateCanvaProjectDocumentDetails, updateDriveProjectDocumentDetails, updateDriveProjectDocumentRole, updateProjectDocument, updateProjectDocumentLabels, type CollectionCursor, type ProjectDocumentLinkField } from '@/services';
@@ -96,9 +96,9 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   const selectedLabelIds = [...new Set([
     ...(searchParams.get('labels') || '').split(',').filter(Boolean),
     ...labels.filter((label) => queryLabelNames.includes(label.name.toLowerCase())).map((label) => label.id),
-  ])].filter((id) => labels.some((label) => label.id === id)).slice(0, 30);
-  const selectedTaskIds = [...new Set(documentTasks.filter((task) => queryTaskNames.includes(task.title.toLowerCase())).map((task) => task.id))].slice(0, 30);
-  const selectedMilestoneIds = [...new Set(milestones.filter((milestone) => queryMilestoneNames.includes(milestone.title.toLowerCase())).map((milestone) => milestone.id))].slice(0, 30);
+  ])].filter((id) => labels.some((label) => label.id === id)).slice(0, FIRESTORE_DISJUNCTION_LIMIT);
+  const selectedTaskIds = [...new Set(documentTasks.filter((task) => queryTaskNames.includes(task.title.toLowerCase())).map((task) => task.id))].slice(0, FIRESTORE_DISJUNCTION_LIMIT);
+  const selectedMilestoneIds = [...new Set(milestones.filter((milestone) => queryMilestoneNames.includes(milestone.title.toLowerCase())).map((milestone) => milestone.id))].slice(0, FIRESTORE_DISJUNCTION_LIMIT);
   const labelFilterKey = [...selectedLabelIds].sort().join(',');
   const taskFilterKey = [...selectedTaskIds].sort().join(',');
   const milestoneFilterKey = [...selectedMilestoneIds].sort().join(',');
@@ -122,8 +122,8 @@ function NotesOverview({ context, project, members, role, readOnly, mode }: Sect
   const toggleLabelFilter = (label: Label) => {
     const term = `label:${queryValue(label.name)}`;
     const selected = queryLabelNames.includes(label.name.toLowerCase());
-    if (!selected && queryLabelNames.length >= 30) {
-      toast(pick(locale, 'กรองได้สูงสุด 30 labels พร้อมกัน', 'You can filter by up to 30 labels at once'), 'error');
+    if (!selected && queryLabelNames.length >= FIRESTORE_DISJUNCTION_LIMIT) {
+      toast(pick(locale, `กรองได้สูงสุด ${FIRESTORE_DISJUNCTION_LIMIT} labels พร้อมกัน`, `You can filter by up to ${FIRESTORE_DISJUNCTION_LIMIT} labels at once`), 'error');
       return;
     }
     setSearchParams((current) => { const params = new URLSearchParams(current); const next = toggleQueryTerm(params.get('q') || '', term); if (next) params.set('q', next); else params.delete('q'); return params; }, { replace: true });

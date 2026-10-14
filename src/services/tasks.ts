@@ -16,13 +16,14 @@ import type { Task, TaskStatus } from '@/types';
 import { database, withId } from './helpers';
 import { subscribeProjectQuery } from './work-items';
 
+const { getDocs, onSnapshot } = measuredFirestore('tasks');
+
 export const ACTIVE_TASK_STATUSES: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'review'];
 export const TASK_HISTORY_PAGE_SIZE = 50;
 export const estimatedBoardInitialTaskReads = (activeCount: number, completedCount: number, doneLimit = TASK_HISTORY_PAGE_SIZE) =>
   activeCount + Math.min(completedCount, doneLimit);
 
 export interface TaskScope { milestoneId?: string }
-export interface TaskCounts { total: number; done: number }
 export interface TaskCursor { updatedAt: Timestamp; id: string }
 export interface TaskPage {
   items: Task[];
@@ -122,16 +123,6 @@ export async function loadCompletedTasksPage(
   };
 }
 
-export async function getTaskCounts(projectId: string, milestoneId?: string): Promise<TaskCounts> {
-  const base = collection(database(), 'projects', projectId, 'tasks');
-  const scope = milestoneId ? [where('milestoneId', '==', milestoneId)] : [];
-  const [total, done] = await Promise.all([
-    getCountFromServer(query(base, ...scope)),
-    getCountFromServer(query(base, ...scope, where('status', '==', 'done'))),
-  ]);
-  return { total: total.data().count, done: done.data().count };
-}
-
 export function subscribeCalendarTasks(
   projectId: string,
   startDate: string,
@@ -147,5 +138,3 @@ export function subscribeCalendarTasks(
   const stopUnscheduled = onSnapshot(unscheduledQuery, (snap) => { unscheduled = snap.docs.map((item) => withId<Task>(item)); emit(); });
   return () => { stopDated(); stopUnscheduled(); };
 }
-
-const { getDocs, getCountFromServer, onSnapshot } = measuredFirestore('tasks');

@@ -21,6 +21,9 @@ import type { Milestone, Task } from '@/types';
 import { applyMilestoneChanges, applyTaskChanges, milestoneAffectsSummary, taskAffectsSummary, patchTouchesSummary, summaryAfterPatch } from '@/utils/project-summary';
 import { readSummaryForTransaction, withProjectSummaryRetry, writeSummaryInTransaction } from './project-summary';
 import { activityData, database, withId, BATCH_CHUNK, type ActivityInput } from './helpers';
+import { FIRESTORE_DISJUNCTION_LIMIT } from '@/config/constants';
+
+const { getDocs, onSnapshot, runTransaction, writeBatch, deleteDoc } = measuredFirestore('work-items');
 
 interface SharedSubscription<T = unknown> {
   refCount: number;
@@ -58,12 +61,12 @@ export async function loadProjectCollectionPage<T>(
   };
 }
 
-/** Live documents for a known id list, split below Firestore's 30-value `in` limit. */
+/** Live documents for a known id list, split below Firestore's disjunction limit. */
 export function subscribeProjectDocsByIds<T>(projectId: string, name: string, ids: string[], callback: (items: T[]) => void): Unsubscribe {
   const unique = [...new Set(ids)].sort();
   if (!unique.length) { callback([]); return () => undefined; }
   const chunks: string[][] = [];
-  for (let start = 0; start < unique.length; start += 30) chunks.push(unique.slice(start, start + 30));
+  for (let start = 0; start < unique.length; start += FIRESTORE_DISJUNCTION_LIMIT) chunks.push(unique.slice(start, start + FIRESTORE_DISJUNCTION_LIMIT));
   const values = new Map<number, T[]>();
   const emit = () => { if (values.size === chunks.length) callback([...values.values()].flat()); };
   const stops = chunks.map((chunk, index) => subscribeProjectQuery<T>(projectId, name, `ids:${JSON.stringify(chunk)}`, [where(documentId(), 'in', chunk)], (items) => {
@@ -367,5 +370,3 @@ export async function bulkDeleteWorkItems(
 async function runTrackedTransaction(projectId: string, operation: () => Promise<void>): Promise<void> {
   await withProjectSummaryRetry(projectId, operation);
 }
-
-const { getDocs, onSnapshot, runTransaction, writeBatch, deleteDoc } = measuredFirestore('work-items');

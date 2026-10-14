@@ -32,7 +32,16 @@ function makeButton(label: string, content: string | string[], onClick: () => vo
   return button;
 }
 
+export function sanitizeMermaidSvg(svgMarkup: string): string {
+  return DOMPurify.sanitize(svgMarkup, {
+    USE_PROFILES: { svg: true, svgFilters: true, html: true },
+    ADD_TAGS: ['foreignObject'],
+    HTML_INTEGRATION_POINTS: { foreignobject: true, 'annotation-xml': true },
+  });
+}
+
 function makeDiagramZoomable(wrapper: HTMLElement, svgMarkup: string, locale: Locale): () => void {
+  const cleanSvg = sanitizeMermaidSvg(svgMarkup);
   const viewport = document.createElement('div');
   const canvas = document.createElement('div');
   const controls = document.createElement('div');
@@ -40,10 +49,10 @@ function makeDiagramZoomable(wrapper: HTMLElement, svgMarkup: string, locale: Lo
   viewport.tabIndex = 0;
   canvas.className = 'mermaid-canvas';
   controls.className = 'canvas-controls mermaid-controls';
-  canvas.innerHTML = svgMarkup;
+  canvas.innerHTML = cleanSvg;
   const svg = canvas.querySelector('svg');
   if (!svg) {
-    wrapper.innerHTML = svgMarkup;
+    wrapper.innerHTML = cleanSvg;
     return () => undefined;
   }
 

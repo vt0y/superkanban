@@ -19,6 +19,7 @@ import { allowedDriveRoles, isDriveFolder, removeDrivePermissions, syncDriveFile
 import { activityData, BATCH_CHUNK, database, withId } from './helpers';
 import { bulkDeleteWorkItems } from './work-items';
 import { cleanupRemovedDocumentCards } from './canvas-documents';
+import { FIRESTORE_DISJUNCTION_LIMIT } from '@/config/constants';
 
 export const isDriveProjectDocument = (item: ProjectDocument): item is DriveProjectDocument => item.kind === 'drive';
 export const driveDocumentId = (fileId: string) => `drive_${fileId}`;
@@ -178,8 +179,8 @@ export async function syncProjectDrivePermissions(
 
 export async function deleteTasksAndUnlinkDocuments(projectId: string, taskIds: string[]): Promise<void> {
   const store = database();
-  for (let start = 0; start < taskIds.length; start += 30) {
-    const ids = taskIds.slice(start, start + 30);
+  for (let start = 0; start < taskIds.length; start += FIRESTORE_DISJUNCTION_LIMIT) {
+    const ids = taskIds.slice(start, start + FIRESTORE_DISJUNCTION_LIMIT);
     const snapshot = await getDocs(query(collection(store, 'projects', projectId, 'documents'), where('taskIds', 'array-contains-any', ids)));
     for (let refStart = 0; refStart < snapshot.docs.length; refStart += BATCH_CHUNK) {
       const batch = writeBatch(store);

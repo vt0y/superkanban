@@ -14,6 +14,8 @@ import { DOCUMENT_BODY_MAX_BYTES, documentMetadata } from '@/utils/documents';
 import { activityData, database, withId } from './helpers';
 import { cleanupRemovedDocumentCards } from './canvas-documents';
 
+const { onSnapshot, runTransaction, writeBatch, updateDoc } = measuredFirestore('documents');
+
 function metadataRef(projectId: string, documentId: string) {
   return doc(database(), 'projects', projectId, 'documents', documentId);
 }
@@ -177,5 +179,3 @@ export async function migrateLegacyProjectDocument(projectId: string, documentId
     transaction.update(itemRef, { ...documentMetadata(item.content), content: deleteField() });
   });
 }
-
-const { onSnapshot, runTransaction, writeBatch, updateDoc } = measuredFirestore('documents');

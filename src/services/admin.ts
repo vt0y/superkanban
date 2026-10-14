@@ -3,6 +3,7 @@ import { auth } from '@/config/firebase';
 import type { AccountStatus, Milestone, Project, SiteRole, Task, TaskStatus, UserProfile } from '@/types';
 import { OPEN_STATUSES } from '@/utils/project-summary';
 import { database, withId } from './helpers';
+import { FIRESTORE_DISJUNCTION_LIMIT } from '@/config/constants';
 
 export interface AdminUser extends UserProfile { kind: 'user'; siteRole: SiteRole | null }
 export interface AdminProject extends Project { kind: 'project'; ownerName: string; ownerEmail: string }
@@ -31,8 +32,8 @@ export async function loadAdminProjects(afterId?: string): Promise<AdminPageResu
   const page = await loadPage<Project>('projects', afterId);
   const ids = [...new Set(page.items.map((item) => item.ownerId))];
   const owners = new Map<string, UserProfile>();
-  await Promise.all(Array.from({ length: Math.ceil(ids.length / 30) }, async (_, index) => {
-    const snapshot = await getDocs(query(collection(database(), 'users'), where(documentId(), 'in', ids.slice(index * 30, index * 30 + 30))));
+  await Promise.all(Array.from({ length: Math.ceil(ids.length / FIRESTORE_DISJUNCTION_LIMIT) }, async (_, index) => {
+    const snapshot = await getDocs(query(collection(database(), 'users'), where(documentId(), 'in', ids.slice(index * FIRESTORE_DISJUNCTION_LIMIT, index * FIRESTORE_DISJUNCTION_LIMIT + FIRESTORE_DISJUNCTION_LIMIT))));
     snapshot.docs.forEach((item) => owners.set(item.id, withId<UserProfile>(item)));
   }));
   return { ...page, items: page.items.map((project) => ({ ...project, kind: 'project', ownerName: owners.get(project.ownerId)?.displayName || project.ownerId, ownerEmail: owners.get(project.ownerId)?.email || '' })) };

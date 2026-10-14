@@ -16,6 +16,7 @@ import {
 import type { Poll, PollVote } from '@/types';
 import { database } from './helpers';
 import { subscribeProjectQuery, type CollectionCursor, type CollectionPage } from './work-items';
+import { FIRESTORE_DISJUNCTION_LIMIT } from '@/config/constants';
 
 export function subscribeOpenPolls(projectId: string, callback: (polls: Poll[]) => void): Unsubscribe {
   return subscribeProjectQuery(projectId, 'polls', 'open', [where('closed', '==', false)], callback);
@@ -39,10 +40,10 @@ export async function loadClosedPollsPage(projectId: string, cursor: CollectionC
   };
 }
 
-/** Firestore `in` accepts at most 30 values, so every listener is deliberately chunked. */
+/** Firestore disjunction filters accept at most 30 values, so every listener is deliberately chunked. */
 export function subscribeVotesForPolls(projectId: string, pollIds: string[], callback: (votes: PollVote[]) => void): Unsubscribe {
   const chunks: string[][] = [];
-  for (let index = 0; index < pollIds.length; index += 30) chunks.push(pollIds.slice(index, index + 30));
+  for (let index = 0; index < pollIds.length; index += FIRESTORE_DISJUNCTION_LIMIT) chunks.push(pollIds.slice(index, index + FIRESTORE_DISJUNCTION_LIMIT));
   if (!chunks.length) { callback([]); return () => undefined; }
   const values = new Map<number, PollVote[]>();
   const emit = () => callback([...values.values()].flat());

@@ -15,6 +15,8 @@ import type { Milestone, ProjectSummary, Task } from '@/types';
 import { buildProjectSummary, OPEN_STATUSES, PROJECT_SUMMARY_VERSION } from '@/utils/project-summary';
 import { database, withId } from './helpers';
 
+const { getDoc, getDocs, getCountFromServer, onSnapshot, runTransaction } = measuredFirestore('project-summary');
+
 export const SUMMARY_MISSING = 'PROJECT_SUMMARY_MISSING';
 export const SUMMARY_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -215,5 +217,3 @@ export function summaryNeedsRebuild(summary: ProjectSummary | null, now = Date.n
   const rebuilt = summary.rebuiltAt?.toMillis?.();
   return !rebuilt || now - rebuilt > SUMMARY_STALE_MS;
 }
-
-const { getDoc, getDocs, getCountFromServer, onSnapshot, runTransaction } = measuredFirestore('project-summary');
