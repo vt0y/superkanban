@@ -54,7 +54,7 @@ export function LoginScreen({
     <div className="login-page">
       <div className="login-visual" aria-hidden="true">
         <div className="visual-copy">
-          <span className="product-pill">PROJECTSPACE</span>
+          <span className="product-pill">SUPERKANBAN</span>
           <h1>
             {pick(locale, 'ทุกโปรเจกต์', 'Every project,')}
             <br />
@@ -75,7 +75,7 @@ export function LoginScreen({
         <div className="login-box">
           <div className="brand">
             <span className="brand-mark">P</span>
-            <strong>ProjectSpace</strong>
+            <strong>SuperKanban</strong>
           </div>
           <h2>{pick(locale, 'ยินดีต้อนรับ', 'Welcome')}</h2>
           <p>{pick(locale, 'เข้าสู่ระบบเพื่อดูโปรเจกต์ของคุณ', 'Sign in to see your projects')}</p>

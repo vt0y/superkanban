@@ -2,7 +2,7 @@
 
 ระบบแบ่งเป็น 3 ส่วน:
 
-1. Firebase Hosting/Auth/Firestore เดิมของ ProjectSpace
+1. Firebase Hosting/Auth/Firestore เดิมของ SuperKanban
 2. Cloudflare Worker + D1 สำหรับสับไพ่ เก็บ session ชั่วคราว และซ่อน KKU API key
 3. Backblaze B2 + Cloudflare CDN สำหรับภาพไพ่ 78 ใบ
 
@@ -144,7 +144,7 @@ D1 เก็บเพียงสำรับที่สับแล้ว ค�
 [vars]
 FIREBASE_PROJECT_ID = "ค่า VITE_FIREBASE_PROJECT_ID จาก .env"
 ALLOWED_EMAIL_DOMAINS = "example.com"
-ALLOWED_ORIGINS = "http://localhost:5173,https://<firebase-project>.web.app,https://<custom-projectspace-domain>"
+ALLOWED_ORIGINS = "http://localhost:5173,https://<firebase-project>.web.app,https://<custom-superkanban-domain>"
 KKU_API_BASE_URL = "https://<your-kku-api-host>/api/v1"
 KKU_MODEL_ID = "<your-model-id>"
 DAILY_READING_LIMIT = "5"
@@ -170,7 +170,7 @@ npx wrangler secret put KKU_API_KEY --config workers/tarot/wrangler.toml
 
 ```bash
 npm run tarot:worker:typecheck
-XDG_CONFIG_HOME=/tmp/projectspace-wrangler npx wrangler deploy --dry-run --config workers/tarot/wrangler.toml
+XDG_CONFIG_HOME=/tmp/superkanban-wrangler npx wrangler deploy --dry-run --config workers/tarot/wrangler.toml
 ```
 
 Deploy:
@@ -195,7 +195,7 @@ curl https://projectspace-tarot.<account>.workers.dev/health
 
 ## 6. ตั้งค่า Frontend
 
-เพิ่มสองบรรทัดนี้ใน `.env` จริงของ ProjectSpace โดยไม่ commit ไฟล์ `.env`:
+เพิ่มสองบรรทัดนี้ใน `.env` จริงของ SuperKanban โดยไม่ commit ไฟล์ `.env`:
 
 ```dotenv
 VITE_TAROT_API_URL=https://projectspace-tarot.<account>.workers.dev
@@ -231,7 +231,7 @@ Rules อนุญาตเฉพาะเจ้าของบัญชีอ�
 
 ## 8. Production smoke test
 
-1. Login ProjectSpace ด้วยบัญชีที่อนุญาต
+1. Login SuperKanban ด้วยบัญชีที่อนุญาต
 2. กด Tarot จาก header หรือการ์ดบนหน้า Home
 3. เลือกหมวดและกดสับไพ่
 4. ตรวจว่าแสดงหลังไพ่ครบ 78 ใบ โดย Network response ของ `/sessions` ต้องไม่มี card ID/deck order

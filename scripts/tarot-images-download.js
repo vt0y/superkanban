@@ -7,7 +7,7 @@ import { EXPECTED_SLUGS, parseTarotFilename } from './tarot-images.js';
 
 export const WIKIMEDIA_CATEGORY = 'Category:Rider-Waite-Smith tarot deck (TaionWC)';
 export const WIKIMEDIA_API = 'https://commons.wikimedia.org/w/api.php';
-const USER_AGENT = 'ProjectSpaceTarotAssetImporter/1.0 (Wikimedia Commons source verification)';
+const USER_AGENT = 'SuperKanbanTarotAssetImporter/1.0 (Wikimedia Commons source verification)';
 
 export function mapWikimediaTitle(title) {
   return parseTarotFilename(title.replace(/^File:/, ''));
@@ -129,7 +129,7 @@ export async function downloadWikimediaDeck({ outputDir, force = false, fetchImp
     throw new Error(`Inbox already contains ${existingImages.length} image(s). Re-run with --force only if replacing the entire set is intended.`);
   }
 
-  const stagingDir = mkdtempSync(join(tmpdir(), 'projectspace-tarot-wikimedia-'));
+  const stagingDir = mkdtempSync(join(tmpdir(), 'superkanban-tarot-wikimedia-'));
   try {
     const manifestCards = [];
     for (const [index, card] of cards.entries()) {

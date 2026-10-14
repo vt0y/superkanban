@@ -579,7 +579,7 @@ service cloud.firestore {
       }
     }
 
-    // Feedback about ProjectSpace itself. Users read only their own; trusted site staff triage all.
+    // Feedback about SuperKanban itself. Users read only their own; trusted site staff triage all.
     match /siteFeedback/{feedbackId} {
       allow read: if isSiteStaff() || (signedIn() && resource.data.userId == request.auth.uid);
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid

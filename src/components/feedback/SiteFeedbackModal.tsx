@@ -8,7 +8,7 @@ import { attempt, toast } from '@/components/toast';
 import { Modal } from '@/components/common/Modal';
 import { pick } from '@/utils/formatters';
 
-/** The "Feedback about ProjectSpace" form, reachable from the top bar on every page. */
+/** The "Feedback about SuperKanban" form, reachable from the top bar on every page. */
 export function SiteFeedbackModal({ context, onClose }: { context: AppContextValue; onClose: () => void }) {
   const { locale, user } = context;
   const location = useLocation();
@@ -38,7 +38,7 @@ export function SiteFeedbackModal({ context, onClose }: { context: AppContextVal
   };
 
   return (
-    <Modal title={pick(locale, 'ฟีดแบ็กถึงทีมพัฒนา ProjectSpace', 'Feedback about ProjectSpace')} onClose={onClose}
+    <Modal title={pick(locale, 'ฟีดแบ็กถึงทีมพัฒนา SuperKanban', 'Feedback about SuperKanban')} onClose={onClose}
       actions={
         <button form={formId} className="primary" disabled={busy || !form.title.trim()}>
           {pick(locale, 'ส่ง', 'Send')}

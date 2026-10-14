@@ -59,7 +59,7 @@ function AdminShell({ context }: { context: AppContextValue }) {
       <AppHeader context={context} />
       <main className="page-shell feedback-page admin-page">
         <Link className="back-link" to="/"><Icon name="arrowLeft" />{context.t('overview')}</Link>
-        <header className="admin-page-title"><span className="eyebrow">PROJECTSPACE · SITE ADMIN</span><h1>{pick(locale, 'ผู้ดูแลเว็บ', 'Site admin')}</h1></header>
+        <header className="admin-page-title"><span className="eyebrow">SUPERKANBAN · SITE ADMIN</span><h1>{pick(locale, 'ผู้ดูแลเว็บ', 'Site admin')}</h1></header>
         <div className="admin-layout">
           <nav className="admin-nav" role="tablist" aria-label={pick(locale, 'ส่วนจัดการเว็บ', 'Site management')}>
             {items.map((item) => (

@@ -40,8 +40,8 @@ export function SiteFeedbackPage({ context }: { context: AppContextValue }) {
               {admin
                 ? pick(
                     locale,
-                    'ฟีดแบ็กเกี่ยวกับ ProjectSpace จากผู้ใช้ทุกคน ตั้งสถานะและตอบกลับได้ที่นี่',
-                    'Feedback about ProjectSpace from every user — set a status and reply here',
+                    'ฟีดแบ็กเกี่ยวกับ SuperKanban จากผู้ใช้ทุกคน ตั้งสถานะและตอบกลับได้ที่นี่',
+                    'Feedback about SuperKanban from every user — set a status and reply here',
                   )
                 : pick(
                     locale,

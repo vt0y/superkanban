@@ -30,7 +30,7 @@ export function AppHeader({ context, leading }: { context: AppContextValue; lead
         {leading ?? (
           <Link className="brand" to="/">
             <span className="brand-mark">P</span>
-            <strong>ProjectSpace</strong>
+            <strong>SuperKanban</strong>
           </Link>
         )}
       </div>

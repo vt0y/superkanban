@@ -9,7 +9,7 @@ const projectId = 'project-a';
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({
-    projectId: 'project-space-test',
+    projectId: 'superkanban-test',
     firestore: { rules: readFileSync('firestore.rules', 'utf8') },
   });
 
@@ -62,7 +62,7 @@ function validGachaDraw(initiatedBy = 'member') {
   };
 }
 
-describe('ProjectSpace Firestore rules', () => {
+describe('SuperKanban Firestore rules', () => {
   it('ปฏิเสธผู้ที่ยังไม่เข้าสู่ระบบ', async () => {
     await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'projects', projectId)));
   });

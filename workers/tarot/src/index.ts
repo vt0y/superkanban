@@ -353,7 +353,7 @@ export async function checkAccountAccess(request: Request, env: Pick<Env, 'FIREB
     if (!profile.fields) throw new Error('Invalid account profile');
     const status = profile.fields.accountStatus;
     if (status?.stringValue === 'suspended') {
-      return jsonError(403, 'ACCOUNT_SUSPENDED', localMessage('This ProjectSpace account is suspended.', 'บัญชี ProjectSpace นี้ถูกระงับการใช้งาน', request), false, cors);
+      return jsonError(403, 'ACCOUNT_SUSPENDED', localMessage('This SuperKanban account is suspended.', 'บัญชี SuperKanban นี้ถูกระงับการใช้งาน', request), false, cors);
     }
     if (status && status.stringValue !== 'active') throw new Error('Invalid account status');
     return null;

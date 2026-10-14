@@ -1,11 +1,11 @@
-# รายงานการ Optimize ProjectSpace สำหรับ Firebase Free Tier
+# รายงานการ Optimize SuperKanban สำหรับ Firebase Free Tier
 
 วันที่ประเมิน: 25 กันยายน 2026  
 ขอบเขต: Firebase Spark plan, Cloud Firestore Standard edition, Firebase Authentication และ Firebase Hosting
 
 ## 1. บทสรุปสำหรับผู้ตัดสินใจ
 
-ProjectSpace มีพื้นฐานที่เหมาะกับ Firebase Spark อยู่แล้ว เช่น แบ่งหน้าแบบ cursor, จำกัดประวัติงาน/โพล/เอกสารครั้งละ 50 รายการ, เปิด chat เมื่อผู้ใช้กดเท่านั้น, ใช้ IndexedDB multi-tab cache, lazy-load หน้าหนัก และปิด index ของข้อความขนาดใหญ่บางฟิลด์
+SuperKanban มีพื้นฐานที่เหมาะกับ Firebase Spark อยู่แล้ว เช่น แบ่งหน้าแบบ cursor, จำกัดประวัติงาน/โพล/เอกสารครั้งละ 50 รายการ, เปิด chat เมื่อผู้ใช้กดเท่านั้น, ใช้ IndexedDB multi-tab cache, lazy-load หน้าหนัก และปิด index ของข้อความขนาดใหญ่บางฟิลด์
 
 อย่างไรก็ตาม คำว่า “50–100 users” ต้องแยกเป็น **จำนวนบัญชี**, **ผู้ใช้ต่อวัน (DAU)** และ **ผู้ใช้ที่ออนไลน์พร้อมกัน** เพราะค่าใช้จ่าย Firestore เกิดจาก reads/writes และการกระจาย realtime update ไม่ได้คิดตามจำนวนบัญชีโดยตรง
 

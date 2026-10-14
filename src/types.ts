@@ -238,7 +238,7 @@ export interface DriveFileRef {
   /** Role of app-created grants; missing means `reader`. Never set for unmanaged references. */
   role?: DriveRole;
   sharedMemberIds: string[];
-  /** Drive permission IDs created by this app, keyed by ProjectSpace user ID. */
+  /** Drive permission IDs created by this app, keyed by SuperKanban user ID. */
   managedPermissionIds?: Record<string, string>;
   /** The anyone-with-link permission ID, recorded only when this app created it. */
   linkPermissionId?: string;
@@ -431,7 +431,7 @@ export interface Comment {
 export type FeedbackCategory = 'idea' | 'bug' | 'question' | 'other';
 export type FeedbackStatus = 'open' | 'in_review' | 'resolved' | 'declined';
 
-/** Feedback about ProjectSpace itself (top-level `siteFeedback`), not tied to a project. */
+/** Feedback about SuperKanban itself (top-level `siteFeedback`), not tied to a project. */
 export interface SiteFeedback {
   id: string;
   title: string;

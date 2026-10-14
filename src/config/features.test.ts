@@ -31,8 +31,8 @@ describe('features config - parseFeatureFlag', () => {
 
 describe('features config - parseGitHubAppSlug', () => {
   it('accepts GitHub App slugs, normalised to lowercase', () => {
-    expect(parseGitHubAppSlug('projectspace-github')).toBe('projectspace-github');
-    expect(parseGitHubAppSlug('  ProjectSpace  ')).toBe('projectspace');
+    expect(parseGitHubAppSlug('superkanban-github')).toBe('superkanban-github');
+    expect(parseGitHubAppSlug('  SuperKanban  ')).toBe('superkanban');
   });
 
   it('rejects empty or malformed slugs so GitHub stays disabled', () => {

@@ -1,4 +1,4 @@
-# ProjectSpace
+# SuperKanban
 
 Realtime collaborative project workspace designed for agile development teams, built with React 19, TypeScript, Vite, Firebase Authentication, and Cloud Firestore.
 
@@ -18,11 +18,11 @@ Realtime collaborative project workspace designed for agile development teams, b
 
 ## 1. Overview and Architecture
 
-ProjectSpace operates as a high-performance Single Page Application (SPA) designed to run entirely within the Firebase Spark (free tier) quota while supporting multi-user realtime collaboration.
+SuperKanban operates as a high-performance Single Page Application (SPA) designed to run entirely within the Firebase Spark (free tier) quota while supporting multi-user realtime collaboration.
 
 ```
 +--------------------------------------------------------------------------+
-|                               PROJECTSPACE                               |
+|                               SUPERKANBAN                                |
 +--------------------------------------------------------------------------+
 |  Frontend: React 19, TypeScript, React Router, Vite                      |
 |  Auth: Firebase Authentication (Google OAuth + GitHub Provider Linking)  |
@@ -60,7 +60,7 @@ Projects → Inspect never reads the member-written `summary/main`. It shows own
 
 Admin archiving requires a reason (up to 1,000 characters, visible to project members) and preserves all project data. It sets `archived` and `moderationArchived`, recording `moderationReason`, `moderationUpdatedAt`, and `moderationUpdatedBy`. Only site staff can restore a moderation archive. Owner archives keep their existing restore behavior. Existing projects without moderation metadata remain compatible; historic admin archives cannot be distinguished from owner archives and are not automatically locked. Release the updated Firestore rules and frontend together. No backend functions, permanent deletion, or linked-service access changes are introduced.
 
-`users/{uid}.accountStatus` is optional (`active` or `suspended`); existing profiles without it remain active. Changes record `statusUpdatedAt` and `statusUpdatedBy`. Suspension preserves Firebase Auth accounts, data, project membership, and external GitHub/Drive permissions. A suspended user can sign in and read their own profile/site role to see their status, but cannot read or write ProjectSpace content. The live profile listener replaces the app with the suspension screen and restores access after reactivation. Automatic profile updates skip suspended accounts.
+`users/{uid}.accountStatus` is optional (`active` or `suspended`); existing profiles without it remain active. Changes record `statusUpdatedAt` and `statusUpdatedBy`. Suspension preserves Firebase Auth accounts, data, project membership, and external GitHub/Drive permissions. A suspended user can sign in and read their own profile/site role to see their status, but cannot read or write SuperKanban content. The live profile listener replaces the app with the suspension screen and restores access after reactivation. Automatic profile updates skip suspended accounts.
 
 The Tarot Worker reads the verified user's profile from Firestore REST on every authenticated Tarot or Canva request, using that user's Firebase ID token. Suspended accounts receive `403 ACCOUNT_SUSPENDED`; unavailable or invalid account status receives retryable `503 ACCOUNT_STATUS_UNAVAILABLE`, before quotas, rate limits, or AI calls. This adds one profile read per authenticated request and requires no service-account secret.
 
@@ -98,7 +98,7 @@ The Tarot Worker reads the verified user's profile from Firestore REST on every 
 - Dedicated, shareable Markdown document reader with a live editor preview and DOMPurify sanitization.
 - Lazy Mermaid diagrams from fenced `mermaid` blocks, including flowchart, sequence, class, state, ER, Gantt, and other supported types.
 - Egress optimization: document lists load metadata only; Markdown bodies are downloaded only when opened.
-- Optional Google Drive attachments appear alongside Markdown documents and inside saved tasks. Local files upload directly from the browser into the uploader's Drive; ProjectSpace stores metadata only.
+- Optional Google Drive attachments appear alongside Markdown documents and inside saved tasks. Local files upload directly from the browser into the uploader's Drive; SuperKanban stores metadata only.
 - Canva designs can be attached for editing by pasting their **edit link** (Share → Collaboration link → Anyone with the link → Can edit). Rows open the Canva editor directly; there is no preview, and edit access stays managed in Canva. Only the design ID and edit-link token are stored. When `VITE_TAROT_API_URL` is set, the Tarot Worker expands `canva.link` short links and fills in the design name for links that open without signing in; otherwise paste the full link and the title defaults to the design ID.
 
 ### G. Lucky Draw / Task Gacha Engine
@@ -122,7 +122,7 @@ The Tarot Worker reads the verified user's profile from Firestore REST on every 
 - Theme switching: Light, Dark, and System modes.
 
 ### J. Mystic Cosmic AI Tarot
-- Authenticated `/tarot` experience linked from ProjectSpace, with a visual identity separate from the workspace UI.
+- Authenticated `/tarot` experience linked from SuperKanban, with a visual identity separate from the workspace UI.
 - Users choose three face-down cards from all 78 Rider–Waite cards; the hidden shuffle and reveal mapping stay in a Cloudflare Worker/D1 session.
 - KKU GenAI produces a Thai or English Past–Present–Future reading through a server-side API-key proxy.
 - The latest 20 readings are private to the user and may be deleted individually or together.
@@ -188,21 +188,21 @@ Go to **Google Auth Platform → Data Access → Add or remove scopes** and add:
 https://www.googleapis.com/auth/drive.file
 ```
 
-This is the narrow per-file scope: ProjectSpace can create files and work with files explicitly selected through its Picker, but it cannot browse every file in a user's Drive.
+This is the narrow per-file scope: SuperKanban can create files and work with files explicitly selected through its Picker, but it cannot browse every file in a user's Drive.
 
 Under **Google Auth Platform → Audience**:
 
 - Choose **Internal** when every user belongs to the same managed Google Workspace organization.
 - Otherwise choose **External**. While the OAuth app is in Testing, add every account that will test attachments under **Test users**.
 
-ProjectSpace requests Drive authorization only after a user drops, browses, or picks a file. OAuth access tokens stay in browser memory and are never written to Firestore.
+SuperKanban requests Drive authorization only after a user drops, browses, or picks a file. OAuth access tokens stay in browser memory and are never written to Firestore.
 
 #### Step 4: Create and restrict the Picker API key
 
 Go to **APIs & Services → Credentials → Create credentials → API key**, then edit the key:
 
 1. Set **Application restrictions** to **Websites**.
-2. Add every origin that can run ProjectSpace, replacing the examples with the real values:
+2. Add every origin that can run SuperKanban, replacing the examples with the real values:
 
    ```text
    http://localhost:5173/*
@@ -233,9 +233,9 @@ In Firebase Console:
 2. Open **Authentication → Settings → Authorized domains**.
 3. Add the deployed custom domain and the local/development domain when they are not already present.
 
-ProjectSpace obtains the Drive access token through the existing Firebase Google account; it does not use a separate client ID from `.env`.
+SuperKanban obtains the Drive access token through the existing Firebase Google account; it does not use a separate client ID from `.env`.
 
-#### Step 7: Configure ProjectSpace
+#### Step 7: Configure SuperKanban
 
 Add the following to `.env.local` for local development, or to the deployment environment:
 
@@ -278,15 +278,15 @@ Troubleshooting:
 
 ## 4. GitHub Integration Setup Guide
 
-ProjectSpace talks to GitHub through a **GitHub App**, not an OAuth App. Compared with an OAuth App:
-- **Per-repository access**: owners install the App only on the repositories ProjectSpace should manage.
+SuperKanban talks to GitHub through a **GitHub App**, not an OAuth App. Compared with an OAuth App:
+- **Per-repository access**: owners install the App only on the repositories SuperKanban should manage.
 - **Expiring tokens ("sudo mode")**: user tokens expire 8 hours after issue, so management access switches itself off. An OAuth App's `repo` scope covers every repository and never expires.
 - **No backend needed**: Firebase Auth performs the code-for-token exchange with the client secret. The app never needs the App private key, because it does not use installation tokens, and it never refreshes tokens; an expired session simply re-opens the popup.
 
 ### Step 1: Create the GitHub App
 1. Open https://github.com/settings/apps/new (or your organization's Developer settings → GitHub Apps).
 2. Fill in:
-   - **GitHub App name**: e.g. `ProjectSpace` (its slug appears in `https://github.com/apps/<slug>`)
+   - **GitHub App name**: e.g. `SuperKanban` (its slug appears in `https://github.com/apps/<slug>`)
    - **Homepage URL**: `https://<your-project-id>.web.app`
    - **Callback URL**: `https://<your-project-id>.firebaseapp.com/__/auth/handler`
    - **Expire user authorization tokens**: ✅ ON (this is the 8-hour sudo timeout)
@@ -312,9 +312,9 @@ CONNECTS_GITHUB_APP_SLUG=<your-app-slug>
 Then run `npm run deploy`.
 
 ### Step 4: Retire the old OAuth App (if you used one before)
-Delete it at https://github.com/settings/developers. That revokes every token it ever issued, including old tokens with `repo` scope. ProjectSpace also discards any old token still saved in a browser.
+Delete it at https://github.com/settings/developers. That revokes every token it ever issued, including old tokens with `repo` scope. SuperKanban also discards any old token still saved in a browser.
 
-### Step 5: Using GitHub in ProjectSpace
+### Step 5: Using GitHub in SuperKanban
 1. **Members connect their identity**: avatar (top right) → **User Profile** → **Connect GitHub**. Only the handle and ID are saved; the token is discarded.
 2. **Owner enters management mode**: Settings → GitHub → **Enter management mode**. The bar shows the time remaining and can be exited early.
 3. **Install and link**: in **Link GitHub repository**, install the App on the repositories you want if you have not already, then pick one.
@@ -469,4 +469,4 @@ Before the release, `npm run build` runs:
 ---
 
 ## License
-Private and confidential. ProjectSpace Workspace.
+Private and confidential. SuperKanban Workspace.

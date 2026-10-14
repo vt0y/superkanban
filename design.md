@@ -1,4 +1,4 @@
-# ProjectSpace design notes
+# SuperKanban design notes
 
 How the UI is put together after the 2026 redesign, and the rules to follow when changing it. The README covers features, setup and deployment.
 

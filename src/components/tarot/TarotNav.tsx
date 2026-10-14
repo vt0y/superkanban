@@ -6,8 +6,8 @@ import { pick } from '@/utils/formatters';
 export function TarotNav({ locale, onHistory, onToggleLocale, onSignOut }: { locale: Locale; onHistory: () => void; onToggleLocale: () => void; onSignOut: () => void }) {
   return (
     <header className="arc-nav">
-      <Link to="/" className="arc-nav-back" aria-label={pick(locale, 'กลับไป ProjectSpace', 'Back to ProjectSpace')}>
-        <Icon name="arrowLeft" /><span>ProjectSpace</span>
+      <Link to="/" className="arc-nav-back" aria-label={pick(locale, 'กลับไป SuperKanban', 'Back to SuperKanban')}>
+        <Icon name="arrowLeft" /><span>SuperKanban</span>
       </Link>
       <div className="arc-wordmark">
         <Icon name="moonStar" />

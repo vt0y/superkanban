@@ -1,4 +1,4 @@
-# ProjectSpace Tarot Worker
+# SuperKanban Tarot Worker
 
 คู่มือติดตั้งภาษาไทยแบบครบทุกขั้นตอนอยู่ที่ [`../../TAROT_SETUP_TH.md`](../../TAROT_SETUP_TH.md)
 
